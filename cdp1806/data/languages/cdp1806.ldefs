@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<language_definitions>
+  <language processor="cdp1806"
+            endian="big"
+            size="16"
+            variant="default"
+            version="1.0"
+            slafile="cdp1806.sla"
+            processorspec="cdp1806.pspec"
+            id="cdp1806:BE:16:default">
+    <description>CDP1804/1805/1806 processor 8-bit big-endian</description>
+    <compiler name="default" spec="cdp1806.cspec" id="default"/>
+  </language>
+</language_definitions>

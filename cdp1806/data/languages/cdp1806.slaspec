@@ -1,0 +1,893 @@
+# Main slaspec must define endianess and alignment
+
+define endian=big;
+define alignment=1;
+
+define space ram      type=ram_space      size=2 wordsize=1 default; # The CDP1806 is an 8bit CPU with 16bit memory space
+define space register type=register_space size=2;
+
+# General purpose registers
+define register offset=0x00 size=2 [ R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 RA RB RC RD RE RF ];
+
+# Originally I created specific definitions for high and lo bytes, but no need.
+#
+#define register offset=0x00 size=1 [ R0.1  R0.0  R1.1  R1.0  R2.1  R2.0  R3.1  R3.0 
+#                                     R4.1  R4.0  R5.1  R5.0  R6.1  R6.0  R7.1  R7.0
+#                                     R8.1  R8.0  R9.1  R9.0  RA.1  RA.0  RB.1  RB.0 
+#                                     RC.1  RC.0  RD.1  RD.0  RE.1  RE.0  RF.1  RF.0 ];
+
+# register selectors
+define register offset=0x20 size=1 [ N P X ];
+
+# accumulator and others
+define register offset=0x30 size=1 [ D T I ];
+
+# flags and status bits
+define register offset=0x40 size=1 [ DF Q MIE CIE XIE CIL ];
+
+# counter/timer values
+define register offset=0x50 size=1 [ CNTR CH ];
+
+# simulate the physical input lines
+define register offset=0x60 size=1 [ EF1 EF2 EF3 EF4 ];
+
+# simulate the physical interrupt lines
+define register offset=0x70 size=1 [ CI XI ];
+
+define token instr (8)
+	opbyte    = (0,7)
+	opbits1_7 = (1,7)
+	opnibble  = (4,7)
+	reg16     = (0,3)
+	imm0_4    = (0,3)
+	port1     = (0,2) # Port number for OUT/INP opcodes
+	efline    = (0,1) # There are 4 EF lines
+	intline   = (0,0) # There are 2 interrupt lines
+	portdir   = (3,3) # Port operation directon: 1 = INP, 0 = OUT
+;
+
+attach variables [ reg16 ] [ R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 RA RB RC RD RE RF ];
+attach variables [ efline ] [ EF1 EF2 EF3 EF4 ];
+attach variables [ intline ] [ CI XI ];
+
+define token data8 (8)
+	imm8  = (0,7)
+	sign8 = (7,7)
+	simm8 = (0,7) signed
+;
+
+define token data16 (16)
+	imm16 = (0,15)
+	sign16 = (15,15)
+	simm16 = (0,15) signed
+;
+
+################################################################
+# Psuedo Instructions
+################################################################
+
+define pcodeop busOutput; # M(R(X)) → BUS; 
+define pcodeop busInput;  # BUS → M(R(X)); BUS → D
+
+################################################################
+# Macros
+################################################################
+
+# Macros to represent read and write to R(X)
+
+# dest = R(X)
+macro getRX(dest) {
+	local regofs:2 = &R0 + zext(X * 2);
+	dest = *[register]:2 regofs;
+}
+
+# R(X) = src
+macro setRX(src) {
+	local regofs:2 = &R0 + zext(X * 2);
+	*[register]:2 regofs = src;
+}
+
+# Macros for flags for math operations (inspired by 8051 definitions)
+
+macro addflags(op1, op2) {   # Flags set by add instructions
+	DF = (carry(op1,op2));   # Check for carry
+}
+
+macro subflags(op1, op2) {   # Flags set by sub instructions
+	DF = (op1 < op2);        # Check for carry
+}
+
+macro increase(op1) {
+	op1 = op1 + 1;
+}
+
+macro decrease(op1) {
+	op1 = op1 - 1;
+}
+
+################################################################
+
+# Short jumps: offset is absolute 8bit, and replaces low byte of R(P)
+# Long jumps: offset is absolute 16bit but BIG ENDIAN
+
+AbsAddr8: loc is imm8 [ loc = (inst_next & 0xff00) + imm8; ] { export *:1 loc; }
+AbsAddr16: loc is imm16 [ loc = (inst_next - inst_next + imm16); ] { export *:2 loc; }
+
+SkipAddr8: loc is epsilon [ loc = (inst_next + 1); ] { export *:1 loc; }
+SkipAddr16: loc is epsilon [ loc = (inst_next + 2); ] { export *:2 loc; }
+
+CalcAddr16: loc is epsilon [ loc = (inst_next); ] { export *:2 loc; }
+
+################################################################
+#                                                              #
+#                           OPCODES                            #
+#                                                              #
+################################################################
+
+## // start 1806 by inbar
+
+# 00 / IDL / Idle / 2 / Wait for DMA or interrupt; M[R0]→BUS
+:IDL is opbyte = 0x00 { }
+
+# 0N / LDN / Load via N / 2 / M(RN)→D; For N not 0
+:LDN reg16 is opnibble = 0x0 & reg16 { D = *:1 reg16; }
+
+# 1N / INC / Increment Reg. N / 2 / RN+1→RN
+:INC reg16 is opnibble = 0x1 & reg16 { reg16 = reg16 + 1; }
+
+# 2N / DEC / Decrement Reg. N / 2 / RN-1→RN
+:DEC reg16 is opnibble = 0x2 & reg16 { reg16 = reg16 - 1; }
+
+# 30 / BR / Short Branch / 2 / M[RP]→RP.0 
+:BR AbsAddr8 is opbyte=0x30; AbsAddr8 {
+	goto AbsAddr8;
+}
+
+# 31 / BQ / Short Branch if Q=1 / 2 / If Q=1 Then M[RP]→RP.0 Else RP+1→RP
+:BQ AbsAddr8 is opbyte=0x31; AbsAddr8 {
+	if (Q == 1) goto AbsAddr8;
+}
+
+# 32 / BZ / Short Branch if Q=1 / 2 / If Q=1 Then M[RP]→RP.0 Else RP+1→RP
+:BZ AbsAddr8 is opbyte=0x32; AbsAddr8 {
+	if (D == 0) goto AbsAddr8;
+}
+
+# 33 / BDF / Short Branch if DF=1 / 2 / If DF=1 Then M[RP]→RP.0 Else RP+1→RP
+# 33 / BGE / Short Branch if Equal or Greater / 2 / If DF=1 Then M[RP]→RP.0 Else RP+1→RP
+# 33 / BPZ / Short Branch if Pos. or Zero / 2 / If DF=1 Then M[RP]→RP.0 Else RP+1→RP
+:BDF AbsAddr8 is opbyte=0x33; AbsAddr8 {
+	if (DF == 1) goto AbsAddr8;
+}
+
+# 34 / B1 / Short Branch if EF1=1 / 2 / If EF1=1 Then M[RP]→RP.0 Else RP+1→RP
+# 35 / B2 / Short Branch if EF2=1 / 2 / If EF2=1 Then M[RP]→RP.0 Else RP+1→RP
+# 36 / B3 / Short Branch if EF3=1 / 2 / If EF3=1 Then M[RP]→RP.0 Else RP+1→RP
+# 37 / B4 / Short Branch if EF4=1 / 2 / If EF4=1 Then M[RP]→RP.0 Else RP+1→RP
+:B1 AbsAddr8 is opbyte=0x34; AbsAddr8 {
+	if (EF1 == 1) goto AbsAddr8;
+}
+:B2 AbsAddr8 is opbyte=0x35; AbsAddr8 {
+	if (EF2 == 1) goto AbsAddr8;
+}
+:B3 AbsAddr8 is opbyte=0x36; AbsAddr8 {
+	if (EF3 == 1) goto AbsAddr8;
+}
+:B4 AbsAddr8 is opbyte=0x37; AbsAddr8 {
+	if (EF4 == 1) goto AbsAddr8;
+}
+
+# 38 / NBR / No Short Branch (See SKP)	2 / RP+1→RP
+:NBR SkipAddr8 is opbyte=0x38; SkipAddr8 {
+	goto SkipAddr8;
+}
+
+# 39 / BNQ / Short Branch if Q=0 / 2 / If Q=1 Then M[RP]→RP.0 Else RP+1→RP
+# 3A / BNZ / Short Branch if D not 0 / 2 / If D not 0 Then M[RP]→RP.0 Else RP+1→RP
+# 3B / BM / Short Branch if Minus / 2 / If D=0 Then M[RP]→RP.0 Else RP+1→RP
+# 3B / BNF / Short Branch if DF=0 / 2 / If D=0 Then M[RP]→RP.0 Else RP+1→RP
+# 3B / BPL / Short Branch if Less / 2 / If D=0 Then M[RP]→RP.0 Else RP+1→RP
+:BNQ AbsAddr8 is opbyte=0x39; AbsAddr8 {
+	if (Q == 0) goto AbsAddr8;
+}
+:BNZ AbsAddr8 is opbyte=0x3a; AbsAddr8 {
+	if (D != 0) goto AbsAddr8;
+}
+:BM AbsAddr8 is opbyte=0x3b; AbsAddr8 {
+	if (D == 0) goto AbsAddr8;
+}
+
+# 3C / BN1 / Short Branch if EF1=0 / 2 / If EF1=0 Then M[RP]→RP.0 Else RP+1→RP
+# 3D / BN2 / Short Branch if EF2=0 / 2 / If EF2=0 Then M[RP]→RP.0 Else RP+1→RP
+# 3E / BN3 / Short Branch if EF3=0 / 2 / If EF3=0 Then M[RP]→RP.0 Else RP+1→RP
+# 3F / BN4 / Short Branch if EF4=0 / 2 / If EF4=0 Then M[RP]→RP.0 Else RP+1→RP
+:BN1 AbsAddr8 is opbyte=0x3c; AbsAddr8 {
+	if (EF1 == 0) goto AbsAddr8;
+}
+:BN2 AbsAddr8 is opbyte=0x3d; AbsAddr8 {
+	if (EF2 == 0) goto AbsAddr8;
+}
+:BN3 AbsAddr8 is opbyte=0x3e; AbsAddr8 {
+	if (EF3 == 0) goto AbsAddr8;
+}
+:BN4 AbsAddr8 is opbyte=0x3f; AbsAddr8 {
+	if (EF4 == 0) goto AbsAddr8;
+}
+
+# 4N / LDA / Load Advance / 2 / M(RN)→D; RN+1→RN
+:LDA reg16 is opnibble = 0x4 & reg16 { D = *:1 reg16; reg16 = reg16 + 1; }
+
+# 5N / STR / Store via N / 2 / D→M(RN)
+:STR reg16 is opnibble = 0x5 & reg16 { *:1 reg16 = D; }
+
+# 60 / IRX / Increment Reg. X / 2 / RX+1→RX
+:IRX is opbyte = 0x60 { X = X + 1; }
+
+# 61 - 67 / OUT (1..7) / 2 / M[RX]→BUS; RX+1→RX;
+:OUT port1 is opnibble = 0x6 & portdir = 0x0 & port1 {
+	local tmp:2;
+	getRX(tmp);
+	tmp = tmp + 1;
+	setRX(tmp);
+}
+
+# 6800 / STPC / STOP COUNTER / 3 / STOP CNTR CLOCK; 0 → ÷ 32 PRESCALER
+:STPC is opbyte=0x68; opbyte=0x00 { CNTR = 0; }
+
+# 6801 / DTC / DECREMENT TIMER/COUNTER / 3 / CNTR - 1 → CNTR
+:DTC is opbyte=0x68; opbyte=0x01 { CNTR = CNTR - 1; }
+
+# Timer operations - empty opcodes
+# 6802 / SPM2 / SET PULSE WIDTH MODE 2 AND START /  3 / TPA.EF2 → CNTR CLOCK; EF2 STOPS COUNT
+# 6803 / SCM2 / SET COUNTER MODE 2 AND START / 3 / EF2 → CNTR CLOCK
+# 6804 / SPM1 / SET PULSE WIDTH MODE 1 AND START / 3 / TPA.EF1 → CNTR CLOCK; EF1 STOPS COUNT
+# 6805 / SCM1 / SET COUNTER MODE 1 AND START / 3 / EF1 → CNTR CLOCK
+# 6806 / LDC / LOAD COUNTER / 3 / CNTR STOPPED: D → CH, CNTR; 0 → CI. CNTR RUNNING; D → CH
+# 6807 / STM / SET TIMER MODE AND START / 3 / TPA ÷ 32 → CNTR
+:SPM2 is opbyte=0x68; opbyte=0x02 { }
+:SCM2 is opbyte=0x68; opbyte=0x03 { }
+:SPM1 is opbyte=0x68; opbyte=0x04 { }
+:SCM2 is opbyte=0x68; opbyte=0x05 { }
+:LDC is opbyte=0x68; opbyte=0x06 { }
+:STM is opbyte=0x68; opbyte=0x07 { }
+
+# 6808 / GEC / GET COUNTER / 3 / CNTR → D
+:GEC is opbyte=0x68; opbyte=0x08 { D = CNTR; }
+
+# 6809 / ETQ / ENABLE TOGGLE Q / 3 / IF CNTR = 01 • NEXT CNTR CLOCK ; Q → Q
+:ETQ is opbyte=0x68; opbyte=0x09 { Q = Q ^ 1; }
+
+# 680A / XIE / EXTERNAL INTERRUPT ENABLE / 3 / 1 → XIE
+:XIE is opbyte=0x68; opbyte=0x0a { XIE = 1; }
+
+# 680B / XID / EXTERNAL INTERRUPT DISABLE / 3 / 0 → XIE
+:XID is opbyte=0x68; opbyte=0x0b { XIE = 0; }
+
+# 680C / CIE / COUNTER INTERRUPT ENABLE / 3 / 1 → CIE
+:CIE is opbyte=0x68; opbyte=0x0c { CIE = 1; }
+
+# 680D / CID / COUNTER INTERRUPT DISABLE / 3 / 0 → CIE
+:CID is opbyte=0x68; opbyte=0x0d { CIE = 0; }
+
+# 682N / DBNZ / Decrement Reg. N and Long Branch if not Equal 0 / 5 / RN-1→RN; If RN not 0 Then M[RP]→RP.1; M[RP+1]→RP.0 Else RP+2→RP
+:DBNZ reg16,AbsAddr16 is opbyte=0x68; opnibble = 0x2 & reg16; AbsAddr16 {
+	reg16 = reg16 - 1;
+	if (reg16 != 0) goto AbsAddr16;
+}
+
+# 683E / BCI / Short Branch on Counter Interrupt / 3 / If CI=1 Then M[RP]→RP.0; 0→CI Else RP+1→RP
+:BCI AbsAddr8 is opbyte=0x68; opbits1_7=0x1f & intline=0; AbsAddr8 {
+	if (CI != 1) goto inst_next;
+	CI = 0;
+	goto AbsAddr8;
+}
+
+# 683F / BXI / Short Branch on External Interrupt / 3 / If XI=1 Then M[RP]→RP.0 Else RP+1→RP
+:BXI AbsAddr8 is opbyte=0x68; opbits1_7=0x1f & intline=1; AbsAddr8 {
+	if (XI != 1) goto inst_next;
+	XI = 0;
+	goto AbsAddr8;
+}
+
+# 686N / RLXA / Register Load via X and Advance / 5 / M[RX]→RN.1; M[RX+1]→RN.0; RX+2→RX
+:RLXA reg16 is opbyte=0x68; opnibble = 0x6 & reg16 {
+	local ofs:2 = 0;
+	getRX(ofs);
+
+	reg16 = *[ram]:2 ofs;
+
+	ofs = ofs + 2;
+	setRX(ofs);
+}
+
+# Math operations - still NOPs, need to update
+
+# 6874 / DADC / Decimal Add with Carry / 4 / M[RX]+D+DF→(DF,D); decimal adjust →(DF,D)
+:DADC is opbyte=0x68; opbyte=0x74 { }
+
+# 6876 / DSAV / SAVE T, D, DF / 6 / R(X) - 1 → R(X), T → M(R(X)), R(X) - 1 → R(X), D → M (R(X)), R(X) - 1 → R(X), SHIFT D RIGHT WITH CARRY, D → M(R(X))
+:DSAV is opbyte=0x68; opbyte=0x76 { }
+
+# 6877 / DSMB / Decimal Subtract Memory with Borrow / 4 / D-M[RX]-(not DF)→(DF,D); decimal adjust →(DF,D)
+:DSMB is opbyte=0x68; opbyte=0x77 { }
+
+# 687C / DACI / Decimal Add with Carry, Immediate / 4 / M[RP]+D+DF→(DF,D); RP+1→RP; decimal adjust →(DF,D)
+:DACI is opbyte=0x68; opbyte=0x7C { }
+
+# 687F / DSBI / Decimal Subtract Memory with Borrow, Immediate / 4 / D-M[RP]-(not DF)→(DF,D); RP+1→RP; decimal adjust →(DF,D)
+:DSBI is opbyte=0x68; opbyte=0x7F { }
+
+# 688N / SCAL / Standard Call / 10 / 
+#   R(N).0 → M(R(X));
+#   R(N).1 → M(R(X) - 1);
+#   R(X) - 2 → R(X); R(P) → R(N); THEN M(R(N)) → R(P).1; M(R(N) + 1) → R(P).0;
+#   R(N) + 2 → R(N)
+##
+## 68 8N YYZZ instruction is issued, where N is the scratchpad register chosen to hold the main
+## program counter, and YY, ZZare the high and low byte, respectively, of the subroutine call address."
+##
+## R(N) -> Stack according to R(x)
+## R(N) is set to be the program counter
+## R(N) is loaded by AbsAddr16
+:SCAL reg16, AbsAddr16 is opbyte=0x68; opnibble=0x8 & reg16; AbsAddr16 {
+
+	local ofs:2 = 0;
+	getRX(ofs);
+
+	*[ram]:2 (ofs - 1) = reg16;
+
+	ofs = ofs - 2;                  # \
+	setRX(ofs);                     # - R(X) - 2 → R(X);
+
+	reg16 = inst_next;
+	call AbsAddr16;
+}
+
+
+# 689N / SRET / Standard Return / 8 / RN→RP; M(R(X) + 1) → R(N).1; M(R(X) + 2) → R(N).0; R(X) + 2 → R(X)
+:SRET reg16 is opbyte=0x68; opnibble = 0x9 & reg16; CalcAddr16 {
+
+	CalcAddr16 = reg16;        # RN→RP; w/later jump
+
+	local ofs:2 = 0;
+	getRX(ofs);
+
+#	local hi = *[ram]:1 (ofs + 1);   # \
+#	local lo = *[ram]:1 (ofs + 2);   # - M(R(X) + 1) → R(N).1; M(R(X) + 2) → R(N).0;
+#	reg16 = zext(hi << 8) | zext(lo); # /
+	reg16 = *[ram]:2 (ofs + 1);
+
+	ofs = ofs + 2;                   # \
+	setRX(ofs);                      # - R(X) + 2 → R(X)
+
+	return [CalcAddr16];
+}
+
+# 68AN / RSXD / Register Store via X and Decrement / 5 / RN.0→M[RX]; RN.1→M[RX-1]; RX-2→RX
+:RSXD reg16 is opbyte=0x68; opnibble = 0xa & reg16 {
+	local ofs:2 = 0;
+	getRX(ofs);
+
+#	*[ram]:1 ofs       = reg16[0,8];
+#	*[ram]:1 (ofs - 1) = reg16[8,8];
+	*[ram]:2 (ofs - 1) = reg16;
+
+	ofs = ofs - 2;
+	setRX(ofs);
+}
+
+# 68BN / RNX / Register N to Register X Copy / 4 / RN→RX
+:RNX reg16 is opbyte=0x68; opnibble = 0xb & reg16 {
+	setRX(reg16);
+}
+
+# 68CN / RLDI / Register Load Immediate / 5 / M[RP]→RN.1; M[RP+1]→RN.0; RP+2→RP
+:RLDI reg16,imm16 is opbyte=0x68; opnibble = 0xc & reg16; imm16 {
+	reg16 = imm16;
+}
+
+# Math operations, still NOPs but need to fix
+
+# 68F4 / DADD / Decimal Add / 4 / M[RX]+D→(DF,D); decimal adjust →(DF,D)
+:DADD is opbyte=0x68; opbyte=0xF4 { }
+
+# 68F7 / DSM / Decimal Subtract Memory / 4 / D-M[RX]→(DF,D); decimal adjust →(DF,D)
+:DSM is opbyte=0x68; opbyte=0xF7 { }
+
+# 68FC / DADI / Decimal Add Immediate / 4 / M[RP]+D→(DF,D); RP+1→RP; decimal adjust →(DF,D)
+:DADI is opbyte=0x68; opbyte=0xFC { }
+
+# 68FF / DSMI / Decimal Subtract Memory, Immediate / 4 / D-M[RP]→(DF,D); RP+1RP; decimal adjust →(DF,D)
+:DSMI is opbyte=0x68; opbyte=0xFF { }
+
+
+## 69 - 6F / INP (1..7) / 2 / BUS→M[RX]; BUS→D; 
+#:INP port1 is opnibble = 0x6 & portdir = 0x1 & port1 {
+#	local tmp:1 = port1;
+#	local val = 0; # TODO: look for a way to have a meaningful opcode. Now we use 0 to force understanding it changed
+#
+#	local ofs:2 = 0;
+#	getRX(ofs);
+#	*[ram]:1 ofs = val;
+#	D = val;
+#}
+
+## 69 - 6F / INP (1..7) / 2 / BUS→M[RX]; BUS→D; 
+:INP1 is opbyte = 0x69 {
+	local val = 0; # TODO: look for a way to have a meaningful opcode. Now we use 0 to force understanding it changed
+
+	local ofs:2 = 0;
+	getRX(ofs);
+	*[ram]:1 ofs = val;
+	D = val;
+}
+:INP2 is opbyte = 0x6A {
+	local val = 0; # TODO: look for a way to have a meaningful opcode. Now we use 0 to force understanding it changed
+
+	local ofs:2 = 0;
+	getRX(ofs);
+	*[ram]:1 ofs = val;
+	D = val;
+}
+:INP3 is opbyte = 0x6B {
+	local val = 0; # TODO: look for a way to have a meaningful opcode. Now we use 0 to force understanding it changed
+
+	local ofs:2 = 0;
+	getRX(ofs);
+	*[ram]:1 ofs = val;
+	D = val;
+}
+:INP4 is opbyte = 0x6C {
+	local val = 0; # TODO: look for a way to have a meaningful opcode. Now we use 0 to force understanding it changed
+
+	local ofs:2 = 0;
+	getRX(ofs);
+	*[ram]:1 ofs = val;
+	D = val;
+}
+:INP5 is opbyte = 0x6D {
+	local val = 0; # TODO: look for a way to have a meaningful opcode. Now we use 0 to force understanding it changed
+
+	local ofs:2 = 0;
+	getRX(ofs);
+	*[ram]:1 ofs = val;
+	D = val;
+}
+:INP6 is opbyte = 0x6E {
+	local val = 0; # TODO: look for a way to have a meaningful opcode. Now we use 0 to force understanding it changed
+
+	local ofs:2 = 0;
+	getRX(ofs);
+	*[ram]:1 ofs = val;
+	D = val;
+}
+:INP7 is opbyte = 0x6F {
+	local val = 0; # TODO: look for a way to have a meaningful opcode. Now we use 0 to force understanding it changed
+
+	local ofs:2 = 0;
+	getRX(ofs);
+	*[ram]:1 ofs = val;
+	D = val;
+}
+
+# TODO: Include the return operation
+# 70 / RET / Return / 2 / M[RX]→(X,P); RX+1→RX, 1→IE
+:RET is opbyte = 0x70 { 
+	local ofs:2 = 0;
+	getRX(ofs);
+	local byte = *[ram]:1 ofs;
+
+	ofs = ofs + 1;
+	setRX(ofs);
+
+#	*[ram]:1 ofs = byte + 1;
+	X = byte[4,4];
+#	P = byte[0,4];
+
+	MIE = 1;
+}
+
+# TODO: Make sure this is correct and includes a return operation (break flow)
+# 71 / DIS / Disable / 2 / M[RX]→(X,P); RX+1→RX, 0→IE
+:DIS is opbyte = 0x71 {
+	local ofs:2 = 0;
+	getRX(ofs);
+	local byte = *[ram]:1 ofs;
+
+	ofs = ofs + 1;
+	setRX(ofs);
+
+#	*[ram]:1 ofs = byte + 1;
+	X = byte[4,4];
+#	P = byte[0,4];
+
+	MIE = 0;
+}
+
+# 72 / LDXA / Load via X and Advance / 2 / M(RX)→D; RX+1→RX
+:LDXA is opbyte = 0x72 { 
+	local ofs:2 = 0;
+	getRX(ofs);
+	D = *[ram]:1 ofs;
+
+	ofs = ofs + 1;
+	setRX(ofs);
+}
+
+# 73 / STXD / Store via X and Decrement / 2 / D→M(RX); RX-1→RX
+:STXD is opbyte=0x73 {
+	local ofs:2 = 0;
+	getRX(ofs);
+	*[ram]:1 ofs = D;
+
+	ofs = ofs - 1;
+	setRX(ofs);
+}
+
+# 74 / ADC / Add with Carry / 2 / M[RX]+D+DF→(DF,D)
+:ADC is opbyte=0x74 {
+	local ofs:2 = 0;
+	getRX(ofs);
+	local val = *[ram]:1 ofs;
+
+	local _carry = carry(D,val) | DF;
+	D = val + D + DF;
+	DF = _carry;
+}
+
+# 75 / SDB / Subtract D with Borrow / 2 / M[RX]-D-(not DF)→(DF,D)
+:SDB is opbyte=0x75 {
+	local ofs:2 = 0;
+	getRX(ofs);
+	local tmp = *[ram]:1 ofs;
+
+	local calc = D + DF;
+	subflags(tmp, D);
+#	*[ram]:1 ofs = tmp - calc;
+	D = tmp - calc;
+}
+
+# 76 / RSHR / Ring Shift Right / 2 / shift D right, LSB(D)→DF, DF→MSB(D)
+# 76 / SHRC / Shift Right with Carry / 2 / shift D right, LSB(D)→DF, DF→MSB(D)
+:RSHR is opbyte=0x76 {
+	local bit = DF << 7;
+	DF = D & 0x01;
+	D = D >> 1;
+	D = D | bit;
+}
+
+# 77 / SMB / Subtract Memory with Borrow / 2 / D-M[RX]-(not DF)→(DF,D)
+:SMB is opbyte=0x77 {
+	local ofs:2 = 0;
+	getRX(ofs);
+	local tmp = *[ram]:1 ofs;
+
+	local calc = tmp + DF;
+	subflags(D, tmp);
+	D = D - calc;
+}
+
+#TODO: Determine if T has any significance
+# 78 / SAV / Save / 2 / T→M[RX]
+:SAV is opbyte=0x78 {
+	local ofs:2 = 0;
+	getRX(ofs);
+
+	*[ram]:1 ofs = T;
+}
+
+# 79 / MARK / Push X,P to Stack / 2	(X,P)→T;(X,P)→M[R2]; P→X; R2-1→R2
+:MARK is opbyte=0x79 {
+	local agg:1 = X << 4;
+	agg = agg | P;
+
+	T = agg;
+	*[ram]:1 R2 = agg;
+
+	X = P;
+	R2 = R2 - 1;
+}
+
+# 7A / REQ / Reset Q / 2 / 0→Q
+:REQ is opbyte=0x7a { Q = 0; }
+
+# 7B / SEQ / Set Q / 2 / 1→Q
+:SEQ is opbyte=0x7b { Q = 1; }
+
+# 7C / ADCI / Add with Carry, Immediate / 2 / M[RP]+D+DF→(DF,D); RP+1→RP
+:ADCI imm8 is opbyte=0x7c; imm8 {
+	local _carry = carry(D,imm8) | DF;
+	D = imm8 + D + DF;
+	DF = _carry;
+}
+
+# 7D / SDBI / Subtract D with Borrow, Immediate / 2 / M[RP]-D-(not DF)→(DF,D); RP+1→RP
+:SDBI imm8 is opbyte=0x7d; imm8 {
+	local calc = imm8 + DF;
+	subflags(calc, D);
+	D = imm8 - D;	
+}
+
+# 7E / RSHL / Ring Shift Left / 2 / shift D left, MSB(D)→DF, DF→LSB(D)
+:RSHL is opbyte=0x7e {
+	local msb = (D >> 7) & 0x01;
+	D = D << 1;
+	D = D | (DF & 0x01);
+	DF = msb;
+}
+
+# 7F / SMBI / Subtract Memory with Borrow, Immediate / 2 / D-M[RP]-(not DF)→(DF,D); RP+1→RP
+:SMBI imm8 is opbyte=0x7f; imm8 {
+	local calc = imm8 + DF;
+	subflags(D, imm8);
+	D = D - calc;	
+}
+
+# 8N / GLO / Get low Reg. N / 2 / RN.0→D
+:GLO reg16 is opnibble = 0x8 & reg16 { 
+	D = reg16[0,8];
+}
+
+# 9N / GHI / Get low Reg. N / 2 / RN.1→D
+:GHI reg16 is opnibble = 0x9 & reg16 { 
+	D = reg16[8,8];
+}
+
+# AN / PLO / Put low Reg. N / 2 / D→RN.0
+:PLO reg16 is opnibble = 0xa & reg16 {
+	reg16 = reg16 & 0xff00;
+	reg16 = reg16 | zext(D);
+}
+
+# BN / PHI / Put low Reg. N / 2 / D→RN.1
+:PHI reg16 is opnibble = 0xb & reg16 {
+	reg16 = reg16 & 0x00ff;
+	local tmp:2 = zext(D) << 8;
+	reg16 = reg16 | tmp;
+}
+
+# C0 / LBR / Long Branch / 3 / M[RP]→RP.1; M[RP+1]→RP.0
+:LBR AbsAddr16 is opbyte=0xc0; AbsAddr16 {
+	goto AbsAddr16;
+}
+
+# C1 / LBQ / Long Branch if Q=1 / 3 / If Q=1 Then M[RP]→RP.1; M[RP+1]→RP.0 Else RP+2→RP
+:LBQ AbsAddr16 is opbyte=0xc1; AbsAddr16 {
+	if (Q == 1) goto AbsAddr16;
+}
+
+# C2 / LBZ / Long Branch if D=0 / 3 / If D=0 Then M[RP]→RP.1; M[RP+1]→RP.0 Else RP+2→RP
+:LBZ AbsAddr16 is opbyte=0xc2; AbsAddr16 {
+	if (D == 0) goto AbsAddr16;
+}
+
+# C3 / LBDF / Long Branch if DF=1 / 3 / If DF=1 Then M[RP]→RP.1; M[RP+1]→RP.0 Else RP+2→RP
+:LBDF AbsAddr16 is opbyte=0xc3; AbsAddr16 {
+	if (DF == 1) goto AbsAddr16;
+}
+
+# C4 / NOP / No Operation / 3 / Continue
+:NOP is opbyte=0xc4 { }
+
+# C5 / LSNQ / Long Skip if Q=0 / 3 / If Q=0 Then RP+2→RP Else Continue
+:LSNQ SkipAddr16 is opbyte=0xc5; SkipAddr16 {
+	if (Q == 0) goto SkipAddr16;
+}
+
+# C6 / LSNZ / Long Skip if D not 0 / 3 / If D not 0 Then RP+2→RP Else Continue
+:LSNZ SkipAddr16 is opbyte=0xc6; SkipAddr16 {
+	if (D != 1) goto SkipAddr16;
+}
+
+# C7 / LSNF / Long Skip if DF=0 / 3 / If DF=0 Then RP+2→RP Else Continue
+:LSNF SkipAddr16 is opbyte=0xc7; SkipAddr16 {
+	if (DF == 0) goto SkipAddr16;
+}
+
+# C8 / LSKP / Long Skip (See NLBR)	3 / RP+2→RP
+:LSKP SkipAddr16 is opbyte=0xc8; SkipAddr16 {
+	goto SkipAddr16;
+}
+
+# C9 / LBNQ / Long Branch if Q=0 / 3 / If Q=0 Then M[RP]→RP.1; M[RP+1]→RP.0 Else RP+2→RP
+:LBNQ AbsAddr16 is opbyte=0xc9; AbsAddr16 {
+	if (Q == 0) goto AbsAddr16;
+}
+
+# CA / LBNZ / Long Branch if D not 0 / 3 / If D not 0 Then M[RP]→RP.1; M[RP+1]→RP.0 Else RP+2→RP
+:LBNZ AbsAddr16 is opbyte=0xca; AbsAddr16 {
+	if (D != 0) goto AbsAddr16;
+}
+
+# CB / LBNF / Long Branch if DF=0 / 3 / If DF=0 Then M[RP]→RP.1; M[RP+1]→RP.0 Else RP+2→RP
+:LBNF AbsAddr16 is opbyte=0xcb; AbsAddr16 {
+	if (DF == 0) goto AbsAddr16;
+}
+
+# CC / LSIE / Long Skip if IE=1 / 3 / If MIE=1 Then RP+2→RP Else Continue
+:LSIE SkipAddr16 is opbyte=0xcc; SkipAddr16 {
+	if (MIE == 1) goto SkipAddr16;
+}
+
+# CD / LSQ / Long Skip if Q=1 / 3 / If Q=1 Then RP+2→RP Else Continue
+:LSQ SkipAddr16 is opbyte=0xcd; SkipAddr16 {
+	if (Q == 1) goto SkipAddr16;
+}
+
+# CE / LSZ / Long Skip if D=0 / 3 / If D=0 Then RP+2→RP Else Continue
+:LSZ SkipAddr16 is opbyte=0xce; SkipAddr16 {
+	if (D == 0) goto SkipAddr16;
+}
+
+# CF / LSDF / Long Skip if DF=1 / 3 / If DF=1 Then RP+2→RP Else Continue
+:LSDF SkipAddr16 is opbyte=0xcf; SkipAddr16 {
+	if (DF == 1) goto SkipAddr16;
+}
+
+# TODO: Set P
+# DN / SEP / Set P / 2 / N→P
+:SEP reg16 is opnibble = 0xd & reg16 {
+	goto [reg16]; 
+}
+
+#:RSDX reg16 is opbyte=0x68; opnibble = 0xa & reg16 {
+
+# EN / SEX / Set X / 2 / N→X
+:SEX imm0_4 is opnibble = 0xe & imm0_4 { X = imm0_4; }
+
+# F0 / LDX / Load via X / 2 / M(RX)→D
+:LDX is opbyte = 0xf0 {
+	local ofs:2 = 0;
+	getRX(ofs);
+	D = *[ram]:1 ofs;
+}
+
+# F1 / OR / Or / 2 / M[RX] OR D →D
+:OR is opbyte = 0xf1 {
+	local ofs:2 = 0;
+	getRX(ofs);
+	local tmp = *[ram]:1 ofs;
+	D = D | tmp;
+}
+
+# F2 / AND / And / 2 / M[RX] and D →D
+:AND is opbyte = 0xf2 {
+	local ofs:2 = 0;
+	getRX(ofs);
+	local tmp = *[ram]:1 ofs;
+	D = D & tmp;
+}
+
+# F3 / XOR / Exclusive Or / 2 / M[RX] xor D →D
+:XOR is opbyte = 0xf3 {
+	local ofs:2 = 0;
+	getRX(ofs);
+	local tmp = *[ram]:1 ofs;
+	D = D ^ tmp;
+}
+
+# F4 / ADD / Add / 2 / M[RX]+D→(DF,D)
+:ADD is opbyte = 0xf4 {
+	local ofs:2 = 0;
+	getRX(ofs);
+	local tmp = *[ram]:1 ofs;
+
+	DF = carry(D,tmp);
+	D = D + tmp;
+}
+
+# F5 / SD / Subtract D / 2 / M[RX]-D→(DF,D)
+:SD is opbyte = 0xf5 {
+	local ofs:2 = 0;
+	getRX(ofs);
+	local tmp = *[ram]:1 ofs;
+
+	DF = 0;
+	if (D < tmp) goto <nocarry>;
+	DF = 1;
+	<nocarry>
+	D = tmp - D;
+}
+
+# F6 / SHR / Shift Right / 2 / shift D right, LSB(D)→DF, 0→MSB(D)
+:SHR is opbyte=0xf6 {
+	DF = D[0,1];
+	D = D >> 1;
+}
+
+# F7 / SM / Subtract Memory / 2 / D-M[RX]→(DF,D)
+:SM is opbyte = 0xf7 {
+	local ofs:2 = 0;
+	getRX(ofs);
+	local tmp = *[ram]:1 ofs;
+
+	DF = 0;
+	if (tmp < D) goto <nocarry>;
+	DF = 1;
+	<nocarry>
+	D = D - tmp;
+}
+
+# F8 / LDI / Load Immediate / 2 / M(RP)→D; RP+1→RP
+# M(RP) is another way to address an immediate byte as an argument
+#:LDI is opbyte=0xf8 {
+#	local ofs:2 = 0;
+#	getRP(ofs);
+#	D = *[ram]:1 ofs;
+#	ofs = ofs + 1;
+#	setRP(ofs);
+#}
+:LDI imm8 is opbyte=0xf8; imm8 {
+	D = imm8;
+}
+
+# F9 / ORI / Or Immediate / 2 / M[RP] OR D →D; RP+1→RP
+# M(RP) is another way to address an immediate byte as an argument
+#:ORI is opbyte=0xf9 {
+#	local ofs:2 = 0;
+#	getRP(ofs);
+#	D = D | *[ram]:1 ofs;
+#	ofs = ofs + 1;
+#	setRP(ofs);
+#}
+:ORI imm8 is opbyte=0xf9; imm8 {
+	D = D | imm8;
+}
+
+# FA / ANI / And Immediate / 2 / M[RP] and D →D; RP+1→RP
+# M(RP) is another way to address an immediate byte as an argument
+#:ANI is opbyte=0xfa {
+#	local ofs:2 = 0;
+#	getRP(ofs);
+#	D = D & *[ram]:1 ofs;
+#	ofs = ofs + 1;
+#	setRP(ofs);
+#}
+:ANI imm8 is opbyte=0xfa; imm8 {
+	D = D & imm8;
+}
+
+# FB / XRI / Exclusive Or Immediate / 2 / M[RP] xor D →D; RP+1→RP
+# M(RP) is another way to address an immediate byte as an argument
+#:XRI is opbyte=0xfb {
+#	local ofs:2 = 0;
+#	getRP(ofs);
+#	D = D ^ *[ram]:1 ofs;
+#	ofs = ofs + 1;
+#	setRP(ofs);
+#}
+:XRI imm8 is opbyte=0xfb; imm8 {
+	D = D ^ imm8;
+}
+
+# FC / ADI / Add Immediate / 2 / M[RP]+D→(DF,D); RP+1→RP
+:ADI imm8 is opbyte=0xfc; imm8 {
+	DF = carry(D,imm8);
+	D = D + imm8;
+}
+
+# FD / SDI / Subtract D Immediate / 2 / M[RP]-D→(DF,D); RP+1→RP
+:SDI imm8 is opbyte=0xfd; imm8 {
+	DF = 0;
+	if (D < imm8) goto <nocarry>;
+	DF = 1;
+	<nocarry>
+	D = imm8 - D;
+}
+
+# FE / SHL / Shift Left / 2 / shift D left, MSB(D)→DF, 0→LSB(D)
+:SHL is opbyte=0xfe {
+	DF = D[7,1];
+	D = D << 1;
+}
+
+# FF / SMI / Subtract Memory Immediate / 2 / D-M[RP]→(DF,D); RP+1→RP
+:SMI imm8 is opbyte=0xff; imm8 {
+	DF = 0;
+	if (imm8 < D) goto <nocarry>;
+	DF = 1;
+	<nocarry>
+	D = D - imm8;
+}
+
+## // end 1806 by Inbar
