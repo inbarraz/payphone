@@ -1,0 +1,282 @@
+Where to store code
+===================
+
+Free memory areas (addresses are inclusive):
+
+0119 - 01de / 00c2
+22eb - 2330 / 0106
+447a - 449d / 0024
+6d9a - 6dd4 / 003b
+7803 - 7bc1 / 03bf
+7f22 - 7fff / 00de
+
+Seems to be used - 7fc0 / 40
+
+Best candidate: 7803 - 7bc1 / 03bf
+
+--> Patch 1: at 7A00
+--> Patch 2: at 7B00
+
+========================================
+
+PATCH #1: SET THE OUTPUT STRING POINTER
+
+Registers we can use
+====================
+
+Code at Print_Out_of_Service:
+48a9 68 c7 88 c5     RLDI       R7,DAT_88c5
+48ad f8 00           LDI        0x0
+
+So R7 and D are free.
+
+Then there's a call to LoadStringForDisplay:
+6e6b e3              SEX		0x3
+6e6c 68 6c           RLXA       RC
+6e6e 68 cd 80 3a     RLDI       RD, 803A
+
+So RC, RD also get overwritted without being used first.
+
+==============================================
+
+Patch1 hooks:
+
+Patch1_entry:
+
+; This code will be at 7A00
+
+Origin-460a:
+
+7A00 68 CC 7A 07	RLDI		RC, 7A07	; String pointer
+7A04 C0 7A 9C 		LBR			7A9C		; SaveRegisters
+7A07 34 36 30 41 00 ; "460A"
+
+Origin-4648:
+
+7A0C 68 CC 7A 13	RLDI		RC, 7A13	; String pointer
+7A10 C0 7A 9C 		LBR			7A9C		; SaveRegisters
+7A13 34 36 34 38 00 ; "4648"
+
+Origin-46aa:
+
+7A18 68 CC 7A 1F	RLDI		RC, 7A1F	; String pointer
+7A1C C0 7A 9C 		LBR			7A9C		; SaveRegisters
+7A1F 34 36 41 41 00 ; "46AA"
+
+Origin-46bf:
+
+7A24 68 CC 7A 2B	RLDI		RC, 7A2B	; String pointer
+7A28 C0 7A 9C 		LBR			7A9C		; SaveRegisters
+7A2B 34 36 42 46 00 ; "46BF"
+
+Origin-46d8:
+
+7A30 68 CC 7A 37	RLDI		RC, 7A37	; String pointer
+7A34 C0 7A 9C 		LBR			7A9C		; SaveRegisters
+7A37 34 36 44 38 00 ; "46D8"
+
+Origin-4723:
+
+7A3C 68 CC 7A 43	RLDI		RC, 7A43	; String pointer
+7A40 C0 7A 9C 		LBR			7A9C		; SaveRegisters
+7A43 34 37 32 33 00 ; "4723"
+
+Origin-4756:
+
+7A48 68 CC 7A 4F	RLDI		RC, 7A4F	; String pointer
+7A4C C0 7A 9C 		LBR			7A9C		; SaveRegisters
+7A4F 34 37 35 36 00 ; "4756"
+
+Origin-480f:
+
+7A54 68 CC 7A 5B	RLDI		RC, 7A5B	; String pointer
+7A58 C0 7A 9C 		LBR			7A9C		; SaveRegisters
+7A5B 34 38 30 46 00 ; "480F"
+
+Origin-4824:
+
+7A60 68 CC 7A 67	RLDI		RC, 7A67	; String pointer
+7A64 C0 7A 9C 		LBR			7A9C		; SaveRegisters
+7A67 34 38 32 34 00 ; "4824"
+
+Origin-484a:
+
+7A6C 68 CC 7A 73	RLDI		RC, 7A73	; String pointer
+7A40 C0 7A 9C 		LBR			7A9C		; SaveRegisters
+7A73 34 38 34 41 00 ; "484A"
+
+Origin-4930:
+
+7A78 68 CC 7A 7F	RLDI		RC, 7A7F	; String pointer
+7A7C C0 7A 9C 		LBR			7A9C		; SaveRegisters
+7A7F 34 39 33 30 00 ; "4930"
+
+Origin-4957:
+
+7A84 68 CC 7A 8B	RLDI		RC, 7A8B	; String pointer
+7A88 C0 7A 9C 		LBR			7A9C		; SaveRegisters
+7A8B 34 39 35 37 00 ; "4957"
+
+Origin-6f91:
+
+7A90 68 CC 7A 97	RLDI		RC, 7A97	; String pointer
+7A94 C0 7A 9C 		LBR			7A9C		; SaveRegisters
+7A97 36 46 39 31 00 ; "6F91"
+
+Overwrite:
+
+7A9C 68 C7 9F 00	RLDI		R7, 9F00	; R7 = Destination, RC = Value
+7AA0 9C 			GHI			RC
+7AA1 57 			STR 		R7
+7AA2 17				INC 		R7
+7AA3 8C 			GLO 		RC
+7AA4 57				STR 		R7
+
+Return:
+
+7AA5 C0 48 A9		LBR 		48A9 		; Print_Out_of_Service
+
+==============================
+
+HEX ONLY
+
+@7A00
+68 CC 7A 07 C0 7A 9C 34 36 30 41 00 68 CC 7A 13
+C0 7A 9C 34 36 34 38 00 68 CC 7A 1F C0 7A 9C 34
+36 41 41 00 68 CC 7A 2B C0 7A 9C 34 36 42 46 00
+68 CC 7A 37 C0 7A 9C 34 36 44 38 00 68 CC 7A 43
+C0 7A 9C 34 37 32 33 00 68 CC 7A 4F C0 7A 9C 34
+37 35 36 00 68 CC 7A 5B C0 7A 9C 34 38 30 46 00
+68 CC 7A 67 C0 7A 9C 34 38 32 34 00 68 CC 7A 73
+C0 7A 9C 34 38 34 41 00 68 CC 7A 7F C0 7A 9C 34
+39 33 30 00 68 CC 7A 8B C0 7A 9C 34 39 35 37 00
+68 CC 7A 97 C0 7A 9C 36 46 39 31 00 68 C7 9F 00
+9C 57 17 8C 57 C0 48 A9 00 00 00 00 00 00 00 00
+
+========================================
+
+PATCH #2: REPLACE STRING POINTER
+
+This is the code that fetches the string before sending it to the LCD:
+
+LAB_27cf
+
+27cf c4              NOP
+27d0 ec              SEX        0xc		; RC now points to strdesc.unkByte2
+27d1 68 65           RLXA       R5      ; R5.1 = strdesc.unkByte2
+										; R5.0 = strdest.unkByte3
+27d3 68 6e           RLXA       RE      ; RE = strdesc.ptrString
+27d5 e2              SEX        0x2
+
+maybe_printf::nextStringChar
+
+27d6 4e              LDA        RE
+
+At this point, we want to overwrite:
+ - RE with a pointer to our ASCIIZ <16c string
+ - R5 with the modifier count (0 for English text, 10h for Hebrew text)
+We can overwrite the 3 bytes at 27d3 (68 6e e2) with the hook, then return to 27d6:
+
+Patch2_hook:
+
+; This code will be at 27D3
+
+27D3 C0 7B 00 		LBR			7B00
+
+Patch2_entry:
+
+; This code will be at 7B00
+
+; Start by performing the original code, to keep order (eg. R(X))
+
+7B00 68 6E 			RLXA		RE
+7B02 E2 			SEX			0x02
+
+; Only operate on English strings (R5 = 0)
+
+7B03 85 			GLO			R5
+7B04 FB 00 			XRI			00
+7B06 CA 7B 4C		LBNZ		7B4C
+
+; Now overwrite data: Use R5 as pointer to load RE, then set R5
+; Get the string pointer from RAM, stored by Patch1
+; In the meantime, use this patch
+
+; First, copy the base string to RAM
+
+; We need an extra register for counter. R7 is used so we know it's not the PC
+
+7B09 68 C5 9F 10	RLDI		R5, 9F10
+7B0D 97 			GHI 		R7
+7B0E 55 			STR 		R5
+7B0F 15				INC 		R5
+7B10 87				GLO 		R7
+7B11 55 			STR 		R5
+
+; Copy the string
+
+7B12 68 C5 7B 4F	RLDI		R5, 7B4F ; Base_string
+7B16 68 CE 9E 00	RLDI		RE, 9E00 ; RAM location for our string
+7B1A 68 C7 00 11	RLDI 		R7, 0011
+
+CopyLoop1:
+
+7B1E 45 			LDA 		R5
+7B1F 5E 			STR			RE
+7B20 1E 			INC 		RE
+7B21 68 27 7B 1E 	DBNZ 		R7, 7B1E
+
+; Second, overwrite the ZZZZ with our address
+
+7B25 68 CE 9F 00	RLDI		RE, 9F00 ; Pointer to string to copy
+7B29 4E 			LDA 		RE
+7B2A B5 			PHI 		R5
+7B2B 0E 			LDN 		RE
+7B2C A5 			PLO 		R5
+
+7B2D 68 CE 9E 0B	RLDI		RE, 9E0B ; Pointert to the "ZZZZ"
+7B31 68 C7 00 04	RLDI 		R7, 0004
+
+CopyLoop2:
+
+7B35 45 			LDA 		R5
+7B36 5E 			STR			RE
+7B37 1E 			INC 		RE
+7B38 68 27 7B 35 	DBNZ 		R7, 7B35
+
+; Restore R7
+
+7B3C 68 C5 9F 10	RLDI		R5, 9F10
+7B40 45 			LDA 		R5
+7B41 B7 			PHI 		R7
+7B42 05 			LDN 		R5
+7B43 A7 			PLO 		R7
+
+; Third, put the string address in RE and modifier length in R5 
+
+7B44 68 CE 9E 00 	RLDI 		RE, 9E00
+7B48 68 C5 00 00 	RLDI 		R5, 0000
+
+; Jump back to original code
+
+Patch2_exit:
+
+7B4C C0 27 D6 		LBR 		27D6
+
+Base_string:
+
+7B4F 41 64 64 72 65 73 73 20 69 73 20 5A 5A 5A 5A 2E 00 ; "Address‮ is‮ ZZZZ"
+
+--------------
+Hex:
+
+@27D3
+C0 7B 00
+
+@7B00
+68 6E E2 85 FB 00 CA 7B 4C 68 C5 9F 10 97 55 15
+87 55 68 C5 7B 4F 68 CE 9E 00 68 C7 00 11 45 5E 
+1E 68 27 7B 1E 68 CE 9F 00 4E B5 0E A5 68 CE 9E
+0B 68 C7 00 04 45 5E 1E 68 27 7B 35 68 C5 9F 10
+45 B7 05 A7 68 CE 9E 00 68 C5 00 00 C0 27 D6 41
+64 64 72 65 73 73 20 69 73 20 5A 5A 5A 5A 2E 00

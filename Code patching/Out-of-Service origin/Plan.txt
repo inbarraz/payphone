@@ -1,0 +1,262 @@
+Where to store code
+===================
+
+Free memory areas (addresses are inclusive):
+
+0119 - 01de / 00c2
+22eb - 2330 / 0106
+447a - 449d / 0024
+6d9a - 6dd4 / 003b
+7803 - 7bc1 / 03bf
+7f22 - 7fff / 00de
+
+Seems to be used - 7fc0 / 40
+
+Best candidate: 7803 - 7bc1 / 03bf
+We will use the memory from 7AFF and back
+
+========================================
+
+How to create a signal
+======================
+
+Strings to change:
+  - 68ad - "הטלפון אינו שמיש"
+  - 68be - "OUT  OF  SERVICE"
+
+Registers we can use
+====================
+
+Code at Print_Out_of_Service:
+48a9 68 c7 88 c5     RLDI       R7,DAT_88c5
+48ad f8 00           LDI        0x0
+
+So R7 and D are free.
+
+Then there's a call to LoadStringForDisplay:
+6e6b e3              SEX		0x3
+6e6c 68 6c           RLXA       RC
+6e6e 68 cd 80 3a     RLDI       RD, 803A
+
+So RC, RD also get overwritted without being used first.
+
+Converting Hex to ASCII
+=======================
+
+For converting the byte to Hexadecimal ASCII, we can use an existing function:
+
+3d18 byte_to_hex_ascii()
+Input:
+- D -> byte
+- R2 -> dest to receive separate nibbles
+- RA -> dest to receive ASCII HEX
+
+So R2 will be the stack
+The function modifies: RX, Mem[RX], D, R2, Mem[R2], RA
+So R2 will need to point to a free RAM area -> 9000
+
+==============================================
+
+Code:
+
+Origin-460a:
+
+7A86 68 C7 46 0A	RLDI		R7, 460A
+7A8A C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-4648:
+
+7A8D 68 C7 46 48	RLDI		R7, 4648
+7A91 C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-46aa:
+
+7A94 68 C7 46 AA	RLDI		R7, 46AA
+7A98 C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-46bf:
+
+7A9B 68 C7 46 BF	RLDI		R7, 46BF
+7A9F C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-46d8:
+
+7AA2 68 C7 46 D8	RLDI		R7, 46D8
+7AA6 C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-4723:
+
+7AA9 68 C7 47 23	RLDI		R7, 4723
+7AAD C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-4756:
+
+7AB0 68 C7 47 56	RLDI		R7, 4756
+7AB4 C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-480f:
+
+7AB7 68 C7 48 0F	RLDI		R7, 480F
+7ABB C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-4824:
+
+7ABE 68 C7 48 24	RLDI		R7, 4824
+7AC2 C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-484a:
+
+7AC5 68 C7 48 4A	RLDI		R7, 484A
+7AC9 C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-4930:
+
+7ACC 68 C7 49 30	RLDI		R7, 4930
+7AD0 C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-4957:
+
+7AD3 68 C7 49 57	RLDI		R7, 4957
+7AD7 C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-6f91:
+
+7ADA 68 C7 6F 91	RLDI		R7, 6F91
+
+SaveRegisters:
+
+7ADE 68 CC 90 00	RLDI		RC, 9000
+7AE2 EC 			SEX 		RC
+7AE3 68 A2			RSXD 		R2
+7AE5 68 AA 			RSXD 		RA
+
+Convert_Overwrite:
+
+7AE7 68 CA 68 AD 	RLDI		RA, 68AD 	; 68ad - "הטלפון אינו שמיש"
+7AEB 97				GHI			R7			; High nibble
+7AEC 68 83 3D 18    SCAL		R3, 3D18	; byte_to_hex_ascii
+7AF0 87				GLO			R7			; Low nibble
+7AF1 68 83 3D 18    SCAL		R3, 3D18	; byte_to_hex_ascii
+7AF5 F8 20			LDI 		20			; SPACE
+7AF7 5A				STR 		RA
+
+RestoreRegisters:
+
+7AF8 EC 			SEX 		RC
+7AF9 68 6A			RLXA 		RA
+7AFB 68 62 			RLXA 		R2
+
+Return:
+
+7AFD C0 48 A9		LBR 		48A9 		; Print_Out_of_Service
+
+==============================
+
+HEX ONLY
+
+7A86 68 C7 46 0A	RLDI		R7, 460A
+7A8A C0 7A DE 		LBR			7ADE		; SaveRegisters
+7A8D 68 C7 46 48	RLDI		R7, 4648
+7A91 C0 7A DE 		LBR			7ADE		; SaveRegisters
+7A94 68 C7 46 AA	RLDI		R7, 46AA
+7A98 C0 7A DE 		LBR			7ADE		; SaveRegisters
+7A9B 68 C7 46 BF	RLDI		R7, 46BF
+7A9F C0 7A DE 		LBR			7ADE		; SaveRegisters
+7AA2 68 C7 46 D8	RLDI		R7, 46D8
+7AA6 C0 7A DE 		LBR			7ADE		; SaveRegisters
+7AA9 68 C7 47 23	RLDI		R7, 4723
+7AAD C0 7A DE 		LBR			7ADE		; SaveRegisters
+7AB0 68 C7 47 56	RLDI		R7, 4756
+7AB4 C0 7A DE 		LBR			7ADE		; SaveRegisters
+7AB7 68 C7 48 0F	RLDI		R7, 480F
+7ABB C0 7A DE 		LBR			7ADE		; SaveRegisters
+7ABE 68 C7 48 24	RLDI		R7, 4824
+7AC2 C0 7A DE 		LBR			7ADE		; SaveRegisters
+7AC5 68 C7 48 4A	RLDI		R7, 484A
+7AC9 C0 7A DE 		LBR			7ADE		; SaveRegisters
+7ACC 68 C7 49 30	RLDI		R7, 4930
+7AD0 C0 7A DE 		LBR			7ADE		; SaveRegisters
+7AD3 68 C7 49 57	RLDI		R7, 4957
+7AD7 C0 7A DE 		LBR			7ADE		; SaveRegisters
+7ADA 68 C7 6F 91	RLDI		R7, 6F91
+7ADE 68 CC 90 00	RLDI		RC, 9000
+7AE2 EC 			SEX 		RC
+7AE3 68 A2			RSXD 		R2
+7AE5 68 AA 			RSXD 		RA
+7AE7 68 CA 68 AD 	RLDI		RA, 68AD 	; 68ad - "הטלפון אינו שמיש"
+7AEB 97				GHI			R7			; High nibble
+7AEC 68 83 3D 18    SCAL		R3, 3D18	; byte_to_hex_ascii
+7AF0 87				GLO			R7			; Low nibble
+7AF1 68 83 3D 18    SCAL		R3, 3D18	; byte_to_hex_ascii
+7AF5 F8 20			LDI 		20			; SPACE
+7AF7 5A				STR 		RA
+7AF8 EC 			SEX 		RC
+7AF9 68 6A			RLXA 		RA
+7AFB 68 62 			RLXA 		R2
+7AFD C0 48 A9		LBR 		48A9 		; Print_Out_of_Service
+
+============
+
+68 C7 46 0A
+C0 7A DE 	
+68 C7 46 48
+C0 7A DE 	
+68 C7 46 AA
+C0 7A DE 	
+68 C7 46 BF
+C0 7A DE 	
+68 C7 46 D8
+C0 7A DE 	
+68 C7 47 23
+C0 7A DE 	
+68 C7 47 56
+C0 7A DE 	
+68 C7 48 0F
+C0 7A DE 	
+68 C7 48 24
+C0 7A DE 	
+68 C7 48 4A
+C0 7A DE 	
+68 C7 49 30
+C0 7A DE 	
+68 C7 49 57
+C0 7A DE 	
+68 C7 6F 91
+68 CC 90 00
+EC 		
+68 A2		
+68 AA 		
+68 CA 68 AD
+97			
+68 83 3D 18
+87			
+68 83 3D 18
+F8 20		
+5A			
+EC 		
+68 6A		
+68 62 		
+C0 48 A9	
+
+===========
+
+00 00 00 00 00 00 68 C7 46 0A C0 7A DE 68 C7 46 
+48 C0 7A DE 68 C7 46 AA C0 7A DE 68 C7 46 BF C0 
+7A DE 68 C7 46 D8 C0 7A DE 68 C7 47 23 C0 7A DE 
+68 C7 47 56 C0 7A DE 68 C7 48 0F C0 7A DE 68 C7 
+48 24 C0 7A DE 68 C7 48 4A C0 7A DE 68 C7 49 30
+C0 7A DE 68 C7 49 57 C0 7A DE 68 C7 6F 91 68 CC 
+90 00 EC 68 A2 68 AA 68 CA 68 AD 97 68 83 3D 18
+87 68 83 3D 18 F8 20 5A EC 68 6A 68 62 C0 48 A9
+
+============
+
+7A80 00 00 00 00 00 00 68 C7 46 0A C0 7A DE 68 C7 46 
+7A90 48 C0 7A DE 68 C7 46 AA C0 7A DE 68 C7 46 BF C0 
+7AA0 7A DE 68 C7 46 D8 C0 7A DE 68 C7 47 23 C0 7A DE 
+7AB0 68 C7 47 56 C0 7A DE 68 C7 48 0F C0 7A DE 68 C7 
+7AC0 48 24 C0 7A DE 68 C7 48 4A C0 7A DE 68 C7 49 30
+7AD0 C0 7A DE 68 C7 49 57 C0 7A DE 68 C7 6F 91 68 CC 
+7AE0 90 00 EC 68 A2 68 AA 68 CA 68 AD 97 68 83 3D 18
+7AF0 87 68 83 3D 18 F8 20 5A EC 68 6A 68 62 C0 48 A9
+

@@ -1,0 +1,178 @@
+Where to store code
+===================
+
+Free memory areas (addresses are inclusive):
+
+0119 - 01de / 00c2
+22eb - 2330 / 0106
+447a - 449d / 0024
+6d9a - 6dd4 / 003b
+7803 - 7bc1 / 03bf
+7f22 - 7fff / 00de
+
+Seems to be used - 7fc0 / 40
+
+Best candidate: 7803 - 7bc1 / 03bf
+We will use the memory from 7AFF and back
+
+========================================
+
+How to create a signal
+======================
+
+Strings to change:
+  - 68ad - "הטלפון אינו שמיש"
+  - 68be - "OUT  OF  SERVICE"
+
+Registers we can use
+====================
+
+Code at Print_Out_of_Service:
+48a9 68 c7 88 c5     RLDI       R7,DAT_88c5
+48ad f8 00           LDI        0x0
+
+So R7 and D are free.
+
+Then there's a call to LoadStringForDisplay:
+6e6b e3              SEX		0x3
+6e6c 68 6c           RLXA       RC
+6e6e 68 cd 80 3a     RLDI       RD, 803A
+
+So RC, RD also get overwritted without being used first.
+
+
+PATCH: Change the pointer to "Out of Service" to 9FF0:
+
+659d 68 be           addr      sOut_Of_Service 	; ptrString = "OUT  OF  SERVICE"
+
+659d 9F F0
+
+
+
+
+==============================================
+
+Code:
+
+Origin-460a:
+
+7AA0 F8 30			LDI			30
+7AA2 C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-4648:
+
+7AA5 F8 31			LDI			31
+7AA7 C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-46aa:
+
+7AAA F8 32			LDI			32
+7AAC C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-46bf:
+
+7AAF F8 33			LDI			33
+7AB1 C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-46d8:
+
+7AB4 F8 34			LDI			34
+7AB6 C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-4723:
+
+7AB9 F8 35			LDI			35
+7ABB C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-4756:
+
+7ABE F8 36			LDI			36
+7AC0 C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-480f:
+
+7AC3 F8 37			LDI			37
+7AC5 C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-4824:
+
+7AC8 F8 38			LDI			38
+7ACA C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-484a:
+
+7ACD F8 39			LDI			39
+7ACF C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-4930:
+
+7AD2 F8 41			LDI			41
+7AD4 C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-4957:
+
+7AD7 F8 42			LDI			42
+7AD9 C0 7A DE 		LBR			7ADE		; SaveRegisters
+
+Origin-6f91:
+
+7ADC F8 43			LDI			43
+
+Overwrite:
+
+7ADE 68 C7 80 00	RLDI		R7, 8000
+7AE2 5A 			STR 		R7
+7A5e 17				INC 		R7
+7AE4 F8 00			LDI 		00
+7AE5 5A				STR 		R7
+
+Return:
+
+7AE6 C0 48 A9		LBR 		48A9 		; Print_Out_of_Service
+
+==============================
+
+HEX ONLY
+
+7AA0 F8 30			LDI			30
+7AA2 C0 7A DE 		LBR			7ADE		; SaveRegisters
+7AA5 F8 31			LDI			31
+7AA7 C0 7A DE 		LBR			7ADE		; SaveRegisters
+7AAA F8 32			LDI			32
+7AAC C0 7A DE 		LBR			7ADE		; SaveRegisters
+7AAF F8 33			LDI			33
+7AB1 C0 7A DE 		LBR			7ADE		; SaveRegisters
+7AB4 F8 34			LDI			34
+7AB6 C0 7A DE 		LBR			7ADE		; SaveRegisters
+7AB9 F8 35			LDI			35
+7ABB C0 7A DE 		LBR			7ADE		; SaveRegisters
+7ABE F8 36			LDI			36
+7AC0 C0 7A DE 		LBR			7ADE		; SaveRegisters
+7AC3 F8 37			LDI			37
+7AC5 C0 7A DE 		LBR			7ADE		; SaveRegisters
+7AC8 F8 38			LDI			38
+7ACA C0 7A DE 		LBR			7ADE		; SaveRegisters
+7ACD F8 39			LDI			39
+7ACF C0 7A DE 		LBR			7ADE		; SaveRegisters
+7AD2 F8 41			LDI			41
+7AD4 C0 7A DE 		LBR			7ADE		; SaveRegisters
+7AD7 F8 42			LDI			42
+7AD9 C0 7A DE 		LBR			7ADE		; SaveRegisters
+7ADC F8 43			LDI			30
+7ADE 68 C7 80 00	RLDI		R7, 8000
+7AE2 5A 			STR 		R7
+7A5e 17				INC 		R7
+7AE4 F8 00			LDI 		00
+7AE5 5A				STR 		R7
+7AE6 C0 48 A9		LBR 		48A9 		; Print_Out_of_Service
+
+=============
+
+@7AA0
+
+F8 30 C0 7A DE F8 31 C0 7A DE F8 32 C0 7A DE F8
+33 C0 7A DE F8 34 C0 7A DE F8 35 C0 7A DE F8 36
+C0 7A DE F8 37 C0 7A DE F8 38 C0 7A DE F8 39 C0
+7A DE F8 41 C0 7A DE F8 42 C0 7A DE F8 43 68 C7
+9F F0 5A 17 F8 00 5A C0 48 A9 00 00 00 00 00 00
+
