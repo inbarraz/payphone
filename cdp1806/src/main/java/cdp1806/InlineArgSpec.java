@@ -80,7 +80,9 @@ public class InlineArgSpec {
 	}
 
 	/**
-	 * Parses an argspec such as {@code "p,b"}, {@code "w"} or {@code "none"}.
+	 * Parses an argspec such as {@code "p,b"}, {@code "w"} or {@code "none"}. Empty fields are
+	 * rejected rather than quietly dropped, so a stray comma is reported as a bad line instead
+	 * of silently changing the signature.
 	 *
 	 * @return the parsed spec, or null if the text is not a valid argspec
 	 */
@@ -89,11 +91,11 @@ public class InlineArgSpec {
 		if (t.isEmpty()) {
 			return null;
 		}
-		if (t.equalsIgnoreCase("none") || t.equals("0")) {
+		if (t.equalsIgnoreCase("none")) {
 			return NONE;
 		}
 		List<Kind> kinds = new ArrayList<>();
-		for (String part : t.split(",")) {
+		for (String part : t.split(",", -1)) {
 			Kind k = Kind.fromCode(part.trim());
 			if (k == null) {
 				return null;

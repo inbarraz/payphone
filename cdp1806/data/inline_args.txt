@@ -16,12 +16,22 @@
 #   <argspec>         comma-separated list, in the order the arguments appear:
 #                       b  one byte
 #                       w  one 16-bit big-endian word
-#                       p  one 16-bit word, always treated as a pointer (forces a reference
-#                          even where a plain w would not have produced one)
+#                       p  one 16-bit word treated as a pointer: it gets a reference for any
+#                          mapped target, including uninitialized RAM, where a plain w only
+#                          gets one when the target is in initialized memory
 #                     or the word "none" for a subroutine that takes no inline arguments.
 #
 # Entries here take precedence over auto-detection. A file named in the analyzer's
 # "Override file" option takes precedence over this one.
+#
+# A line
+#
+#   program <text>
+#
+# gates everything after it on the program's name containing <text>, case-insensitively.
+# Addresses are only meaningful for the firmware they were read from, so image-specific
+# entries must be gated this way; otherwise they would be applied to any CDP1806 program that
+# happens to have a call at the same address. Use "program *" to open it up again.
 #
 # Example:
 #
@@ -32,9 +42,11 @@
 # TAMAC-18 V2.8 (ROM/TAMAC-18 V2.8 9513.bin)
 # ---------------------------------------------------------------------------
 
-# Reads one 16-bit pointer with SEX 3 / RLXA RE at 1abe-1ac0. Auto-detection cannot reach
-# its SRET because the walk passes through a call to 4048, whose own body is not fully
-# disassembled; observed arguments are 1C7E, 1C91 and 1CA4.
+program TAMAC-18
+
+# Reads one 16-bit pointer with SEX 3 / RLXA RE at 1abe-1ac0. Auto-detection declines while
+# the walk cannot get through the call to 4048, whose own body is not fully disassembled;
+# observed arguments are 1C7E, 1C91 and 1CA4, all of which point into RAM.
 1abe  p
 
 # --- 038d: variadic, so its call sites are pinned individually -------------
@@ -46,8 +58,9 @@
 #   D == 0  ->  branch to 0398; LDXA/PLO RA consumes 1 byte, then RLXA R7 consumes a
 #               16-bit pointer which 039c dereferences. 3 bytes: b,p
 #
-# No single callee signature can describe that, and auto-detection correctly reports
-# "return paths disagree" rather than picking one. '@' pins a signature to one call site.
+# No single callee signature can describe that. Auto-detection declines: once the nested call
+# at 03ee resolves it reports "return paths disagree", and before that it declines for want of
+# that nested signature. Either way '@' pins a signature to one call site.
 @0201  b,b        # 01fe: LDI 0x1
 @0211  b,p        # 020e: LDI 0x0
 @02c9  b,b        # 02c6: LDI 0x1

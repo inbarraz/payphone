@@ -37,11 +37,29 @@ gives the width — `LDA R3` or `INC R3` for a byte, `RLXA Rn` while X == 3 for 
 
 The walk follows branches but never descends into a call, re-walks a block when X differs
 (`SEX` inside a loop is common), and steps over nested inline-argument calls once their own
-signatures are known — which is why resolution is iterative, innermost callees first.
+signatures are known — which is why resolution is iterative, innermost callees first. Since
+`SCAL` and `SRET` do not save or restore X, stepping over a nested call also adopts whatever
+X that callee was found to leave behind.
 
-It reports a reason and declines to guess when it cannot stay certain: a loop that moves R3,
-return paths that disagree, R3 reloaded outright, `SEP`, an `R(X)` instruction while X is
-unknown, or code that is not fully disassembled yet.
+`SEP R3` sets `P = 3`, which is the same return `SRET` performs, so it counts as a return
+path. `SEP Rn` is a jump; the walk follows it only when an immediately preceding
+`RLDI Rn,addr` says where to (the reboot idiom, `RLDI R0,0x0000` then `SEP R0`), and
+otherwise declines rather than assume the destination consumes nothing further.
+
+Where X cannot be determined — after `RET`, `DIS` or `MARK`, which reload it from memory —
+the subroutine is walked twice, once assuming X is 3 and once assuming it is not, and the
+answer is only accepted if both agree. So an unknown X costs an answer only when it actually
+changes one.
+
+A wrong answer is far worse than no answer, because the markup rewrites the listing. The walk
+reports a reason and declines whenever it cannot stay certain: a loop that moves R3, return
+paths that disagree, R3 reloaded or overwritten, an unfollowable `SEP`, a nested call through
+a register other than R3, or code that is not fully disassembled yet. Any instruction it does
+not model explicitly is still checked against what SLEIGH says it writes, so an unfamiliar
+opcode that touches R3 stops the walk rather than being assumed harmless.
+
+Only `SCAL R3` is handled. `SCAL R4` points R4 at the arguments instead, so a signature
+derived from R3 movement would not describe it; those sites are skipped and logged.
 
 ### Overrides
 
@@ -55,9 +73,25 @@ Anything the walk cannot work out — or that you simply know better — goes in
 ```
 
 An address (hex, `0x` optional) and a comma-separated argspec: `b` for a byte, `w` for a
-16-bit word, `p` for a word always treated as a pointer, or `none`. Entries there beat
+16-bit word, `p` for a word treated as a pointer, or `none`. Entries there beat
 auto-detection. The analyzer's **Override file** option names a second file that beats both,
 for per-program overrides you would rather not commit.
+
+`w` and `p` differ only in when they earn a reference: a plain word gets one when its target
+is in initialized memory, while a pointer gets one for any mapped address, including
+uninitialized RAM.
+
+Addresses only mean anything for the firmware they were read from, so image-specific entries
+are gated on the program name:
+
+```
+program TAMAC-18
+1abe  p
+```
+
+Everything after that line applies only when the program's name contains that text. `program
+*` opens it up again. Without this, an entry would be applied to any CDP1806 image that
+happened to have a call at the same address.
 
 ### Variadic callees
 
@@ -74,6 +108,18 @@ Prefix an address with `@` to pin a signature to one *call site* instead of to a
 ```
 
 A call-site entry wins over everything else, including the callee's own signature.
+
+## Re-running
+
+The analyzer reconciles rather than only adds. On each run it compares the markup at a call
+site against what the current signature calls for, and rewrites it when they differ — so
+changing `w` to `b,b`, shortening a signature, or turning pointer references on or off takes
+effect on the next run, and a signature changed to `none` has its markup removed. Only markup
+this analyzer owns is touched; ownership is recorded by the `inline args:` comment it writes,
+so hand-made annotations are left alone.
+
+A call site whose signature has merely become *unknown* keeps its existing markup. A callee
+that is not disassembled yet is not evidence that earlier markup was wrong.
 
 ## Output
 
