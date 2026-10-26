@@ -1,0 +1,69 @@
+# CDP1806 inline call-argument overrides
+#
+# Some subroutines take their arguments inline, stored in the caller immediately after the
+# four-byte SCAL instruction. The callee reads them through R3 (LDA R3 for a byte, RLXA Rn
+# while X == 3 for a 16-bit word) and SRET R3 then returns past them.
+#
+# The analyzer normally works this out from the callee itself. Use this file for the cases it
+# cannot: loops that move R3, return paths that disagree, calls into code that is not fully
+# disassembled, or a subroutine whose arguments you know better than the walk does.
+#
+# Format:
+#
+#   <callee-address>  <argspec>     # trailing comment
+#
+#   <callee-address>  hexadecimal, with or without a leading 0x
+#   <argspec>         comma-separated list, in the order the arguments appear:
+#                       b  one byte
+#                       w  one 16-bit big-endian word
+#                       p  one 16-bit word treated as a pointer: it gets a reference for any
+#                          mapped target, including uninitialized RAM, where a plain w only
+#                          gets one when the target is in initialized memory
+#                     or the word "none" for a subroutine that takes no inline arguments.
+#
+# Entries here take precedence over auto-detection. A file named in the analyzer's
+# "Override file" option takes precedence over this one.
+#
+# A line
+#
+#   program <text>
+#
+# gates everything after it on the program's name containing <text>, case-insensitively.
+# Addresses are only meaningful for the firmware they were read from, so image-specific
+# entries must be gated this way; otherwise they would be applied to any CDP1806 program that
+# happens to have a call at the same address. Use "program *" to open it up again.
+#
+# Example:
+#
+#   6e6b  p          # LoadStringForDisplay - 16-bit string descriptor
+#   6fa5  b          # setWaitFor812d_Zero - one byte
+
+# ---------------------------------------------------------------------------
+# TAMAC-18 V2.8 (ROM/TAMAC-18 V2.8 9513.bin)
+# ---------------------------------------------------------------------------
+
+program TAMAC-18
+
+# Reads one 16-bit pointer with SEX 3 / RLXA RE at 1abe-1ac0. Auto-detection declines while
+# the walk cannot get through the call to 4048, whose own body is not fully disassembled;
+# observed arguments are 1C7E, 1C91 and 1CA4, all of which point into RAM.
+1abe  p
+
+# --- 038d: variadic, so its call sites are pinned individually -------------
+#
+# 038d reads a different number of inline bytes depending on D at entry:
+#
+#   D != 0  ->  LBZ at 038e not taken; LDXA/PLO RA then LDXA/PHI RA at 0391-0394
+#               consume 2 bytes, low byte first (little-endian, so b,b not w).
+#   D == 0  ->  branch to 0398; LDXA/PLO RA consumes 1 byte, then RLXA R7 consumes a
+#               16-bit pointer which 039c dereferences. 3 bytes: b,p
+#
+# No single callee signature can describe that. Auto-detection declines: once the nested call
+# at 03ee resolves it reports "return paths disagree", and before that it declines for want of
+# that nested signature. Either way '@' pins a signature to one call site.
+@0201  b,b        # 01fe: LDI 0x1
+@0211  b,p        # 020e: LDI 0x0
+@02c9  b,b        # 02c6: LDI 0x1
+@02f6  b,b        # 02f3: LDI 0x1
+@0880  b,b        # 087d: LDI 0x1
+@0891  b,b        # 088e: LDI 0x1
