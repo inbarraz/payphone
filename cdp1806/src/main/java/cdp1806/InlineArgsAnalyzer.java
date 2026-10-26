@@ -173,8 +173,7 @@ public class InlineArgsAnalyzer extends AbstractAnalyzer {
 	}
 
 	private static Address callTarget(Instruction in) {
-		Address[] flows = in.getFlows();
-		return flows.length == 1 ? flows[0] : null;
+		return InlineArgDetector.callTarget(in);
 	}
 
 	/**
@@ -231,7 +230,11 @@ public class InlineArgsAnalyzer extends AbstractAnalyzer {
 				continue;
 			}
 			Address target = callTarget(in);
-			if (target != null && !signatures.containsKey(target)) {
+			if (target == null) {
+				Msg.info(this, NAME + ": skipped " + in.getAddress() +
+					" - cannot determine the call target");
+			}
+			else if (!signatures.containsKey(target)) {
 				unresolved.add(target);
 			}
 		}

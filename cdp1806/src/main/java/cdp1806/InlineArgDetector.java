@@ -14,6 +14,7 @@ import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.scalar.Scalar;
+import ghidra.program.model.symbol.Reference;
 
 /**
  * Recovers a subroutine's inline-argument signature by walking its control flow from the entry
@@ -88,6 +89,46 @@ public class InlineArgDetector {
 			this.x = x;
 			this.args = args;
 		}
+	}
+
+	/**
+	 * The subroutine a SCAL calls.
+	 *
+	 * <p>Not simply {@code getFlows()}: that only reports flow-type references, and in a
+	 * database built over several Ghidra versions some SCAL targets are recorded as plain READ
+	 * references instead of calls, which would leave those call sites invisible. The operand
+	 * names the target either way, so it is the more dependable source.
+	 *
+	 * @return the call target, or null if it cannot be determined
+	 */
+	public static Address callTarget(Instruction in) {
+		if (in.getFlowType().isCall()) {
+			Address[] flows = in.getFlows();
+			if (flows.length == 1) {
+				return flows[0];
+			}
+		}
+		if (in.getNumOperands() > 1) {
+			for (Object o : in.getOpObjects(1)) {
+				if (o instanceof Address) {
+					return (Address) o;
+				}
+				if (o instanceof Scalar) {
+					return in.getAddress().getNewAddress(((Scalar) o).getUnsignedValue());
+				}
+			}
+		}
+		Address only = null;
+		for (Reference r : in.getReferencesFrom()) {
+			if (!r.getToAddress().isMemoryAddress()) {
+				continue;
+			}
+			if (only != null && !only.equals(r.getToAddress())) {
+				return null; // ambiguous
+			}
+			only = r.getToAddress();
+		}
+		return only;
 	}
 
 	private static boolean isR3(Register r) {
@@ -238,13 +279,13 @@ public class InlineArgDetector {
 				case "SCAL": {
 					// A nested SCAL saves and restores R3, so the caller's R3 is unchanged --
 					// but we still have to step over the nested call's own inline arguments.
-					Address[] flows = in.getFlows();
-					if (flows.length != 1) {
+					Address nestedTarget = callTarget(in);
+					if (nestedTarget == null) {
 						return fail("indeterminate call target at " + s.addr);
 					}
-					Address resumeAt = scalFallThrough(in, flows[0]);
+					Address resumeAt = scalFallThrough(in, nestedTarget);
 					if (resumeAt == null) {
-						return fail("nested call to " + flows[0] + " has no known signature yet");
+						return fail("nested call to " + nestedTarget + " has no known signature yet");
 					}
 					fallThrough = resumeAt;
 					break;
