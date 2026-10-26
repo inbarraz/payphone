@@ -60,15 +60,20 @@ public class InlineArgDetector {
 	}
 
 	private final Program program;
-	private final Function<Address, InlineArgSpec> resolver;
+	private final Function<Address, InlineArgSpec> calleeResolver;
+	private final Function<Address, InlineArgSpec> siteResolver;
 
 	/**
-	 * @param resolver looks up an already-known signature for a nested call target, returning
-	 *            null when it is not yet known
+	 * @param calleeResolver looks up an already-known signature for a nested call target,
+	 *            returning null when it is not yet known
+	 * @param siteResolver looks up a signature pinned to one particular call site, by the
+	 *            address of the SCAL instruction; returns null when there isn't one
 	 */
-	public InlineArgDetector(Program program, Function<Address, InlineArgSpec> resolver) {
+	public InlineArgDetector(Program program, Function<Address, InlineArgSpec> calleeResolver,
+			Function<Address, InlineArgSpec> siteResolver) {
 		this.program = program;
-		this.resolver = resolver;
+		this.calleeResolver = calleeResolver;
+		this.siteResolver = siteResolver;
 	}
 
 	private static class State {
@@ -305,7 +310,12 @@ public class InlineArgDetector {
 		if (in.isFallThroughOverridden()) {
 			return in.getFallThrough(); // an earlier pass already worked this one out
 		}
-		InlineArgSpec nested = resolver.apply(target);
+		// A signature pinned to this exact call site wins: the callee may be variadic, taking a
+		// different number of bytes depending on how it was called.
+		InlineArgSpec nested = siteResolver.apply(in.getAddress());
+		if (nested == null) {
+			nested = calleeResolver.apply(target);
+		}
 		if (nested == null) {
 			return null;
 		}

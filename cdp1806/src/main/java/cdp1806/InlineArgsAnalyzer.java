@@ -36,6 +36,7 @@ import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.symbol.RefType;
 import ghidra.program.model.symbol.SourceType;
+import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
@@ -71,6 +72,12 @@ public class InlineArgsAnalyzer extends AbstractAnalyzer {
 			"address is inside the program's memory.";
 
 	private static final String MODULE_OVERRIDE_FILE = "inline_args.txt";
+
+	/** Signatures stated in the override files: by callee, and pinned to individual call sites. */
+	private static class Overrides {
+		final Map<Address, InlineArgSpec> byCallee = new LinkedHashMap<>();
+		final Map<Address, InlineArgSpec> bySite = new LinkedHashMap<>();
+	}
 	private static final String PROCESSOR = "cdp1806";
 
 	private String overrideFilePath = "";
@@ -114,7 +121,7 @@ public class InlineArgsAnalyzer extends AbstractAnalyzer {
 			return false;
 		}
 
-		Map<Address, InlineArgSpec> overrides = loadOverrides(program, log);
+		Overrides overrides = loadOverrides(program, log);
 		Map<Address, InlineArgSpec> signatures = resolveSignatures(program, callSites, overrides,
 			monitor);
 
@@ -122,16 +129,19 @@ public class InlineArgsAnalyzer extends AbstractAnalyzer {
 		AddressSet toDisassemble = new AddressSet();
 		for (Instruction in : callSites) {
 			monitor.checkCancelled();
-			Address target = callTarget(in);
-			if (target == null) {
-				continue;
+			// A signature pinned to this call site wins over the callee's own: a variadic
+			// callee reads a different number of bytes depending on how it was called.
+			InlineArgSpec spec = overrides.bySite.get(in.getAddress());
+			if (spec == null) {
+				Address target = callTarget(in);
+				spec = target == null ? null : signatures.get(target);
 			}
-			InlineArgSpec spec = signatures.get(target);
 			if (spec == null || spec.isEmpty()) {
 				continue;
 			}
 			if (applyMarkup(program, in, spec, toDisassemble, log)) {
 				marked++;
+				Msg.info(this, NAME + ": " + in.getAddress() + " -> " + spec);
 			}
 		}
 
@@ -140,9 +150,11 @@ public class InlineArgsAnalyzer extends AbstractAnalyzer {
 			cmd.applyTo(program, monitor);
 		}
 
-		if (marked > 0) {
-			log.appendMsg(NAME, "Marked up " + marked + " call site(s) with inline arguments.");
-		}
+		reportUnresolved(program, callSites, signatures, overrides, monitor);
+
+		// Informational, so it goes to the log rather than the MessageLog: anything in the
+		// MessageLog makes Ghidra raise a "warnings/errors during analysis" dialog.
+		Msg.info(this, NAME + ": marked up " + marked + " call site(s) with inline arguments.");
 		return marked > 0;
 	}
 
@@ -171,8 +183,8 @@ public class InlineArgsAnalyzer extends AbstractAnalyzer {
 	 * be understood once that inner call's signature is known.
 	 */
 	private Map<Address, InlineArgSpec> resolveSignatures(Program program,
-			List<Instruction> callSites, Map<Address, InlineArgSpec> overrides,
-			TaskMonitor monitor) throws CancelledException {
+			List<Instruction> callSites, Overrides overrides, TaskMonitor monitor)
+			throws CancelledException {
 
 		Set<Address> targets = new HashSet<>();
 		for (Instruction in : callSites) {
@@ -182,8 +194,9 @@ public class InlineArgsAnalyzer extends AbstractAnalyzer {
 			}
 		}
 
-		Map<Address, InlineArgSpec> known = new HashMap<>(overrides);
-		InlineArgDetector detector = new InlineArgDetector(program, known::get);
+		Map<Address, InlineArgSpec> known = new HashMap<>(overrides.byCallee);
+		InlineArgDetector detector =
+			new InlineArgDetector(program, known::get, overrides.bySite::get);
 
 		boolean progress = true;
 		while (progress) {
@@ -201,6 +214,37 @@ public class InlineArgsAnalyzer extends AbstractAnalyzer {
 			}
 		}
 		return known;
+	}
+
+	/**
+	 * Logs each call target we could not pin down, with the reason, so it is clear what needs an
+	 * override and why. Informational only.
+	 */
+	private void reportUnresolved(Program program, List<Instruction> callSites,
+			Map<Address, InlineArgSpec> signatures, Overrides overrides, TaskMonitor monitor)
+			throws CancelledException {
+
+		Set<Address> unresolved = new java.util.TreeSet<>();
+		for (Instruction in : callSites) {
+			monitor.checkCancelled();
+			if (overrides.bySite.containsKey(in.getAddress())) {
+				continue;
+			}
+			Address target = callTarget(in);
+			if (target != null && !signatures.containsKey(target)) {
+				unresolved.add(target);
+			}
+		}
+		if (unresolved.isEmpty()) {
+			return;
+		}
+		InlineArgDetector detector =
+			new InlineArgDetector(program, signatures::get, overrides.bySite::get);
+		for (Address t : unresolved) {
+			monitor.checkCancelled();
+			Msg.info(this, NAME + ": undetermined " + t + " - " +
+				detector.detectWithReason(t).reason);
+		}
 	}
 
 	/**
@@ -296,8 +340,8 @@ public class InlineArgsAnalyzer extends AbstractAnalyzer {
 
 	// ---------------------------------------------------------------- overrides
 
-	private Map<Address, InlineArgSpec> loadOverrides(Program program, MessageLog log) {
-		Map<Address, InlineArgSpec> result = new LinkedHashMap<>();
+	private Overrides loadOverrides(Program program, MessageLog log) {
+		Overrides result = new Overrides();
 		try {
 			ResourceFile moduleFile =
 				Application.getModuleDataFile(PROCESSOR, MODULE_OVERRIDE_FILE);
@@ -329,11 +373,12 @@ public class InlineArgsAnalyzer extends AbstractAnalyzer {
 	/**
 	 * Reads lines of the form {@code <callee-address> <argspec>}, where argspec is a
 	 * comma-separated list of b (byte), w (word) and p (pointer), or "none". Blank lines and
-	 * anything after a '#' are ignored. Later entries win, so a file named in the analyzer
-	 * option overrides the module's own.
+	 * anything after a '#' are ignored. An address written as {@code @addr} pins the signature
+	 * to that one call site instead of to a callee. Later entries win, so a file named in the
+	 * analyzer option overrides the module's own.
 	 */
 	private void readOverrides(Program program, Reader reader, String sourceName,
-			Map<Address, InlineArgSpec> into, MessageLog log) throws IOException {
+			Overrides into, MessageLog log) throws IOException {
 
 		BufferedReader br = new BufferedReader(reader);
 		String line;
@@ -360,13 +405,15 @@ public class InlineArgsAnalyzer extends AbstractAnalyzer {
 					sourceName + ":" + lineNo + ": bad argspec '" + parts[1].trim() + "'");
 				continue;
 			}
-			Address addr = parseAddress(program, parts[0]);
+			// A leading '@' pins the signature to one call site rather than to a callee.
+			boolean perSite = parts[0].startsWith("@");
+			Address addr = parseAddress(program, perSite ? parts[0].substring(1) : parts[0]);
 			if (addr == null) {
 				log.appendMsg(NAME,
 					sourceName + ":" + lineNo + ": bad address '" + parts[0] + "'");
 				continue;
 			}
-			into.put(addr, spec);
+			(perSite ? into.bySite : into.byCallee).put(addr, spec);
 		}
 	}
 

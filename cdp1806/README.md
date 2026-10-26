@@ -59,6 +59,31 @@ An address (hex, `0x` optional) and a comma-separated argspec: `b` for a byte, `
 auto-detection. The analyzer's **Override file** option names a second file that beats both,
 for per-program overrides you would rather not commit.
 
+### Variadic callees
+
+Some subroutines read a different number of inline bytes depending on how they were called,
+so no single callee signature fits. `038d` is one: with `D != 0` on entry it takes two bytes,
+with `D == 0` it takes a byte and a pointer. Auto-detection reports "return paths disagree"
+and declines, which is the right answer.
+
+Prefix an address with `@` to pin a signature to one *call site* instead of to a callee:
+
+```
+@0211  b,p        # 020e sets D = 0, so the three-byte form
+@0880  b,b        # 087d sets D = 1, so the two-byte form
+```
+
+A call-site entry wins over everything else, including the callee's own signature.
+
+## Output
+
+Results go to the Ghidra log (**Help > Show Log**), not to the analysis MessageLog, because
+anything written there makes Ghidra raise a "warnings/errors issued during analysis" dialog
+even for good news. Each marked call site is logged, as is every call target that could not
+be determined along with the reason — which is what tells you where an override is needed
+and why. The MessageLog is reserved for genuine problems: an unreadable override file, a
+malformed line, or markup that failed to apply.
+
 ## Building and installing
 
 ```sh
