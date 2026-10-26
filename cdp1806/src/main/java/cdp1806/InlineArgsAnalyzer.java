@@ -154,7 +154,22 @@ public class InlineArgsAnalyzer extends AbstractAnalyzer {
 
 		// Informational, so it goes to the log rather than the MessageLog: anything in the
 		// MessageLog makes Ghidra raise a "warnings/errors during analysis" dialog.
-		Msg.info(this, NAME + ": marked up " + marked + " call site(s) with inline arguments.");
+		int resolvedTargets = 0;
+		Set<Address> allTargets = new HashSet<>();
+		for (Instruction in : callSites) {
+			Address t = callTarget(in);
+			if (t != null) {
+				allTargets.add(t);
+			}
+		}
+		for (Address t : allTargets) {
+			if (signatures.containsKey(t)) {
+				resolvedTargets++;
+			}
+		}
+		Msg.info(this, NAME + ": marked up " + marked + " new call site(s); " +
+			resolvedTargets + " of " + allTargets.size() + " call targets resolved across " +
+			callSites.size() + " call site(s).");
 		return marked > 0;
 	}
 

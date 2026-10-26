@@ -300,7 +300,23 @@ public class InlineArgDetector {
 					break;
 				}
 				case "SEP": {
-					return fail("SEP at " + s.addr + " changes which register is the PC");
+					// SEP Rn sets P = n, so control leaves here and does not fall through.
+					// With R3 that is precisely the return SRET performs -- execution resumes
+					// at R3 -- so it counts as a return path. With any other register it is a
+					// transfer elsewhere (a reboot via SEP R0, say), and this path simply ends
+					// rather than invalidating what the other paths found.
+					if (isR3(in.getRegister(0))) {
+						if (delta < 0) {
+							return fail("R3 moved backwards by " + (-delta) + " at " + s.addr);
+						}
+						InlineArgSpec candidate = reconcile(args, delta);
+						if (result != null && !result.toString().equals(candidate.toString())) {
+							return fail(
+								"return paths disagree (" + result + " vs " + candidate + ")");
+						}
+						result = candidate;
+					}
+					continue;
 				}
 				default:
 					break;
