@@ -14,6 +14,7 @@ import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.scalar.Scalar;
+import ghidra.program.model.symbol.RefType;
 import ghidra.program.model.symbol.Reference;
 
 /**
@@ -102,12 +103,12 @@ public class InlineArgDetector {
 	 * @return the call target, or null if it cannot be determined
 	 */
 	public static Address callTarget(Instruction in) {
-		if (in.getFlowType().isCall()) {
-			Address[] flows = in.getFlows();
-			if (flows.length == 1) {
-				return flows[0];
-			}
-		}
+		// The operand is checked first and deliberately. Reference bookkeeping is not a
+		// dependable source here: SCAL targets are sometimes recorded as plain READ references
+		// rather than calls, and once this analyzer sets a fall-through override Ghidra adds a
+		// FALL_THROUGH reference that getFlows() then reports -- which would hand back the
+		// address execution resumes at instead of the subroutine being called. The operand
+		// encodes the target in the instruction itself and is unaffected by any of that.
 		if (in.getNumOperands() > 1) {
 			for (Object o : in.getOpObjects(1)) {
 				if (o instanceof Address) {
@@ -118,9 +119,18 @@ public class InlineArgDetector {
 				}
 			}
 		}
+		Address fallThrough = in.getFallThrough();
+		if (in.getFlowType().isCall()) {
+			for (Address flow : in.getFlows()) {
+				if (!flow.equals(fallThrough)) {
+					return flow;
+				}
+			}
+		}
 		Address only = null;
 		for (Reference r : in.getReferencesFrom()) {
-			if (!r.getToAddress().isMemoryAddress()) {
+			if (!r.getToAddress().isMemoryAddress() ||
+				r.getReferenceType() == RefType.FALL_THROUGH) {
 				continue;
 			}
 			if (only != null && !only.equals(r.getToAddress())) {
