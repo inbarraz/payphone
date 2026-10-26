@@ -1,2 +1,4 @@
 *.sla
 .idea
+/venv/
+.DS_Store
