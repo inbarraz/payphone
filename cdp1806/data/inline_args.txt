@@ -1,0 +1,38 @@
+# CDP1806 inline call-argument overrides
+#
+# Some subroutines take their arguments inline, stored in the caller immediately after the
+# four-byte SCAL instruction. The callee reads them through R3 (LDA R3 for a byte, RLXA Rn
+# while X == 3 for a 16-bit word) and SRET R3 then returns past them.
+#
+# The analyzer normally works this out from the callee itself. Use this file for the cases it
+# cannot: loops that move R3, return paths that disagree, calls into code that is not fully
+# disassembled, or a subroutine whose arguments you know better than the walk does.
+#
+# Format:
+#
+#   <callee-address>  <argspec>     # trailing comment
+#
+#   <callee-address>  hexadecimal, with or without a leading 0x
+#   <argspec>         comma-separated list, in the order the arguments appear:
+#                       b  one byte
+#                       w  one 16-bit big-endian word
+#                       p  one 16-bit word, always treated as a pointer (forces a reference
+#                          even where a plain w would not have produced one)
+#                     or the word "none" for a subroutine that takes no inline arguments.
+#
+# Entries here take precedence over auto-detection. A file named in the analyzer's
+# "Override file" option takes precedence over this one.
+#
+# Example:
+#
+#   6e6b  p          # LoadStringForDisplay - 16-bit string descriptor
+#   6fa5  b          # setWaitFor812d_Zero - one byte
+
+# ---------------------------------------------------------------------------
+# TAMAC-18 V2.8 (ROM/TAMAC-18 V2.8 9513.bin)
+# ---------------------------------------------------------------------------
+
+# Reads one 16-bit pointer with SEX 3 / RLXA RE at 1abe-1ac0. Auto-detection cannot reach
+# its SRET because the walk passes through a call to 4048, whose own body is not fully
+# disassembled; observed arguments are 1C7E, 1C91 and 1CA4.
+1abe  p
