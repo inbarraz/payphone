@@ -111,6 +111,10 @@ manual's example uses R3/R6/R2 — so asking is both simpler and more portable t
 also means a second vector is handled by running the analyzer again with different options,
 rather than needing the design to anticipate it.
 
+One set of options applies per run, by decision: the analyzer handles a single register and byte
+count at a time, and a program with more than one vector is marked up by running it once per
+vector. There is no list syntax and no attempt to combine sets.
+
 To make the options easy to fill in, the analyzer logs the register-pair loads it can see
 (`LDI lo / PLO Rn / LDI hi / PHI Rn`) together with the address each one produces. In this image
 that reports `R4 = 12EE` and `R5 = 07F1` from the loads at `00AF`/`00B5`. It is a hint in the log,
