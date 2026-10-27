@@ -150,6 +150,28 @@ correct once it is marked. The existing analyzer already handles this by rescann
 program on each pass and scheduling newly-exposed addresses for disassembly; the same approach
 applies, seeded from the reset vector.
 
+## The other SEP vectors
+
+`SEP RB`: **RB = E080**, loaded at `00E8`. About 25 of the 29 `DB` bytes are at plausible
+instruction boundaries; the remaining four are operand bytes of a preceding branch. None of those
+25 is followed by an in-range address, and none is followed by anything that reads as text, so it
+is not a second call-with-address vector. It is the **zero-inline-bytes** case: run the analyzer
+with the call register set to `RB` and the byte count set to `0`, and it gets a flow override and
+nothing else.
+
+What follows a `SEP RB` is almost always just the next instruction — commonly `D4 <addr>`, another
+SCRT call, or `DD <byte>`.
+
+Two caveats. This is byte-scan evidence rather than verified disassembly, so it should be
+re-checked once the listing is coherent. And `E080` lies outside the program's only memory block
+(`ram: 0000-7fff`), so Ghidra has nowhere to follow the call to; a block would have to be created
+there, and populated, before anything at the far end could be analyzed. The payphone image has the
+same shape, with its LCD mapped at `E000-E007`.
+
+`SEP RD`: left alone for now. RD is mostly used as an argument register rather than as a vector,
+so the `DD` bytes are not reliably instructions, and sorting that out is not worth doing before
+the listing is correct.
+
 ## Where the code should live
 
 The existing `InlineArgsAnalyzer` already has machinery worth reusing: the override file with
@@ -171,12 +193,7 @@ payphone ROM's `SEP` usage is not SCRT.
    would read them through the link register R3 and `SRET`-equivalent past them. It cannot be
    answered until the listing is coherent. If the answer is yes, the detector generalises rather
    than being rewritten.
-2. **`SEP RB` (29 sites) and `SEP RD` (26 sites).** Too frequent to be incidental. Possibly a
-   second call vector, a jump table, or a coroutine switch. These no longer need to be settled
-   before the design is: whatever they turn out to be, they are handled by running the analyzer
-   again with the register and byte count set accordingly. Identifying them is still worth doing,
-   to know what to set.
-3. `SEP R1` (11), `SEP R9` (10), `SEP RC` (9) — likely register-based jumps, which is the
+2. `SEP R1` (11), `SEP R9` (10), `SEP RC` (9) — likely register-based jumps, which is the
    zero-inline-bytes case.
 
 ## Validation
