@@ -84,32 +84,50 @@ After the analyzer runs:
 
 ## Design
 
-### 1. Find the vectors
+### 1. Ask, do not guess
 
-Locate the register-pair load idiom `LDI lo / PLO Rn / LDI hi / PHI Rn` in the listing, giving
-candidate `Rn = addr` bindings. A candidate is accepted as the SCRT **call** vector when the code
-at `addr` matches the call shape: push the link register through the stack register, copy the PC
-register into the link register, two `LDA` of the link register, then a dispatch `SEP` of the PC
-register. The **return** vector is recognised by its own shape: copy link to PC, pop the link off
-the stack, dispatch.
+The analyzer is driven by options rather than by recognising the SCRT routine:
 
-Matching the shape rather than the exact bytes matters because register assignments differ
-between SCRT implementations; this image uses R0/R3/R6, the RCA manual's example uses R3/R6/R2.
+| Option | Default | Meaning |
+|---|---|---|
+| **Call register** | `R4` | Which `SEP Rn` is a call. Blank disables the analyzer. |
+| **Inline bytes after SEP** | `2` | How many bytes follow the `SEP` and belong to it. |
+| **Return register** | `R5` | Which `SEP Rn` is a return. Blank to skip return markup. |
 
-Analyzer options override all of it: call register, call routine address, return register. Where
-detection fails the user states them and the analyzer proceeds.
+Two bytes is the default because that is the callee address in the standard technique. The count
+is separate from the address so the same mechanism covers a vector whose calls carry extra inline
+arguments, and a vector that takes none at all.
+
+Interpretation of the inline bytes:
+
+- `0` — nothing follows. The `SEP` is a plain register jump; only the flow override applies.
+- `2` — the two bytes are the callee address: typed as a pointer, and the source of the call
+  reference.
+- `>2` — the first two are the callee address; the remainder are the callee's inline arguments,
+  typed as bytes.
+
+Register assignments differ between SCRT implementations — this image uses R0/R3/R6 where the RCA
+manual's example uses R3/R6/R2 — so asking is both simpler and more portable than inferring. It
+also means a second vector is handled by running the analyzer again with different options,
+rather than needing the design to anticipate it.
+
+To make the options easy to fill in, the analyzer logs the register-pair loads it can see
+(`LDI lo / PLO Rn / LDI hi / PHI Rn`) together with the address each one produces. In this image
+that reports `R4 = 12EE` and `R5 = 07F1` from the loads at `00AF`/`00B5`. It is a hint in the log,
+not a decision the analyzer acts on.
 
 ### 2. Mark each call site
 
-For each `SEP <call-reg>` instruction:
+For each `SEP <call-reg>` instruction, with `N` the configured inline byte count:
 
 - `setFlowOverride(FlowOverride.CALL)` — our `SEP` is `BRANCHIND`, which `FlowOverride.CALL` maps
   to `CALLIND`, making it a call rather than a jump;
-- add a `RefType.UNCONDITIONAL_CALL` reference to the inline target and make it primary, which is
-  what supplies the target that `CALLIND` lacks;
-- `setFallThrough(site + 3)`;
-- lay the two bytes down as a 2-byte pointer, so the target also picks up a data xref;
-- end-of-line comment recording the resolved target.
+- when `N >= 2`, add a `RefType.UNCONDITIONAL_CALL` reference to the address in the first two
+  bytes and make it primary, which is what supplies the target that `CALLIND` lacks;
+- `setFallThrough(site + 1 + N)`;
+- lay the first two bytes down as a 2-byte pointer, so the target also picks up a data xref, and
+  any remaining bytes as data;
+- end-of-line comment recording the resolved target and the argument bytes.
 
 ### 3. Mark each return site
 
@@ -150,11 +168,16 @@ payphone ROM's `SEP` usage is not SCRT.
    answered until the listing is coherent. If the answer is yes, the detector generalises rather
    than being rewritten.
 2. **`SEP RB` (29 sites) and `SEP RD` (26 sites).** Too frequent to be incidental. Possibly a
-   second call vector, a jump table, or a coroutine switch. Worth identifying before the design is
-   fixed, in case the analyzer should handle more than one vector pair.
-3. `SEP R1` (11), `SEP R9` (10), `SEP RC` (9) — likely register-based jumps; confirm they need no
-   markup beyond what a flow override would give.
-4. Whether the 1806 module is the right home for a 1802-only analyzer at all, or whether the
+   second call vector, a jump table, or a coroutine switch. These no longer need to be settled
+   before the design is: whatever they turn out to be, they are handled by running the analyzer
+   again with the register and byte count set accordingly. Identifying them is still worth doing,
+   to know what to set.
+3. `SEP R1` (11), `SEP R9` (10), `SEP RC` (9) — likely register-based jumps, which is the
+   zero-inline-bytes case.
+4. Whether one option set per program is enough, or whether the options should accept a list such
+   as `R4:2, RB:0` so several vectors are handled in a single pass. Start with one; the override
+   file already offers a per-site escape hatch if a second vector proves rare.
+5. Whether the 1806 module is the right home for a 1802-only analyzer at all, or whether the
    language definition should gain a `cdp1802` variant. The instruction sets are a strict subset,
    so the module works as-is, but the `ldefs` description currently claims 1804/1805/1806.
 
@@ -162,8 +185,11 @@ payphone ROM's `SEP` usage is not SCRT.
 
 Fixtures to assert, all measured from the image:
 
-- vector detection finds `R4 = 12EE`, `R5 = 07F1` from the loads at `00AF`/`00B5`;
+- with the defaults (call `R4`, 2 inline bytes, return `R5`) the image is marked up correctly;
+- the register-pair hint reports `R4 = 12EE` and `R5 = 07F1` from the loads at `00AF`/`00B5`;
 - the call site at `011B` resolves to `0F7E` and resumes at `011E`;
+- setting the inline byte count to 4 moves that resume address to `0120`, confirming the count is
+  honoured rather than hardcoded;
 - 538 call sites marked, 67 functions created, 63 return sites overridden;
 - `05BD`, `07CE` and `22DA` are **not** treated as call sites;
 - a second pass changes nothing.
