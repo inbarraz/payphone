@@ -178,10 +178,7 @@ payphone ROM's `SEP` usage is not SCRT.
    to know what to set.
 3. `SEP R1` (11), `SEP R9` (10), `SEP RC` (9) — likely register-based jumps, which is the
    zero-inline-bytes case.
-4. Whether one option set per program is enough, or whether the options should accept a list such
-   as `R4:2, RB:0` so several vectors are handled in a single pass. Start with one; the override
-   file already offers a per-site escape hatch if a second vector proves rare.
-5. Whether the 1806 module is the right home for a 1802-only analyzer at all, or whether the
+4. Whether the 1806 module is the right home for a 1802-only analyzer at all, or whether the
    language definition should gain a `cdp1802` variant. The instruction sets are a strict subset,
    so the module works as-is, but the `ldefs` description currently claims 1804/1805/1806.
 
