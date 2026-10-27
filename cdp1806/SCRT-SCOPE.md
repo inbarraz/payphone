@@ -178,9 +178,6 @@ payphone ROM's `SEP` usage is not SCRT.
    to know what to set.
 3. `SEP R1` (11), `SEP R9` (10), `SEP RC` (9) — likely register-based jumps, which is the
    zero-inline-bytes case.
-4. Whether the 1806 module is the right home for a 1802-only analyzer at all, or whether the
-   language definition should gain a `cdp1802` variant. The instruction sets are a strict subset,
-   so the module works as-is, but the `ldefs` description currently claims 1804/1805/1806.
 
 ## Validation
 
@@ -201,5 +198,9 @@ Fixtures to assert, all measured from the image:
 - Fixing the `SEP`/`P`-tracking weakness in the SLEIGH definition itself (gaps G2 and G4 of
   `REVIEW.md`). A flow override is a listing-level workaround; a context-tracked `P` register
   would be the real fix and is a much larger change.
+- Splitting a `cdp1802` variant out of the language definition. The 1802 instruction set is a
+  strict subset, so the module works on this ROM as it stands, even though the `ldefs`
+  description claims 1804/1805/1806. Deferred deliberately: the subset comes after the 1806
+  definition is finished, not before.
 - The `X == P` inline-operand idiom (`OUT`/`INP`/`RET`/`DIS`), which this ROM also uses — see the
   reset sequence at `0000` and `000B`. That is gap G1 and a separate piece of work.
