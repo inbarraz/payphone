@@ -22,6 +22,7 @@ import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.data.ByteDataType;
 import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.Pointer;
 import ghidra.program.model.data.WordDataType;
 import ghidra.program.model.lang.Register;
 import ghidra.program.model.listing.CommentType;
@@ -318,7 +319,12 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 				listing.clearCodeUnits(argStart, argEnd, false);
 				Address at = argStart;
 				if (inlineBytes >= 2) {
-					listing.createData(at, (DataType) WordDataType.dataType);
+					// A pointer rather than a plain word: the bytes are an address, so typing
+					// them as one makes the listing show the callee's name, makes the operand
+					// navigable, and gives the callee a data reference of its own alongside the
+					// call reference. A word is used only when the value is not a real address,
+					// where calling it a pointer would be a lie.
+					listing.createData(at, addressDataType(program, target));
 					at = at.add(2);
 				}
 				while (at.compareTo(argEnd) <= 0) {
@@ -377,8 +383,25 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 			if (!found) {
 				return false;
 			}
+			// Catches markup left by an earlier version that typed the address as a plain word.
+			Data d = program.getListing().getDefinedDataAt(in.getAddress().add(1));
+			if (d == null || !(d.getDataType() instanceof Pointer)) {
+				return false;
+			}
 		}
 		return true;
+	}
+
+	/**
+	 * The type for the two address bytes: a two-byte pointer when they really do name a location
+	 * in the program, and a plain word when they do not.
+	 */
+	private DataType addressDataType(Program program, Address target) {
+		if (target == null) {
+			return WordDataType.dataType;
+		}
+		DataType p = program.getDataTypeManager().getPointer(null, 2);
+		return p != null ? p : (DataType) WordDataType.dataType;
 	}
 
 	/** Reads the big-endian 16-bit target, or null if it is not inside the program. */

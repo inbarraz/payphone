@@ -141,8 +141,11 @@ For each `SEP <call-reg>` instruction, with `N` the configured inline byte count
 - when `N >= 2`, add a `RefType.UNCONDITIONAL_CALL` reference to the address in the first two
   bytes and make it primary, which is what supplies the target that `CALLIND` lacks;
 - `setFallThrough(site + 1 + N)`;
-- lay the first two bytes down as a 2-byte pointer, so the target also picks up a data xref, and
-  any remaining bytes as data;
+- type the first two bytes as a two-byte pointer rather than a plain word — they are an address,
+  so typing them as one makes the listing show the callee's name, makes the operand navigable,
+  and gives the callee a data reference alongside the call reference. A word is used only where
+  the value does not name a location in the program, since calling that a pointer would be a lie;
+- type any remaining bytes as data;
 - end-of-line comment recording the resolved target and the argument bytes.
 
 ### 3. Mark each return site
