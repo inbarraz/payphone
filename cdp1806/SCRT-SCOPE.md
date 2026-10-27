@@ -1,6 +1,6 @@
 # Scope: an analyzer for SCRT calls (`SEP R4` + inline address)
 
-Status: proposal, nothing implemented.
+Status: implemented. See `ScrtCallAnalyzer` and `ScrtArgDetector`.
 Written: 2026-10-27, against `Card Reader/ROM Image/Card Reader BSK-31 202 .BIN` (BSK31 card reader).
 
 ## The problem
@@ -105,6 +105,18 @@ Interpretation of the inline bytes:
   reference.
 - `>2` — the first two are the callee address; the remainder are the callee's inline arguments,
   typed as bytes.
+
+The option sets the *base* count only. Callees differ: `2422` reads one further byte of its own
+(`LDA R3 / PLO RF`), while its neighbour `242C` reads none, so no single number describes a whole
+program. Extra bytes are therefore detected per callee by `ScrtArgDetector`, on the same principle
+the `SCAL` analyzer uses — by the time a callee is entered the call routine has already consumed
+the two address bytes, so the net advance of R3 before `SEP R5` is exactly the number of extra
+bytes. A callee whose size cannot be determined is reported and treated as taking none, which
+leaves its call sites marked as plain calls: a miss rather than a corruption.
+
+Where a callee does read extra bytes, that fact is recorded on the callee as a **repeatable**
+comment, so Ghidra echoes it at every site that calls it and the adjustment can be made where the
+call actually is.
 
 Register assignments differ between SCRT implementations — this image uses R0/R3/R6 where the RCA
 manual's example uses R3/R6/R2 — so asking is both simpler and more portable than inferring. It
