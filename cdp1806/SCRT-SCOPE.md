@@ -150,6 +150,13 @@ so the string it names picks up a reference.
 Detection does recognise `LDA R3 / PHI Rn / LDA R3 / PLO Rn` as one word, which is how `2171`
 and `2194` come out as `W` unaided.
 
+The **high half has to come first**. A call site's two bytes are typed as a big-endian pointer,
+so that is the only order such typing describes correctly: in the low-half-first `PLO` then `PHI`
+form the bytes `34 12` build the address `1234`, and calling them a pointer would publish `3412`
+and invent a reference to it. Low-first pairs are therefore reported as two separate bytes — the
+same byte count, so call sites still resume in the right place, but with no claim made about
+what the bytes mean.
+
 Register assignments differ between SCRT implementations — this image uses R0/R3/R6 where the RCA
 manual's example uses R3/R6/R2 — so asking is both simpler and more portable than inferring. It
 also means a second vector is handled by running the analyzer again with different options,
@@ -158,6 +165,20 @@ rather than needing the design to anticipate it.
 One set of options applies per run, by decision: the analyzer handles a single register and byte
 count at a time, and a program with more than one vector is marked up by running it once per
 vector. There is no list syntax and no attempt to combine sets.
+
+For those successive runs to add up, **markup is scoped to the register it was made for**. The
+end-of-line comment names the vector — `scrt R4 call -> 0F7E`, `scrt R5 return` — and a run is
+only allowed to disturb markup belonging to the registers it was given. Markup for any other
+vector is counted and left alone, and the run log says how many sites that was. Without this,
+the second run strips everything the first one did and the per-vector workflow above cannot work.
+
+The one case where markup is still removed is a register changing role: if `R4` was the call
+vector and is now nominated as the return vector, the inline bytes its old markup claimed are
+released first, or they would stay behind as defined data once the site becomes a plain return.
+
+A signature can also shrink — `W` corrected to `NONE` — which makes a site's extent shorter than
+it was. Re-marking clears the union of the old extent and the new one, because bytes left defined
+past the new resume address would stop the caller's instruction stream from coming back.
 
 To make the options easy to fill in, the analyzer logs the register-pair loads it can see
 (`LDI lo / PLO Rn / LDI hi / PHI Rn`) together with the address each one produces. In this image
@@ -270,10 +291,16 @@ Fixtures to assert, all measured from the image:
 - the register-pair hint reports `R4 = 12EE` and `R5 = 07F1` from the loads at `00AF`/`00B5`;
 - the call site at `011B` resolves to `0F7E` and resumes at `011E`;
 - setting the inline byte count to 4 moves that resume address to `0120`, confirming the count is
-  honoured rather than hardcoded;
+  honoured rather than hardcoded, including when stepping over a nested call during detection;
 - 538 call sites marked, 67 functions created, 63 return sites overridden;
 - `05BD`, `07CE` and `22DA` are **not** treated as call sites;
-- a second pass changes nothing.
+- a second pass changes nothing;
+- correcting a callee's signature from `W` to `NONE` restores the caller's instruction stream
+  rather than leaving two bytes stranded as data;
+- running `R4` with 2 inline bytes and then `RB` with 0 leaves the `R4` markup intact, and the
+  second run reports the sites it left alone;
+- a callee whose paths merge having built different argument shapes out of the same number of
+  bytes is reported as plain bytes, not as whichever shape was reached first.
 
 ## Out of scope
 

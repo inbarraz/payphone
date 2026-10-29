@@ -73,12 +73,19 @@ public class ScrtArgDetector {
 	private final String returnReg;
 	/** Extra bytes already known for a nested callee, or null if not yet known. */
 	private final Function<Address, InlineArgSpec> known;
+	/**
+	 * How many bytes the call routine itself reads after the SEP, taken from the analyzer's
+	 * option. Needed to step over a nested call: assuming two would walk into the tail of that
+	 * call's argument bytes whenever the option says otherwise.
+	 */
+	private final int baseBytes;
 
-	public ScrtArgDetector(Program program, String callReg, String returnReg,
+	public ScrtArgDetector(Program program, String callReg, String returnReg, int baseBytes,
 			Function<Address, InlineArgSpec> known) {
 		this.program = program;
 		this.callReg = callReg;
 		this.returnReg = returnReg;
+		this.baseBytes = baseBytes;
 		this.known = known;
 	}
 
@@ -114,6 +121,8 @@ public class ScrtArgDetector {
 	private class Walk {
 		private final boolean unknownXIsThree;
 		boolean guessedAtX;
+		/** Set when two paths reach one instruction having built different argument shapes. */
+		boolean layoutConflict;
 		/** Which register each word argument was loaded into, by its position in the list. */
 		private final Map<Integer, String> wordArgReg = new HashMap<>();
 		/** Registers used to address memory anywhere in this subroutine. */
@@ -135,6 +144,7 @@ public class ScrtArgDetector {
 			Listing listing = program.getListing();
 			Deque<Object[]> work = new ArrayDeque<>();
 			Map<String, Integer> seen = new HashMap<>();
+			Map<String, String> seenLayout = new HashMap<>();
 			// Addresses whose LDA R3 has already been counted as the low half of a word.
 			Set<Address> consumed = new HashSet<>();
 			work.push(new Object[] { entry, 0, X_UNKNOWN, new ArrayList<InlineArgSpec.Kind>() });
@@ -155,14 +165,24 @@ public class ScrtArgDetector {
 					new ArrayList<>((List<InlineArgSpec.Kind>) s[3]);
 
 				String key = addr + "/" + x;
+				String layout = layoutOf(args);
 				Integer prev = seen.get(key);
 				if (prev != null) {
 					if (prev == delta) {
+						// Same point, same R3 advance - but the two paths may have built that
+						// advance out of different arguments: one a word, the other two
+						// unrelated bytes. Nothing here can say which shape a call site really
+						// has, and guessing wrong would type two bytes as a pointer and invent
+						// a reference from them. Record the clash and fall back to plain bytes.
+						if (!layout.equals(seenLayout.get(key))) {
+							layoutConflict = true;
+						}
 						continue;
 					}
 					return fail("R3 differs between paths reaching " + addr);
 				}
 				seen.put(key, delta);
+				seenLayout.put(key, layout);
 
 				Instruction in = listing.getInstructionAt(addr);
 				if (in == null) {
@@ -206,8 +226,9 @@ public class ScrtArgDetector {
 							continue;
 						}
 						if (isReg(r, callReg)) {
-							// A nested call: one byte of SEP, two of address, plus whatever
-							// that callee reads for itself. R3 is saved and restored across it.
+							// A nested call: one byte of SEP, then however many bytes the
+							// call routine reads for itself, plus whatever that callee reads
+							// on top. R3 is saved and restored across it.
 							Address t = targetOf(in);
 							if (t == null) {
 								return fail("indeterminate nested call target at " + addr);
@@ -217,7 +238,7 @@ public class ScrtArgDetector {
 								return fail("nested call to " + t + " has no known size yet");
 							}
 							try {
-								fallThrough = addr.add(3 + extra.byteCount());
+								fallThrough = addr.add(1 + baseBytes + extra.byteCount());
 							}
 							catch (RuntimeException e) {
 								return fail("nested call runs past the end of memory at " + addr);
@@ -360,6 +381,10 @@ public class ScrtArgDetector {
 			if (result == null) {
 				return fail("no SEP " + returnReg + " reached from " + entry);
 			}
+			if (layoutConflict) {
+				// The advance is still trustworthy; only the shape of the arguments is not.
+				return new Result(flatBytes(result.byteCount()), null);
+			}
 			return new Result(markImmediates(result), null);
 		}
 
@@ -387,8 +412,15 @@ public class ScrtArgDetector {
 	}
 
 	/**
-	 * Recognises {@code LDA R3 / PHI Rn / LDA R3 / PLO Rn} (either half first), which reads two
-	 * bytes to build one 16-bit value. Pure byte counting would call that two arguments.
+	 * Recognises {@code LDA R3 / PHI Rn / LDA R3 / PLO Rn}, which reads two bytes to build one
+	 * 16-bit value. Pure byte counting would call that two arguments.
+	 *
+	 * <p>The high half must come first. A call site's two bytes get typed as a big-endian
+	 * pointer, so that is the only order such typing describes correctly. In the low-half-first
+	 * {@code PLO} then {@code PHI} form the bytes {@code 34 12} build the address {@code 1234},
+	 * and calling them a pointer would publish {@code 3412} and invent a reference to it. Those
+	 * pairs are left as two separate bytes: the same byte count, so call sites still resume in
+	 * the right place, but with no claim made about what the bytes mean.
 	 *
 	 * @return the address of the second LDA R3, so it is not counted twice, or null
 	 */
@@ -401,8 +433,8 @@ public class ScrtArgDetector {
 		}
 		String m2 = i2.getMnemonicString();
 		String m4 = i4.getMnemonicString();
-		boolean halves = ("PHI".equals(m2) && "PLO".equals(m4)) ||
-			("PLO".equals(m2) && "PHI".equals(m4));
+		// High half first only - see the note on byte order above.
+		boolean halves = "PHI".equals(m2) && "PLO".equals(m4);
 		if (!halves || !"LDA".equals(i3.getMnemonicString()) || !isR3(i3.getRegister(0))) {
 			return null;
 		}
@@ -412,6 +444,27 @@ public class ScrtArgDetector {
 			return null;
 		}
 		return i3.getAddress();
+	}
+
+	/** The argument shape built so far, for comparing two paths that meet at one instruction. */
+	private static String layoutOf(List<InlineArgSpec.Kind> args) {
+		StringBuilder sb = new StringBuilder();
+		for (InlineArgSpec.Kind k : args) {
+			sb.append(k.code).append(',');
+		}
+		return sb.toString();
+	}
+
+	/** A flat run of {@code n} bytes: the honest answer when the shape is in doubt. */
+	private static InlineArgSpec flatBytes(int n) {
+		if (n <= 0) {
+			return InlineArgSpec.NONE;
+		}
+		List<InlineArgSpec.Kind> flat = new ArrayList<>();
+		for (int i = 0; i < n; i++) {
+			flat.add(InlineArgSpec.Kind.BYTE);
+		}
+		return new InlineArgSpec(flat);
 	}
 
 	/** Falls back to a flat run of bytes when the widths do not account for the whole advance. */

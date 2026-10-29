@@ -198,6 +198,7 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 		}
 
 		int changed = 0;
+		int preserved = 0;
 		Set<Address> targets = new TreeSet<>();
 		AddressSet toDisassemble = new AddressSet();
 		List<Instruction> seps = findSepInstructions(program, monitor);
@@ -218,21 +219,26 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 					targets.add(t);
 				}
 				InlineArgSpec extra = t == null ? null : extras.get(t);
-				if (markCall(program, in, t, extra == null ? InlineArgSpec.NONE : extra,
-					toDisassemble, log)) {
+				if (markCall(program, in, name, t,
+					extra == null ? InlineArgSpec.NONE : extra, toDisassemble, log)) {
 					changed++;
 				}
 			}
 			else if (returnReg != null && returnReg.equals(name)) {
-				if (markReturn(in)) {
+				// If this register was the call vector on an earlier run, the inline bytes its
+				// markup claimed have to be released first, or they stay behind as defined
+				// data once the site becomes a plain return.
+				boolean cleared = ownsCallMarkupFor(in, name) && removeMarkup(program, in, log);
+				if (markReturn(in, name) || cleared) {
 					changed++;
 				}
 			}
 			else if (ownsMarkup(in)) {
-				// This site was marked under a previous option set and no longer qualifies.
-				if (removeMarkup(program, in, log)) {
-					changed++;
-				}
+				// Markup belonging to a vector this run was not asked about. Leaving it is the
+				// point of scoping markup by register: the per-vector runs the scope document
+				// describes - R4 with two inline bytes, then RB with none - have to coexist,
+				// and the second must not dismantle the first.
+				preserved++;
 			}
 		}
 
@@ -257,9 +263,11 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 
 		Msg.info(this, String.format(
 			"%s: call register %s with %d inline byte(s), return register %s; " +
-				"changed %d site(s), %d distinct target(s), %d function(s) created.",
+				"changed %d site(s), %d distinct target(s), %d function(s) created, " +
+				"%d site(s) left alone as another vector's.",
 			NAME, callReg == null ? "(none)" : callReg, inlineBytes,
-			returnReg == null ? "(none)" : returnReg, changed, targets.size(), created));
+			returnReg == null ? "(none)" : returnReg, changed, targets.size(), created,
+			preserved));
 		return changed > 0;
 	}
 
@@ -285,7 +293,7 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 	 *
 	 * @return true if anything changed
 	 */
-	private boolean markCall(Program program, Instruction in, Address target,
+	private boolean markCall(Program program, Instruction in, String reg, Address target,
 			InlineArgSpec extra, AddressSet toDisassemble, MessageLog log) {
 
 		Listing listing = program.getListing();
@@ -314,7 +322,10 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 			}
 		}
 
-		String comment = COMMENT_PREFIX + "call" + (target == null ? "" : " -> " + target) +
+		// The register is part of the comment so that markup can be attributed to the vector
+		// it was made for, and so a run for one vector can recognise another's and leave it be.
+		String comment = COMMENT_PREFIX + reg + " call" +
+			(target == null ? "" : " -> " + target) +
 			(extra.isEmpty() ? "" : " (" + upper(extra) + ")");
 		if (isAlreadyCorrect(in, resume, comment, program, target, total)) {
 			return false; // nothing to do; this is what stops the analyzer looping
@@ -329,9 +340,22 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 		markedThisSession.put(site, comment);
 
 		try {
+			// A signature can shrink - W corrected to NONE, say - and the bytes the previous
+			// markup owned beyond the new extent would then stay behind as defined data. The
+			// new resume address lands on that orphaned data, scheduleDisassembly declines to
+			// queue it because something is already there, and the caller's instruction stream
+			// never comes back. So clear the union of what was owned and what is now wanted.
+			Address clearEnd = argEnd;
+			Address ownedEnd = previouslyOwnedEnd(in);
+			if (ownedEnd != null && (clearEnd == null || ownedEnd.compareTo(clearEnd) > 0)) {
+				clearEnd = ownedEnd;
+			}
+			if (clearEnd != null) {
+				Address clearStart = site.add(1);
+				clearOwnedReferences(program, clearStart, clearEnd);
+				listing.clearCodeUnits(clearStart, clearEnd, false);
+			}
 			if (argStart != null) {
-				clearOwnedReferences(program, argStart, argEnd);
-				listing.clearCodeUnits(argStart, argEnd, false);
 				Address at = argStart;
 				if (inlineBytes >= 2) {
 					// A pointer rather than a plain word: the bytes are an address, so typing
@@ -532,7 +556,8 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 			}
 		}
 
-		ScrtArgDetector detector = new ScrtArgDetector(program, callReg, returnReg, known::get);
+		ScrtArgDetector detector =
+			new ScrtArgDetector(program, callReg, returnReg, inlineBytes, known::get);
 		boolean progress = true;
 		while (progress) {
 			monitor.checkCancelled();
@@ -663,8 +688,8 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 
 	// ---------------------------------------------------------------- returns
 
-	private boolean markReturn(Instruction in) {
-		String comment = COMMENT_PREFIX + "return";
+	private boolean markReturn(Instruction in, String reg) {
+		String comment = COMMENT_PREFIX + reg + " return";
 		if (in.getFlowOverride() == FlowOverride.RETURN &&
 			comment.equals(in.getComment(CommentType.EOL))) {
 			return false;
@@ -676,9 +701,33 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 
 	// ---------------------------------------------------------------- undo
 
+	/** True when this analyzer wrote the markup here, whichever vector it was written for. */
 	private boolean ownsMarkup(Instruction in) {
 		String c = in.getComment(CommentType.EOL);
 		return c != null && c.startsWith(COMMENT_PREFIX);
+	}
+
+	/** True when the markup here was written for {@code reg} acting as the call vector. */
+	private boolean ownsCallMarkupFor(Instruction in, String reg) {
+		String c = in.getComment(CommentType.EOL);
+		return c != null && reg != null && c.startsWith(COMMENT_PREFIX + reg + " call");
+	}
+
+	/**
+	 * The last byte the markup already on this site claims, read from its fall-through
+	 * override, or null when it claims none. Lets a site being re-marked with fewer bytes than
+	 * before release the surplus instead of leaving it defined as data.
+	 */
+	private Address previouslyOwnedEnd(Instruction in) {
+		if (!in.isFallThroughOverridden()) {
+			return null;
+		}
+		Address ft = in.getFallThrough();
+		if (ft == null) {
+			return null;
+		}
+		Address last = ft.subtract(1);
+		return last.compareTo(in.getAddress()) > 0 ? last : null;
 	}
 
 	/** Undoes markup applied under a previous option set. */
