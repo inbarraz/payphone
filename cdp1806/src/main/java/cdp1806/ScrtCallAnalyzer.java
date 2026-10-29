@@ -353,6 +353,11 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 					if (kind == InlineArgSpec.Kind.BYTE) {
 						listing.createData(at, (DataType) ByteDataType.dataType);
 					}
+					else if (kind == InlineArgSpec.Kind.WORD_IMM) {
+						// A plain number. Typing it as a pointer would invent a reference to
+						// whatever address the value happens to collide with.
+						listing.createData(at, (DataType) WordDataType.dataType);
+					}
 					else {
 						listing.createData(at, addressDataType(program, targetOf(program, at)));
 					}
@@ -650,7 +655,8 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 				sb.append(", ");
 			}
 			sb.append(k == InlineArgSpec.Kind.BYTE ? "byte"
-					: k == InlineArgSpec.Kind.WORD ? "word" : "pointer");
+					: k == InlineArgSpec.Kind.WORD ? "word (address)"
+					: k == InlineArgSpec.Kind.WORD_IMM ? "word (immediate)" : "pointer");
 		}
 		return sb.toString();
 	}

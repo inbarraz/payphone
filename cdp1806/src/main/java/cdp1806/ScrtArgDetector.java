@@ -114,6 +114,10 @@ public class ScrtArgDetector {
 	private class Walk {
 		private final boolean unknownXIsThree;
 		boolean guessedAtX;
+		/** Which register each word argument was loaded into, by its position in the list. */
+		private final Map<Integer, String> wordArgReg = new HashMap<>();
+		/** Registers used to address memory anywhere in this subroutine. */
+		private final Set<String> deref = new HashSet<>();
 
 		Walk(boolean unknownXIsThree) {
 			this.unknownXIsThree = unknownXIsThree;
@@ -167,6 +171,23 @@ public class ScrtArgDetector {
 
 				String m = in.getMnemonicString();
 				Address fallThrough = in.getFallThrough();
+
+				// A register that is only counted or compared is holding a number; one that is
+				// used to reach memory is holding an address. That is what separates a word
+				// argument that deserves a reference from one that must not have one.
+				if ("LDN".equals(m) || "LDA".equals(m) || "STR".equals(m)) {
+					Register r = in.getRegister(0);
+					if (r != null) {
+						deref.add(r.getName());
+					}
+				}
+				else if ("SEX".equals(m)) {
+					Scalar sc = in.getScalar(0);
+					if (sc != null) {
+						deref.add("R" + Integer.toHexString((int) sc.getUnsignedValue())
+								.toUpperCase());
+					}
+				}
 
 				switch (m) {
 					case "SEP": {
@@ -224,6 +245,10 @@ public class ScrtArgDetector {
 							else {
 								Address low = wordPairLowHalf(in);
 								if (low != null) {
+									Register dst = in.getNext().getRegister(0);
+									if (dst != null) {
+										wordArgReg.put(args.size(), dst.getName());
+									}
 									// LDA R3 / PHI Rn / LDA R3 / PLO Rn builds a 16-bit value
 									// out of two byte reads; report it as the word it is.
 									consumed.add(low);
@@ -262,6 +287,10 @@ public class ScrtArgDetector {
 							return fail("R3 overwritten by RLXA at " + addr);
 						}
 						if (effectiveX(x) == 3) {
+							Register dst = in.getRegister(0);
+							if (dst != null) {
+								wordArgReg.put(args.size(), dst.getName());
+							}
 							delta += 2;
 							args.add(InlineArgSpec.Kind.WORD);
 						}
@@ -331,7 +360,29 @@ public class ScrtArgDetector {
 			if (result == null) {
 				return fail("no SEP " + returnReg + " reached from " + entry);
 			}
-			return new Result(result, null);
+			return new Result(markImmediates(result), null);
+		}
+
+		/**
+		 * Re-reads each word argument as an immediate when the register it was loaded into is
+		 * never used to address memory. Without this a delay count or a bit pattern that
+		 * happens to fall inside the image would be typed as a pointer, inventing a reference
+		 * to whatever it collided with.
+		 */
+		private InlineArgSpec markImmediates(InlineArgSpec spec) {
+			List<InlineArgSpec.Kind> out = new ArrayList<>(spec.kinds());
+			boolean changed = false;
+			for (int i = 0; i < out.size(); i++) {
+				if (out.get(i) != InlineArgSpec.Kind.WORD) {
+					continue;
+				}
+				String reg = wordArgReg.get(i);
+				if (reg != null && !deref.contains(reg)) {
+					out.set(i, InlineArgSpec.Kind.WORD_IMM);
+					changed = true;
+				}
+			}
+			return changed ? new InlineArgSpec(out) : spec;
 		}
 	}
 

@@ -17,7 +17,11 @@ public class InlineArgSpec {
 
 	public enum Kind {
 		BYTE(1, "b"),
+		/** A word used as an address: typed as a pointer, and earns a reference. */
 		WORD(2, "w"),
+		/** A word that is a plain number - a count, a delay, a bit pattern. Never referenced. */
+		WORD_IMM(2, "wi"),
+		/** A word always treated as an address, even into uninitialized memory. */
 		POINTER(2, "p");
 
 		public final int size;
@@ -29,6 +33,10 @@ public class InlineArgSpec {
 		}
 
 		static Kind fromCode(String s) {
+			// "wo" reads as the opposite of "wi" and is accepted as a spelling of "w".
+			if ("wo".equalsIgnoreCase(s)) {
+				return WORD;
+			}
 			for (Kind k : values()) {
 				if (k.code.equalsIgnoreCase(s)) {
 					return k;
