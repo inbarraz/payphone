@@ -124,7 +124,12 @@ W,B - prefix pointer, then the staging buffer id
 ```
 
 Ghidra echoes a repeatable comment at every site that references the address, so it shows up in
-the calling code, which is where an adjustment has to be made.
+the calling code, which is where an adjustment has to be made. *Every* callee gets one, including
+the ones that take nothing (`NONE`) and the ones that could not be worked out (`?`) - at a call
+site, "no inline arguments" is what confirms the call really is just the opcode and its address.
+
+A function's repeatable comment and the code unit's repeatable comment at its entry are the same
+storage in Ghidra; setting either shows in both. There is one slot, not two.
 
 It is also the input, not only the output. Resolution order is **signature comment, then
 detection**, and the rule that protects hand analysis is *write once, then read only*:

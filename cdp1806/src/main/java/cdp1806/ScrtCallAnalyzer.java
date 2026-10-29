@@ -104,7 +104,7 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 	 * readable signature is authoritative whatever it says next, so this only distinguishes our
 	 * own earlier output from a human's prose.
 	 */
-	private static final String AUTO_MARKER = "- SCRT inline arguments";
+	private static final String AUTO_MARKER = "[scrt auto]";
 
 	/**
 	 * Resolving callee sizes walks every callee, and analysis calls back many times as the
@@ -572,13 +572,22 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 		return known;
 	}
 
-	/** The signature written on a callee, or null if there is not a readable one. */
+	/**
+	 * The signature written on a callee, or null if there is not a readable one.
+	 *
+	 * <p>A function's repeatable comment and the code unit's repeatable comment at its entry are
+	 * the same storage in Ghidra -- setting either shows in both -- so there is only one slot to
+	 * read, and only one to write.
+	 */
 	private InlineArgSpec commentSignature(Program program, Address callee) {
-		String c = program.getListing().getComment(CommentType.REPEATABLE, callee);
-		if (c == null) {
+		return leadingSpec(program.getListing().getComment(CommentType.REPEATABLE, callee));
+	}
+
+	private static InlineArgSpec leadingSpec(String comment) {
+		if (comment == null) {
 			return null;
 		}
-		String t = c.trim();
+		String t = comment.trim();
 		int cut = t.length();
 		for (int i = 0; i < t.length(); i++) {
 			char ch = t.charAt(i);
@@ -615,18 +624,35 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 
 		String wanted;
 		if (spec == null) {
-			wanted = "? " + AUTO_MARKER + " could not be determined. Call sites are marked as " +
-				inlineBytes + " byte(s); correct the signature above if that is wrong.";
+			wanted = "? - inline arguments undetermined; call sites assume " + inlineBytes +
+				" byte(s). " + AUTO_MARKER;
+		}
+		else if (spec.isEmpty()) {
+			// Worth stating rather than leaving blank: at a call site this is what confirms the
+			// call really is just the opcode and its address.
+			wanted = "NONE - no inline arguments. " + AUTO_MARKER;
 		}
 		else {
-			wanted = upper(spec) + " " + AUTO_MARKER + ", auto-detected. A call to this routine " +
-				"occupies " + (1 + inlineBytes + spec.byteCount()) + " bytes in the caller. " +
-				"Edit the signature at the start of this line to correct it; once it reads as a " +
-				"signature it is taken as authoritative and never rewritten.";
+			wanted = upper(spec) + " - inline arguments: " + describe(spec) + ". A call occupies " +
+				(1 + inlineBytes + spec.byteCount()) + " bytes. " + AUTO_MARKER;
 		}
+
 		if (!wanted.equals(existing)) {
 			listing.setComment(callee, CommentType.REPEATABLE, wanted);
 		}
+	}
+
+	/** Spells the signature out, since the letters alone mean little at a call site. */
+	private static String describe(InlineArgSpec spec) {
+		StringBuilder sb = new StringBuilder();
+		for (InlineArgSpec.Kind k : spec.kinds()) {
+			if (sb.length() > 0) {
+				sb.append(", ");
+			}
+			sb.append(k == InlineArgSpec.Kind.BYTE ? "byte"
+					: k == InlineArgSpec.Kind.WORD ? "word" : "pointer");
+		}
+		return sb.toString();
 	}
 
 	// ---------------------------------------------------------------- returns
