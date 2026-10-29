@@ -221,17 +221,36 @@ the listing is correct.
 
 ## Where the code should live
 
-The existing `InlineArgsAnalyzer` already has machinery worth reusing: the override file with
-program-name gating, the markup reconciliation that rewrites and removes rather than only adding,
-ownership tracking via a comment marker, and the reporting.
+The existing `InlineArgsAnalyzer` already has machinery worth reusing: the markup reconciliation
+that rewrites and removes rather than only adding, ownership tracking via a comment marker, and
+the reporting.
 
-Recommendation: a **sibling analyzer**, `ScrtCallAnalyzer`, with the override-file handling and the
-markup reconciliation extracted into a shared helper. Not a second mode inside the existing one —
+Recommendation: a **sibling analyzer**, `ScrtCallAnalyzer`, with the markup reconciliation
+extracted into a shared helper. Not a second mode inside the existing one —
 the trigger, the flow semantics and the per-site markup all differ, and merging them would make
 both harder to follow.
 
 Both analyzers can be enabled at once. They cannot collide: this ROM has no `SCAL`, and the
 payphone ROM's `SEP` usage is not SCRT.
+
+## No override file
+
+Decided: everything the analyzer knows about a program lives **in the Ghidra project**, in the
+signature comments on the callees. There is no override file for SCRT calls and there should not
+be one.
+
+The reasoning is that an override file is a second, separate record of the same analysis, kept
+somewhere the person reading the listing is not looking. Two records drift. The signature comment
+is already the authoritative input, it travels with the database, and it is visible at exactly the
+place the question arises.
+
+The consequence is that signatures are entered by hand, in Ghidra. That is accepted. It also means
+tooling outside the project cannot write them: the MCP server used for this work exposes
+end-of-line and pre comments but not repeatable ones, so a signature can be *proposed* from
+outside but has to be *applied* in the GUI.
+
+The way to reduce that hand work is to make detection better rather than to add a file. See the
+open questions below.
 
 ## Open questions
 
