@@ -1,0 +1,316 @@
+# Scope: an analyzer for SCRT calls (`SEP R4` + inline address)
+
+Status: implemented. See `ScrtCallAnalyzer` and `ScrtArgDetector`.
+Written: 2026-10-27, against `Card Reader/ROM Image/Card Reader BSK-31 202 .BIN` (BSK31 card reader).
+
+## The problem
+
+The card reader firmware is plain CDP1802 code. The 1802 has no `SCAL`/`SRET`, so calls use the
+RCA **Standard Call and Return Technique**: a one-byte `SEP R4` followed by a **two-byte inline
+call address**.
+
+```
+011b  D4            SEP R4          ; call
+011c  0F 7E         <- the target, sitting in the caller
+011e  ...                           ; execution resumes here
+```
+
+Ghidra gets two things wrong about this:
+
+1. The SLEIGH definition compiles `SEP` to `goto [reg16]`, a computed jump with no resolvable
+   target. So no call is recorded, no call graph is built, and nothing links a call site to the
+   subroutine it calls.
+2. The two address bytes are disassembled as instructions, which puts the listing out of phase —
+   the same failure the `SCAL` analyzer on `main` was written to fix, except there are **538** of
+   them here rather than 50.
+
+Returns are a one-byte `SEP R5` with no inline data, but Ghidra treats them as computed jumps
+too, so function bodies never close.
+
+## What the ROM actually contains
+
+Measured on the image, counting only bytes that are real opcodes:
+
+| Fact | Value |
+|---|---|
+| `SEP R4` call sites | 538 |
+| Distinct call targets | 67 |
+| `SEP R5` return sites | 63 |
+| `SEP R4` sites whose inline address is in range | 538 of 538 |
+| Bytes after `SEP R5` | ordinary code; no inline data |
+
+A naive byte scan reports three extra `D4`s at `05BD`, `07CE` and `22DA`. All three are operand
+bytes of a preceding branch (`CB 05 D4`, `C2 22 D4`) rather than opcodes. **The analyzer must
+therefore work from the instruction listing, never from a byte scan** — which is also how the
+existing `SCAL` analyzer works.
+
+### The SCRT routines in this image
+
+```
+R4 = 12EE   SCRT_CALL
+R5 = 07F1   SCRT_RETURN
+```
+
+Both are loaded by `LDI/PLO` + `LDI/PHI` pairs at `00AF`/`00B5`, and again at `0265`/`026B`.
+
+```
+12ee  SCRT_CALL     PHI RE          ; save D
+12ef                SEX R6          ; R6 is the stack
+12f0                GHI R3 / STXD   ; push the caller's link
+12f2                GLO R3 / STXD
+12f4                R3 = R0         ; R0 points at the inline address
+12f8                LDA R3 / PHI R0 ; load the target, stepping R3 past it
+12fa                LDA R3 / PLO R0 ;   so R3 becomes the return link
+12fc                GHI RE          ; restore D
+12fd                LBR 12ED        ; -> SEP R0, enter the subroutine
+```
+
+Note `12ED` (the `SEP R0` dispatch) sits one byte **below** the entry point, reached only by that
+`LBR`. Ghidra invents a `FUN_12ed` from the branch target; the real entry, and the value in R4,
+is `12EE`.
+
+Register roles: **R0** = PC, **R3** = return link, **R6** = stack, **R4**/**R5** = call/return
+vectors, **RE** = saved D.
+
+## Goal
+
+After the analyzer runs:
+
+- every `SEP R4` is a **call** to the address inlined after it, with a real reference, so the call
+  graph and "called by" work;
+- execution resumes at `site + 3`, and the two address bytes are typed data, not code;
+- every `SEP R5` terminates flow, so function bodies close;
+- a function exists at each of the 67 targets.
+
+## Design
+
+### 1. Ask, do not guess
+
+The analyzer is driven by options rather than by recognising the SCRT routine:
+
+| Option | Default | Meaning |
+|---|---|---|
+| **Call register** | `R4` | Which `SEP Rn` is a call. Blank disables the analyzer. |
+| **Inline bytes after SEP** | `2` | How many bytes follow the `SEP` and belong to it. |
+| **Return register** | `R5` | Which `SEP Rn` is a return. Blank to skip return markup. |
+
+Two bytes is the default because that is the callee address in the standard technique. The count
+is separate from the address so the same mechanism covers a vector whose calls carry extra inline
+arguments, and a vector that takes none at all.
+
+Interpretation of the inline bytes:
+
+- `0` — nothing follows. The `SEP` is a plain register jump; only the flow override applies.
+- `2` — the two bytes are the callee address: typed as a pointer, and the source of the call
+  reference.
+- `>2` — the first two are the callee address; the remainder are the callee's inline arguments,
+  typed as bytes.
+
+The option sets the *base* count only. Callees differ: `2422` reads one further byte of its own
+(`LDA R3 / PLO RF`), while its neighbour `242C` reads none, so no single number describes a whole
+program. Extra bytes are therefore detected per callee by `ScrtArgDetector`, on the same principle
+the `SCAL` analyzer uses — by the time a callee is entered the call routine has already consumed
+the two address bytes, so the net advance of R3 before `SEP R5` is exactly the number of extra
+bytes. A callee whose size cannot be determined is reported and treated as taking none, which
+leaves its call sites marked as plain calls: a miss rather than a corruption.
+
+### The signature comment
+
+What a callee expects is recorded on the callee itself, as a **repeatable** comment beginning
+with a signature — `B` for a byte, `W` for a word, comma-separated, or `none`:
+
+```
+W,B - prefix pointer, then the staging buffer id
+```
+
+Ghidra echoes a repeatable comment at every site that references the address, so it shows up in
+the calling code, which is where an adjustment has to be made. *Every* callee gets one, including
+the ones that take nothing (`NONE`) and the ones that could not be worked out (`?`) - at a call
+site, "no inline arguments" is what confirms the call really is just the opcode and its address.
+
+A function's repeatable comment and the code unit's repeatable comment at its entry are the same
+storage in Ghidra; setting either shows in both. There is one slot, not two.
+
+It is also the input, not only the output. Resolution order is **signature comment, then
+detection**, and the rule that protects hand analysis is *write once, then read only*:
+
+- a comment that starts with a readable signature is authoritative, and is never rewritten;
+- a callee with no such comment gets one written, after which the first rule applies;
+- when detection disagrees with what is written, the disagreement is logged and nothing changes.
+
+So the analyzer gets exactly one chance to write, and anything edited afterwards wins by default
+without having to be marked as manual. The cost is that a poor first guess will not correct
+itself later, which is what the disagreement log is for.
+
+This matters because counting bytes cannot see meaning. `0e01` reads its prefix pointer with two
+separate `LDA R3`, which detection can only report as two bytes; a person writes `W`. The
+signature then types the argument at every call site as a pointer rather than two loose bytes,
+so the string it names picks up a reference.
+
+Detection does recognise `LDA R3 / PHI Rn / LDA R3 / PLO Rn` as one word, which is how `2171`
+and `2194` come out as `W` unaided.
+
+The **high half has to come first**. A call site's two bytes are typed as a big-endian pointer,
+so that is the only order such typing describes correctly: in the low-half-first `PLO` then `PHI`
+form the bytes `34 12` build the address `1234`, and calling them a pointer would publish `3412`
+and invent a reference to it. Low-first pairs are therefore reported as two separate bytes — the
+same byte count, so call sites still resume in the right place, but with no claim made about
+what the bytes mean.
+
+Register assignments differ between SCRT implementations — this image uses R0/R3/R6 where the RCA
+manual's example uses R3/R6/R2 — so asking is both simpler and more portable than inferring. It
+also means a second vector is handled by running the analyzer again with different options,
+rather than needing the design to anticipate it.
+
+One set of options applies per run, by decision: the analyzer handles a single register and byte
+count at a time, and a program with more than one vector is marked up by running it once per
+vector. There is no list syntax and no attempt to combine sets.
+
+For those successive runs to add up, **markup is scoped to the register it was made for**. The
+end-of-line comment names the vector — `scrt R4 call -> 0F7E`, `scrt R5 return` — and a run is
+only allowed to disturb markup belonging to the registers it was given. Markup for any other
+vector is counted and left alone, and the run log says how many sites that was. Without this,
+the second run strips everything the first one did and the per-vector workflow above cannot work.
+
+The one case where markup is still removed is a register changing role: if `R4` was the call
+vector and is now nominated as the return vector, the inline bytes its old markup claimed are
+released first, or they would stay behind as defined data once the site becomes a plain return.
+
+A signature can also shrink — `W` corrected to `NONE` — which makes a site's extent shorter than
+it was. Re-marking clears the union of the old extent and the new one, because bytes left defined
+past the new resume address would stop the caller's instruction stream from coming back.
+
+To make the options easy to fill in, the analyzer logs the register-pair loads it can see
+(`LDI lo / PLO Rn / LDI hi / PHI Rn`) together with the address each one produces. In this image
+that reports `R4 = 12EE` and `R5 = 07F1` from the loads at `00AF`/`00B5`. It is a hint in the log,
+not a decision the analyzer acts on.
+
+### 2. Mark each call site
+
+For each `SEP <call-reg>` instruction, with `N` the configured inline byte count:
+
+- `setFlowOverride(FlowOverride.CALL)` — our `SEP` is `BRANCHIND`, which `FlowOverride.CALL` maps
+  to `CALLIND`, making it a call rather than a jump;
+- when `N >= 2`, add a `RefType.UNCONDITIONAL_CALL` reference to the address in the first two
+  bytes and make it primary, which is what supplies the target that `CALLIND` lacks;
+- `setFallThrough(site + 1 + N)`;
+- type the first two bytes as a two-byte pointer rather than a plain word — they are an address,
+  so typing them as one makes the listing show the callee's name, makes the operand navigable,
+  and gives the callee a data reference alongside the call reference. A word is used only where
+  the value does not name a location in the program, since calling that a pointer would be a lie;
+- type any remaining bytes as data;
+- end-of-line comment recording the resolved target and the argument bytes.
+
+### 3. Mark each return site
+
+`setFlowOverride(FlowOverride.RETURN)` on `SEP <return-reg>`, so flow terminates and Ghidra can
+close function bodies. *(To verify: that `FlowOverride.RETURN` maps `BRANCHIND -> RETURN` in
+12.1.3 as the enum documentation implies.)*
+
+### 4. Create functions
+
+After markup, create a function at each distinct call target.
+
+### 5. Iterate
+
+A call site can only be marked once it has been disassembled, and disassembly past it only becomes
+correct once it is marked. The existing analyzer already handles this by rescanning the whole
+program on each pass and scheduling newly-exposed addresses for disassembly; the same approach
+applies, seeded from the reset vector.
+
+## The other SEP vectors
+
+`SEP RB`: **RB = E080**, loaded at `00E8`. About 25 of the 29 `DB` bytes are at plausible
+instruction boundaries; the remaining four are operand bytes of a preceding branch. None of those
+25 is followed by an in-range address, and none is followed by anything that reads as text, so it
+is not a second call-with-address vector. It is the **zero-inline-bytes** case: run the analyzer
+with the call register set to `RB` and the byte count set to `0`, and it gets a flow override and
+nothing else.
+
+What follows a `SEP RB` is almost always just the next instruction — commonly `D4 <addr>`, another
+SCRT call, or `DD <byte>`.
+
+Two caveats. This is byte-scan evidence rather than verified disassembly, so it should be
+re-checked once the listing is coherent. And `E080` lies outside the program's only memory block
+(`ram: 0000-7fff`), so Ghidra has nowhere to follow the call to; a block would have to be created
+there, and populated, before anything at the far end could be analyzed. The payphone image has the
+same shape, with its LCD mapped at `E000-E007`.
+
+`SEP RD`: left alone for now. RD is mostly used as an argument register rather than as a vector,
+so the `DD` bytes are not reliably instructions, and sorting that out is not worth doing before
+the listing is correct.
+
+## Where the code should live
+
+The existing `InlineArgsAnalyzer` already has machinery worth reusing: the markup reconciliation
+that rewrites and removes rather than only adding, ownership tracking via a comment marker, and
+the reporting.
+
+Recommendation: a **sibling analyzer**, `ScrtCallAnalyzer`, with the markup reconciliation
+extracted into a shared helper. Not a second mode inside the existing one —
+the trigger, the flow semantics and the per-site markup all differ, and merging them would make
+both harder to follow.
+
+Both analyzers can be enabled at once. They cannot collide: this ROM has no `SCAL`, and the
+payphone ROM's `SEP` usage is not SCRT.
+
+## No override file
+
+Decided: everything the analyzer knows about a program lives **in the Ghidra project**, in the
+signature comments on the callees. There is no override file for SCRT calls and there should not
+be one.
+
+The reasoning is that an override file is a second, separate record of the same analysis, kept
+somewhere the person reading the listing is not looking. Two records drift. The signature comment
+is already the authoritative input, it travels with the database, and it is visible at exactly the
+place the question arises.
+
+The consequence is that signatures are entered by hand, in Ghidra. That is accepted. It also means
+tooling outside the project cannot write them: the MCP server used for this work exposes
+end-of-line and pre comments but not repeatable ones, so a signature can be *proposed* from
+outside but has to be *applied* in the GUI.
+
+The way to reduce that hand work is to make detection better rather than to add a file. See the
+open questions below.
+
+## Open questions
+
+1. **Do any SCRT subroutines take further inline arguments after the call address?** This is the
+   exact problem the existing analyzer solves for `SCAL`, and the mechanism transfers — the callee
+   would read them through the link register R3 and `SRET`-equivalent past them. It cannot be
+   answered until the listing is coherent. If the answer is yes, the detector generalises rather
+   than being rewritten.
+2. `SEP R1` (11), `SEP R9` (10), `SEP RC` (9) — likely register-based jumps, which is the
+   zero-inline-bytes case.
+
+## Validation
+
+Fixtures to assert, all measured from the image:
+
+- with the defaults (call `R4`, 2 inline bytes, return `R5`) the image is marked up correctly;
+- the register-pair hint reports `R4 = 12EE` and `R5 = 07F1` from the loads at `00AF`/`00B5`;
+- the call site at `011B` resolves to `0F7E` and resumes at `011E`;
+- setting the inline byte count to 4 moves that resume address to `0120`, confirming the count is
+  honoured rather than hardcoded, including when stepping over a nested call during detection;
+- 538 call sites marked, 67 functions created, 63 return sites overridden;
+- `05BD`, `07CE` and `22DA` are **not** treated as call sites;
+- a second pass changes nothing;
+- correcting a callee's signature from `W` to `NONE` restores the caller's instruction stream
+  rather than leaving two bytes stranded as data;
+- running `R4` with 2 inline bytes and then `RB` with 0 leaves the `R4` markup intact, and the
+  second run reports the sites it left alone;
+- a callee whose paths merge having built different argument shapes out of the same number of
+  bytes is reported as plain bytes, not as whichever shape was reached first.
+
+## Out of scope
+
+- Showing call arguments in the decompiler.
+- Fixing the `SEP`/`P`-tracking weakness in the SLEIGH definition itself (gaps G2 and G4 of
+  `REVIEW.md`). A flow override is a listing-level workaround; a context-tracked `P` register
+  would be the real fix and is a much larger change.
+- Splitting a `cdp1802` variant out of the language definition. The 1802 instruction set is a
+  strict subset, so the module works on this ROM as it stands, even though the `ldefs`
+  description claims 1804/1805/1806. Deferred deliberately: the subset comes after the 1806
+  definition is finished, not before.
+- The `X == P` inline-operand idiom (`OUT`/`INP`/`RET`/`DIS`), which this ROM also uses — see the
+  reset sequence at `0000` and `000B`. That is gap G1 and a separate piece of work.
