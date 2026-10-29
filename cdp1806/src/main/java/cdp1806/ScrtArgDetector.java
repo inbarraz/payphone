@@ -2,7 +2,11 @@ package cdp1806;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.Map;
 import java.util.function.Function;
 
@@ -44,18 +48,23 @@ public class ScrtArgDetector {
 	private static final int X_UNKNOWN = -1;
 
 	public static class Result {
-		/** Extra inline bytes, or -1 when undetermined. */
-		public final int extraBytes;
+		/** The extra inline arguments, or null when undetermined. */
+		public final InlineArgSpec spec;
 		/** Why it could not be determined, or null. */
 		public final String reason;
 
-		private Result(int extraBytes, String reason) {
-			this.extraBytes = extraBytes;
+		private Result(InlineArgSpec spec, String reason) {
+			this.spec = spec;
 			this.reason = reason;
 		}
 
 		public boolean isResolved() {
-			return extraBytes >= 0;
+			return spec != null;
+		}
+
+		/** Extra inline bytes, or -1 when undetermined. */
+		public int extraBytes() {
+			return spec == null ? -1 : spec.byteCount();
 		}
 	}
 
@@ -63,10 +72,10 @@ public class ScrtArgDetector {
 	private final String callReg;
 	private final String returnReg;
 	/** Extra bytes already known for a nested callee, or null if not yet known. */
-	private final Function<Address, Integer> known;
+	private final Function<Address, InlineArgSpec> known;
 
 	public ScrtArgDetector(Program program, String callReg, String returnReg,
-			Function<Address, Integer> known) {
+			Function<Address, InlineArgSpec> known) {
 		this.program = program;
 		this.callReg = callReg;
 		this.returnReg = returnReg;
@@ -74,7 +83,7 @@ public class ScrtArgDetector {
 	}
 
 	private static Result fail(String reason) {
-		return new Result(-1, reason);
+		return new Result(null, reason);
 	}
 
 	private static boolean isReg(Register r, String name) {
@@ -95,9 +104,9 @@ public class ScrtArgDetector {
 		if (!rb.isResolved()) {
 			return fail("depends on an X we cannot determine: " + rb.reason);
 		}
-		if (ra.extraBytes != rb.extraBytes) {
-			return fail("depends on an X we cannot determine (" + ra.extraBytes +
-				" if X is not 3, " + rb.extraBytes + " if it is)");
+		if (!ra.spec.toString().equals(rb.spec.toString())) {
+			return fail("depends on an X we cannot determine (" + ra.spec +
+				" if X is not 3, " + rb.spec + " if it is)");
 		}
 		return ra;
 	}
@@ -122,9 +131,11 @@ public class ScrtArgDetector {
 			Listing listing = program.getListing();
 			Deque<Object[]> work = new ArrayDeque<>();
 			Map<String, Integer> seen = new HashMap<>();
-			work.push(new Object[] { entry, 0, X_UNKNOWN });
+			// Addresses whose LDA R3 has already been counted as the low half of a word.
+			Set<Address> consumed = new HashSet<>();
+			work.push(new Object[] { entry, 0, X_UNKNOWN, new ArrayList<InlineArgSpec.Kind>() });
 
-			int result = Integer.MIN_VALUE;
+			InlineArgSpec result = null;
 			int steps = 0;
 
 			while (!work.isEmpty()) {
@@ -135,6 +146,9 @@ public class ScrtArgDetector {
 				Address addr = (Address) s[0];
 				int delta = (Integer) s[1];
 				int x = (Integer) s[2];
+				@SuppressWarnings("unchecked")
+				List<InlineArgSpec.Kind> args =
+					new ArrayList<>((List<InlineArgSpec.Kind>) s[3]);
 
 				String key = addr + "/" + x;
 				Integer prev = seen.get(key);
@@ -161,11 +175,13 @@ public class ScrtArgDetector {
 							if (delta < 0) {
 								return fail("R3 moved backwards by " + (-delta) + " at " + addr);
 							}
-							if (result != Integer.MIN_VALUE && result != delta) {
+							InlineArgSpec candidate = reconcile(args, delta);
+							if (result != null &&
+								!result.toString().equals(candidate.toString())) {
 								return fail("return paths disagree (" + result + " vs " +
-									delta + " extra byte(s))");
+									candidate + ")");
 							}
-							result = delta;
+							result = candidate;
 							continue;
 						}
 						if (isReg(r, callReg)) {
@@ -175,12 +191,12 @@ public class ScrtArgDetector {
 							if (t == null) {
 								return fail("indeterminate nested call target at " + addr);
 							}
-							Integer extra = known.apply(t);
+							InlineArgSpec extra = known.apply(t);
 							if (extra == null) {
 								return fail("nested call to " + t + " has no known size yet");
 							}
 							try {
-								fallThrough = addr.add(3 + extra);
+								fallThrough = addr.add(3 + extra.byteCount());
 							}
 							catch (RuntimeException e) {
 								return fail("nested call runs past the end of memory at " + addr);
@@ -199,10 +215,33 @@ public class ScrtArgDetector {
 						x = (int) sc.getUnsignedValue();
 						break;
 					}
-					case "LDA":
+					case "LDA": {
+						if (isR3(in.getRegister(0))) {
+							if (consumed.contains(addr)) {
+								// Already counted as the low half of a word pair.
+								delta += 1;
+							}
+							else {
+								Address low = wordPairLowHalf(in);
+								if (low != null) {
+									// LDA R3 / PHI Rn / LDA R3 / PLO Rn builds a 16-bit value
+									// out of two byte reads; report it as the word it is.
+									consumed.add(low);
+									delta += 1;
+									args.add(InlineArgSpec.Kind.WORD);
+								}
+								else {
+									delta += 1;
+									args.add(InlineArgSpec.Kind.BYTE);
+								}
+							}
+						}
+						break;
+					}
 					case "INC": {
 						if (isR3(in.getRegister(0))) {
 							delta += 1;
+							args.add(InlineArgSpec.Kind.BYTE);
 						}
 						break;
 					}
@@ -224,6 +263,7 @@ public class ScrtArgDetector {
 						}
 						if (effectiveX(x) == 3) {
 							delta += 2;
+							args.add(InlineArgSpec.Kind.WORD);
 						}
 						break;
 					}
@@ -232,6 +272,7 @@ public class ScrtArgDetector {
 					case "OUT": {
 						if (effectiveX(x) == 3) {
 							delta += 1;
+							args.add(InlineArgSpec.Kind.BYTE);
 						}
 						break;
 					}
@@ -260,6 +301,7 @@ public class ScrtArgDetector {
 					case "MARK": {
 						if (effectiveX(x) == 3) {
 							delta += 1;
+							args.add(InlineArgSpec.Kind.BYTE);
 						}
 						x = X_UNKNOWN;
 						break;
@@ -277,20 +319,64 @@ public class ScrtArgDetector {
 				if (!in.getFlowType().isCall()) {
 					for (Address flow : in.getFlows()) {
 						if (program.getMemory().contains(flow)) {
-							work.push(new Object[] { flow, delta, x });
+							work.push(new Object[] { flow, delta, x, args });
 						}
 					}
 				}
 				if (fallThrough != null && program.getMemory().contains(fallThrough)) {
-					work.push(new Object[] { fallThrough, delta, x });
+					work.push(new Object[] { fallThrough, delta, x, args });
 				}
 			}
 
-			if (result == Integer.MIN_VALUE) {
+			if (result == null) {
 				return fail("no SEP " + returnReg + " reached from " + entry);
 			}
 			return new Result(result, null);
 		}
+	}
+
+	/**
+	 * Recognises {@code LDA R3 / PHI Rn / LDA R3 / PLO Rn} (either half first), which reads two
+	 * bytes to build one 16-bit value. Pure byte counting would call that two arguments.
+	 *
+	 * @return the address of the second LDA R3, so it is not counted twice, or null
+	 */
+	private Address wordPairLowHalf(Instruction first) {
+		Instruction i2 = first.getNext();
+		Instruction i3 = i2 == null ? null : i2.getNext();
+		Instruction i4 = i3 == null ? null : i3.getNext();
+		if (i2 == null || i3 == null || i4 == null) {
+			return null;
+		}
+		String m2 = i2.getMnemonicString();
+		String m4 = i4.getMnemonicString();
+		boolean halves = ("PHI".equals(m2) && "PLO".equals(m4)) ||
+			("PLO".equals(m2) && "PHI".equals(m4));
+		if (!halves || !"LDA".equals(i3.getMnemonicString()) || !isR3(i3.getRegister(0))) {
+			return null;
+		}
+		Register a = i2.getRegister(0);
+		Register b = i4.getRegister(0);
+		if (a == null || b == null || !a.getName().equals(b.getName()) || isR3(a)) {
+			return null;
+		}
+		return i3.getAddress();
+	}
+
+	/** Falls back to a flat run of bytes when the widths do not account for the whole advance. */
+	private InlineArgSpec reconcile(List<InlineArgSpec.Kind> args, int delta) {
+		InlineArgSpec spec = new InlineArgSpec(args);
+		if (spec.byteCount() == delta) {
+			return spec;
+		}
+		if (delta == 0) {
+			return InlineArgSpec.NONE;
+		}
+		List<InlineArgSpec.Kind> flat = new ArrayList<>();
+		for (int i = 0; i < delta; i++) {
+			flat.add(InlineArgSpec.Kind.BYTE);
+		}
+		return new InlineArgSpec(flat);
 	}
 
 	/** The two bytes after a SEP call, read big-endian, or null if they are not a valid address. */

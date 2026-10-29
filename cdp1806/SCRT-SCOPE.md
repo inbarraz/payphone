@@ -114,9 +114,36 @@ the two address bytes, so the net advance of R3 before `SEP R5` is exactly the n
 bytes. A callee whose size cannot be determined is reported and treated as taking none, which
 leaves its call sites marked as plain calls: a miss rather than a corruption.
 
-Where a callee does read extra bytes, that fact is recorded on the callee as a **repeatable**
-comment, so Ghidra echoes it at every site that calls it and the adjustment can be made where the
-call actually is.
+### The signature comment
+
+What a callee expects is recorded on the callee itself, as a **repeatable** comment beginning
+with a signature — `B` for a byte, `W` for a word, comma-separated, or `none`:
+
+```
+W,B - prefix pointer, then the staging buffer id
+```
+
+Ghidra echoes a repeatable comment at every site that references the address, so it shows up in
+the calling code, which is where an adjustment has to be made.
+
+It is also the input, not only the output. Resolution order is **signature comment, then
+detection**, and the rule that protects hand analysis is *write once, then read only*:
+
+- a comment that starts with a readable signature is authoritative, and is never rewritten;
+- a callee with no such comment gets one written, after which the first rule applies;
+- when detection disagrees with what is written, the disagreement is logged and nothing changes.
+
+So the analyzer gets exactly one chance to write, and anything edited afterwards wins by default
+without having to be marked as manual. The cost is that a poor first guess will not correct
+itself later, which is what the disagreement log is for.
+
+This matters because counting bytes cannot see meaning. `0e01` reads its prefix pointer with two
+separate `LDA R3`, which detection can only report as two bytes; a person writes `W`. The
+signature then types the argument at every call site as a pointer rather than two loose bytes,
+so the string it names picks up a reference.
+
+Detection does recognise `LDA R3 / PHI Rn / LDA R3 / PLO Rn` as one word, which is how `2171`
+and `2194` come out as `W` unaided.
 
 Register assignments differ between SCRT implementations — this image uses R0/R3/R6 where the RCA
 manual's example uses R3/R6/R2 — so asking is both simpler and more portable than inferring. It

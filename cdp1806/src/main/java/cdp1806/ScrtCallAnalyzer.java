@@ -100,15 +100,27 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 	private static final String CALLEE_NOTE_PREFIX = "SCRT callee: ";
 
 	/**
+	 * Marks a repeatable comment as one this analyzer wrote. A comment that begins with a
+	 * readable signature is authoritative whatever it says next, so this only distinguishes our
+	 * own earlier output from a human's prose.
+	 */
+	private static final String AUTO_MARKER = "- SCRT inline arguments";
+
+	/**
 	 * Resolving callee sizes walks every callee, and analysis calls back many times as the
 	 * listing grows. Redoing it when nothing has been disassembled since last time is pure cost,
 	 * so the result is kept until the instruction count moves.
 	 */
-	/** Sites marked in this session, so a site can never be marked twice over. */
-	private final Set<Address> markedThisSession = new HashSet<>();
+	/**
+	 * What this session last wrote at each site. Re-marking a site with markup it has already
+	 * been given means something is undoing it, and repeating would spin; re-marking it with
+	 * *different* markup is a legitimate correction, usually a signature that has been edited.
+	 */
+	private final Map<Address, String> markedThisSession = new HashMap<>();
 	private boolean hintsLogged;
 	private int cachedAtInstructionCount = -1;
-	private Map<Address, Integer> cachedExtras;
+	private String cachedAtSignatures = "";
+	private Map<Address, InlineArgSpec> cachedExtras;
 
 	private String callRegOpt = "R4";
 	private int inlineBytes = 2;
@@ -190,9 +202,10 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 		AddressSet toDisassemble = new AddressSet();
 		List<Instruction> seps = findSepInstructions(program, monitor);
 
-		// How many bytes each callee reads for itself, on top of the address. Resolved before
-		// anything is marked, because a site's extent depends on the callee it names.
-		Map<Address, Integer> extras = resolveExtras(program, seps, callReg, returnReg, monitor);
+		// What each callee reads for itself, on top of the address. Resolved before anything is
+		// marked, because a site's extent depends on the callee it names.
+		Map<Address, InlineArgSpec> extras =
+			resolveExtras(program, seps, callReg, returnReg, monitor);
 
 		for (Instruction in : seps) {
 			monitor.checkCancelled();
@@ -204,8 +217,9 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 				if (t != null) {
 					targets.add(t);
 				}
-				Integer extra = t == null ? null : extras.get(t);
-				if (markCall(program, in, t, extra == null ? 0 : extra, toDisassemble, log)) {
+				InlineArgSpec extra = t == null ? null : extras.get(t);
+				if (markCall(program, in, t, extra == null ? InlineArgSpec.NONE : extra,
+					toDisassemble, log)) {
 					changed++;
 				}
 			}
@@ -271,12 +285,12 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 	 *
 	 * @return true if anything changed
 	 */
-	private boolean markCall(Program program, Instruction in, Address target, int extra,
-			AddressSet toDisassemble, MessageLog log) {
+	private boolean markCall(Program program, Instruction in, Address target,
+			InlineArgSpec extra, AddressSet toDisassemble, MessageLog log) {
 
 		Listing listing = program.getListing();
 		Address site = in.getAddress();
-		int total = inlineBytes + extra;
+		int total = inlineBytes + extra.byteCount();
 		Address resume;
 		Address argStart = null;
 		Address argEnd = null;
@@ -301,17 +315,18 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 		}
 
 		String comment = COMMENT_PREFIX + "call" + (target == null ? "" : " -> " + target) +
-			(extra > 0 ? " +" + extra + " arg byte(s)" : "");
+			(extra.isEmpty() ? "" : " (" + upper(extra) + ")");
 		if (isAlreadyCorrect(in, resume, comment, program, target, total)) {
 			return false; // nothing to do; this is what stops the analyzer looping
 		}
-		if (!markedThisSession.add(site)) {
-			// Marked once already this session and still not reading as correct. Something is
-			// undoing it; marking it again would only spin. Say so once and leave it.
+		if (comment.equals(markedThisSession.get(site))) {
+			// Already given exactly this markup and it still does not read as correct, so
+			// something is undoing it. Repeating would only spin. Say so once and leave it.
 			Msg.info(this, NAME + ": " + site +
 				" did not hold its markup; leaving it as is rather than re-applying");
 			return false;
 		}
+		markedThisSession.put(site, comment);
 
 		try {
 			if (argStart != null) {
@@ -327,9 +342,21 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 					listing.createData(at, addressDataType(program, target));
 					at = at.add(2);
 				}
-				while (at.compareTo(argEnd) <= 0) {
+				// Any remaining bytes of the base count have no stated meaning.
+				Address baseEnd = argStart.add(inlineBytes - 1);
+				while (at.compareTo(baseEnd) <= 0) {
 					listing.createData(at, (DataType) ByteDataType.dataType);
 					at = at.add(1);
+				}
+				// The callee's own arguments, typed by what the signature says they are.
+				for (InlineArgSpec.Kind kind : extra.kinds()) {
+					if (kind == InlineArgSpec.Kind.BYTE) {
+						listing.createData(at, (DataType) ByteDataType.dataType);
+					}
+					else {
+						listing.createData(at, addressDataType(program, targetOf(program, at)));
+					}
+					at = at.add(kind.size);
 				}
 			}
 			// Order matters. Changing the flow override re-derives the instruction's fall-through
@@ -404,6 +431,21 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 		return p != null ? p : (DataType) WordDataType.dataType;
 	}
 
+	/** The address a 16-bit argument holds, or null if it does not name one. */
+	private Address targetOf(Program program, Address at) {
+		try {
+			int hi = program.getMemory().getByte(at) & 0xFF;
+			int lo = program.getMemory().getByte(at.add(1)) & 0xFF;
+			Address t = program.getAddressFactory()
+					.getDefaultAddressSpace()
+					.getAddress(((hi << 8) | lo) & 0xFFFF);
+			return program.getMemory().contains(t) ? t : null;
+		}
+		catch (Exception e) {
+			return null;
+		}
+	}
+
 	/** Reads the big-endian 16-bit target, or null if it is not inside the program. */
 	private Address readTarget(Program program, Instruction in) {
 		if (inlineBytes < 2) {
@@ -430,15 +472,12 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 	 * taking none, which leaves their call sites marked as plain two-byte calls: a miss rather
 	 * than a corruption.
 	 */
-	private Map<Address, Integer> resolveExtras(Program program, List<Instruction> seps,
+	private Map<Address, InlineArgSpec> resolveExtras(Program program, List<Instruction> seps,
 			String callReg, String returnReg, TaskMonitor monitor) throws CancelledException {
 
 		long instructions = program.getListing().getNumInstructions();
-		if (cachedExtras != null && instructions == cachedAtInstructionCount) {
-			return cachedExtras;
-		}
 
-		Map<Address, Integer> known = new HashMap<>();
+		Map<Address, InlineArgSpec> known = new HashMap<>();
 		if (callReg == null || returnReg == null || inlineBytes < 2) {
 			cachedExtras = known;
 			cachedAtInstructionCount = (int) instructions;
@@ -455,8 +494,40 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 				}
 			}
 		}
-		ScrtArgDetector detector =
-			new ScrtArgDetector(program, callReg, returnReg, known::get);
+
+		// The cache has to notice a signature being edited, not just new instructions, or a
+		// correction written by hand would not take effect until something else was disassembled.
+		StringBuilder sig = new StringBuilder();
+		for (Address t : targets) {
+			monitor.checkCancelled();
+			InlineArgSpec c = commentSignature(program, t);
+			if (c != null) {
+				sig.append(t).append('=').append(c).append(';');
+			}
+		}
+		String signatures = sig.toString();
+		if (cachedExtras != null && instructions == cachedAtInstructionCount &&
+			signatures.equals(cachedAtSignatures)) {
+			return cachedExtras;
+		}
+		cachedAtSignatures = signatures;
+
+		// A signature written on the callee wins outright. It is the one place a human can
+		// say what the arguments mean, and meaning is exactly what byte counting cannot see:
+		// a 16-bit pointer read with two LDA R3 looks the same as two unrelated bytes.
+		Set<Address> stated = new HashSet<>();
+		for (Address t : targets) {
+			monitor.checkCancelled();
+			InlineArgSpec fromComment = commentSignature(program, t);
+			if (fromComment != null) {
+				known.put(t, fromComment);
+				stated.add(t);
+				Msg.info(this, NAME + ": callee " + t + " signature stated as " +
+					upper(fromComment));
+			}
+		}
+
+		ScrtArgDetector detector = new ScrtArgDetector(program, callReg, returnReg, known::get);
 		boolean progress = true;
 		while (progress) {
 			monitor.checkCancelled();
@@ -467,30 +538,61 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 				}
 				ScrtArgDetector.Result r = detector.detect(t);
 				if (r.isResolved()) {
-					known.put(t, r.extraBytes);
+					known.put(t, r.spec);
 					progress = true;
 				}
 			}
 		}
+
 		for (Address t : targets) {
 			monitor.checkCancelled();
-			if (!known.containsKey(t)) {
+			if (stated.contains(t)) {
+				// Never rewrite a stated signature, but do say so when detection disagrees:
+				// silence would hide a stale annotation, and overwriting would lose the work.
+				ScrtArgDetector.Result r = detector.detect(t);
+				if (r.isResolved() && !r.spec.toString().equals(known.get(t).toString())) {
+					Msg.info(this, NAME + ": " + t + " is annotated " +
+						upper(known.get(t)) + " but detection reads " + upper(r.spec) +
+						"; the annotation is being used");
+				}
+				continue;
+			}
+			InlineArgSpec spec = known.get(t);
+			if (spec == null) {
 				Msg.info(this, NAME + ": undetermined callee " + t + " - " +
 					detector.detect(t).reason + "; treated as taking no extra bytes");
-				noteCallee(program, t, -1);
 			}
-			else {
-				int extra = known.get(t);
-				if (extra > 0) {
-					Msg.info(this, NAME + ": callee " + t + " reads " + extra +
-						" extra inline byte(s)");
-				}
-				noteCallee(program, t, extra);
+			else if (!spec.isEmpty()) {
+				Msg.info(this, NAME + ": callee " + t + " takes " + upper(spec));
 			}
+			noteCallee(program, t, spec);
 		}
 		cachedExtras = known;
 		cachedAtInstructionCount = (int) instructions;
 		return known;
+	}
+
+	/** The signature written on a callee, or null if there is not a readable one. */
+	private InlineArgSpec commentSignature(Program program, Address callee) {
+		String c = program.getListing().getComment(CommentType.REPEATABLE, callee);
+		if (c == null) {
+			return null;
+		}
+		String t = c.trim();
+		int cut = t.length();
+		for (int i = 0; i < t.length(); i++) {
+			char ch = t.charAt(i);
+			if (Character.isWhitespace(ch) || ch == '-' || ch == ':' || ch == '\u2014') {
+				cut = i;
+				break;
+			}
+		}
+		return cut == 0 ? null : InlineArgSpec.parse(t.substring(0, cut));
+	}
+
+	/** The signature in the form a person writes it: W for a word, B for a byte. */
+	private static String upper(InlineArgSpec spec) {
+		return spec == null ? "?" : spec.toString().toUpperCase();
 	}
 
 	/**
@@ -498,37 +600,33 @@ public class ScrtCallAnalyzer extends AbstractAnalyzer {
 	 * so that it is visible at every call site. {@code extra} of -1 means the size could not be
 	 * determined, which is worth saying out loud at the call sites too.
 	 */
-	private void noteCallee(Program program, Address callee, int extra) {
+	private void noteCallee(Program program, Address callee, InlineArgSpec spec) {
 		Listing listing = program.getListing();
 		String existing = listing.getComment(CommentType.REPEATABLE, callee);
-		String wanted;
-		if (extra < 0) {
-			wanted = CALLEE_NOTE_PREFIX +
-				"inline argument size could not be determined; call sites are marked as " +
-				inlineBytes + " byte(s) and may need adjusting by hand.";
-		}
-		else if (extra == 0) {
-			wanted = null; // the ordinary case; saying so at every call site is just noise
-		}
-		else {
-			wanted = CALLEE_NOTE_PREFIX + "reads " + extra +
-				" extra inline byte(s) after the " + inlineBytes + "-byte call address, so a " +
-				"call to it occupies " + (1 + inlineBytes + extra) + " bytes in the caller.";
-		}
+		boolean ours = existing != null && existing.contains(AUTO_MARKER);
 
-		boolean owned = existing != null && existing.startsWith(CALLEE_NOTE_PREFIX);
-		if (wanted == null) {
-			if (owned) {
-				listing.setComment(callee, CommentType.REPEATABLE, null);
-			}
+		if (existing != null && !existing.isBlank() && !ours) {
+			// Prose someone else wrote. Leaving it is the whole point: this analyzer gets one
+			// chance to write, and anything a human touches afterwards wins.
+			Msg.info(this, NAME + ": " + callee + " has a repeatable comment with no readable " +
+				"signature at its start; leaving it alone. Detection reads " + upper(spec));
 			return;
 		}
-		if (existing == null || owned) {
-			if (!wanted.equals(existing)) {
-				listing.setComment(callee, CommentType.REPEATABLE, wanted);
-			}
+
+		String wanted;
+		if (spec == null) {
+			wanted = "? " + AUTO_MARKER + " could not be determined. Call sites are marked as " +
+				inlineBytes + " byte(s); correct the signature above if that is wrong.";
 		}
-		// A repeatable comment someone else wrote is left alone.
+		else {
+			wanted = upper(spec) + " " + AUTO_MARKER + ", auto-detected. A call to this routine " +
+				"occupies " + (1 + inlineBytes + spec.byteCount()) + " bytes in the caller. " +
+				"Edit the signature at the start of this line to correct it; once it reads as a " +
+				"signature it is taken as authoritative and never rewritten.";
+		}
+		if (!wanted.equals(existing)) {
+			listing.setComment(callee, CommentType.REPEATABLE, wanted);
+		}
 	}
 
 	// ---------------------------------------------------------------- returns
