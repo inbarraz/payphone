@@ -34,26 +34,44 @@ that image.
 
 ## 1a. Board hardware
 
-From a photograph of the motherboard (`IMG_7788`). Relevant to the firmware
+From photographs of the main card, front and back. Relevant to the firmware
 because several conclusions below depend on which device a port actually
 reaches.
+
+**Board:** `I.M.I TAMAC-18 MAIN CARD`, cat. no. **08-208-1101**, **REV:2.3**
+(back silkscreen also `B21`, `ME-2.94.VO-3992`). I.M.I / Taas.
+
+**Daughterboard:** `TAAS TAMAC MEMORY CARD`, cat. no. **08-208-1300**,
+`REV:1.1`, carrying sockets `SCT1`/`SCT2`, the SRAM, and the firmware EPROM.
+
+Two boards have been photographed and they differ in that EPROM's label: one
+reads `TAMAC-18 V2.8 9451`, the other simply **`DLC`** (serial `27956 9630`).
+That is almost certainly the provenance of `Binary versions/DLC.bin` in this
+repo — which is byte-identical to `PH06.bin` and `B01.bin`, and *differs* from
+the `TAMAC-18 V2.8 9513` image these notes are written against. So the `DLC`
+label denotes a build, not a different product.
 
 | Ref | Part | Role |
 |---|---|---|
 | U201 | **CDP1806ACE** | the CPU |
 | U231 | **CDP1854ACE** | **UART (ACE)** — the device behind ports 6 and 7 |
-| U6 | SRM2A256 32K SRAM + lithium battery | battery-backed RAM, hence persistent state in `8000`–`9FFF` |
-| — | **MC145443** | single-chip FSK modem |
-| — | **CML FX611** | modem / signalling IC |
+| U6 (daughter) | SRM2A256LLMT10 32K SRAM + lithium battery | battery-backed RAM, hence persistent state in `8000`–`9FFF` |
+| U16 | **MC145443P** | single-chip FSK modem |
+| — | **CML FX611J** | modem / signalling IC |
 | U19 | **PCD3311CP** | DTMF / tone generator |
-| U16 | TEA1060 | telephone speech/transmission circuit |
-| U3–U6, U18 | **HEF4094BP** ×5 | serial-in, parallel-out shift registers with output latches |
-| — | CD4021 | parallel-in, serial-out shift register (input expander) |
-| — | M74HC4066 ×2 | quad analog switches — signal routing |
-| — | 74HC373/374, 74HC139, 74HC173, 74HC4040, 4050, 4011, 4075 | address decode, latches, counter |
-| SCT1/SCT2 | sockets | "TAAS TAMAC MEMORY CARD", cat. no. 08-208-1300 |
-| — | EPROM labelled `TAMAC-18 V2.8 9451` | this firmware |
-| J1 / JP2 "M" / JP3 "R" / LINE | connectors | external interfaces |
+| — | TEA1060 | telephone speech/transmission circuit |
+| U3, U4, U5, U14, U18 | **MC14094BCP** ×5 | serial-in, parallel-out shift registers with output latches |
+| U204 | MC14021BCP | parallel-in, serial-out shift register (input expander) |
+| U202 | CD4099BE | 8-bit addressable latch |
+| **U214**, **U11** | **M74HC4066B1** ×2 | quad analog switches — **the routing suspects**; U214 sits by the CPU/decode area, U11 among the modem chips |
+| U215, U217, U218, U219 | SN74HC367N ×4 | buffers driving the J1 connector |
+| U224 | MC74HC245AN | bus transceiver |
+| U210, U212 | CD74HC4040E | 12-stage counters |
+| U229 | MC14526BCP | programmable divider |
+| — | CD4521BE | 24-stage divider |
+| — | 74HC573, 74HC139, 74HC173, 74HC02, 4050, 40106, 4011, 4075 | latches, decode, glue |
+| K1 | relay | line switching |
+| J1 / JP2 "M" / JP3 "R" / JP4 / LINE | connectors | external interfaces |
 
 Three things follow that the firmware alone would not tell you:
 
@@ -70,6 +88,31 @@ Three things follow that the firmware alone would not tell you:
 The modem chips and the LINE connector make the natural reading of the DLC
 session a **modem call over the telephone line** — which is also why
 `DLC_Comm` insists the handset be replaced first (§9a).
+
+### What the photographs cannot settle
+
+**Net tracing from these photographs is not reliable** — fine-pitch traces,
+routing on both sides, partial obscuring. No claim of the form "pin X of U231
+reaches U214" should be made from them, and none is made here.
+
+The back of the board also carries several **rework wires** in the area
+bounded by U214, U207, U211, U220, U221, U223 and U200 — i.e. around the
+decode and UART region. Any net traced there must account for them.
+
+**The open question this leaves** is whether the single UART's serial lines
+are physically routed between the card reader connector and the modem, and if
+so by what. Settling it needs continuity measurements, not photographs:
+
+1. From the CDP1854's serial-in and serial-out pins (per the
+   [Harris/Intersil CDP1854A datasheet](https://pccomponents.com/datasheets/HARRI-CDP1854ACE116.pdf))
+   to the switch pins of **U214** and **U11**.
+2. From those switches' other sides to **J1** and to the modem (`MC145443P`,
+   `FX611J`).
+3. What drives the 4066 control pins — if it is one of the `MC14094BCP`
+   shift-register outputs, then the routing is **software-controlled**, and
+   the firmware selects its peer. That would be the single most useful fact
+   still missing, because it would tie the physical path to the vector swap in
+   `proc_06ba`.
 
 ## 2. Memory map
 
