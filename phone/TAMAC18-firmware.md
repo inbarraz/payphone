@@ -39,6 +39,7 @@ that image.
 | `0x0000`–`0x7FFF` | ROM (`code` segment) |
 | `0x8000`–`0x9FFF` | RAM (`ram` segment) |
 | `0xE000`–`0xE007` | **LCD** |
+| `0xF000` | **write-only control register**, shadowed at `0x8E10` — not declared as a segment (§10a) |
 
 RAM extends to `0x9FFF`, further than the reader's, and part of it holds
 **code copied from ROM and executed in place** — see §10.
@@ -462,12 +463,90 @@ adjustment mode.
 for by this reader firmware. It is a candidate for the trunk link (§9a), or
 for a different reader revision.
 
-## 9a. The trunk link — NOT YET IDENTIFIED
+## 9a. The second link — almost certainly the trunk
 
-**The phone also communicates with a remote trunk**, by a means not yet
-determined. This matters for everything above: a two-letter ASCII code or a
-`?`-prefixed command is not self-evidently part of the BSK31 protocol, and
-some of the strings in this ROM probably belong to the trunk instead.
+**The phone has TWO complete interrupt handler sets**, identical in shape and
+entirely separate:
+
+| | vector / prologue | body | epilogue |
+|---|---|---|---|
+| card reader | `28D8` | `5071` | `28B7` → `28D2` |
+| **second link** | `0699` | **`05A6`** | `067E` |
+
+Both re-arm their own vector as their first act, and both begin with the same
+stack-page check (`R2.hi` must be `0x89`) — the second one hangs deliberately
+on failure (`NOP` ×5 then `LBR 05B5`).
+
+### Entry — `proc_06ba`
+
+```
+06E1  SEX R4 / DIS 24     X==P idiom: disable interrupts
+06E4  RLDI R1,0699        point the vector at the second handler
+06E8  SEX R4 / RET 24     X==P idiom: re-enable
+06EB  IDL                 halt until the link interrupts
+```
+
+Interrupts are off across the vector change, so none can arrive while R1 is
+half-written. The `IDL` is the giveaway that this is a *session entry*: all
+further work happens inside `05A6`. Reached from **`DLC_Comm` (`2F65`)** after
+it prompts the operator, reads a keypress, and waits for EF3 to go active.
+
+### Physical layer — not a UART
+
+| Line | Use |
+|---|---|
+| **EF1** | counted in hardware by the 1806 counter in **SCM1** mode (`05D7` `STPC`, `05DB` `LDI 0C`/`LDC`, `05DD` `SCM1`) |
+| **EF3** | sampled a bit at a time via `setDF_to_EF3_inverted` (`0100`) |
+| **Q** | driven by `SEQ`/`REQ` (`REQ` at `07AC` in the `0721` setup) |
+
+Counter opcodes cluster at `05D7`–`05DD` (this ISR), `4079`–`407F`
+(`DisplayCommStatus` region), `6EEC`–`6EF2` (init), and **`GEC` at `1ADF` —
+inside `PerformComm?`**, which therefore reads this counter. That ties
+`PerformComm?`, `DisplayCommStatus` (`4048`) and `DLC_Comm` (`2F65`) to this
+path rather than to the card reader.
+
+So this link is **pulse/bit level, not character level** — which is why no
+second UART exists.
+
+### RAM-resident chained vector
+
+```
+066F  RLDI R1,8E0D / RLXA R1     take the next vector from RAM at 8E0D
+065C  M(8E0F)                    gates whether that happens
+```
+
+The installer is at `0x0FFB`–`0x101F`: it writes a 16-bit address fetched via
+R7 into `8E0D`/`8E0E`, then sets `M(8E0F) = 1` to arm it (or `= 0` at `1015`
+to disarm), and finishes with `ClearBytesAt_Array8dac` (`0A3E`).
+
+So the second link can **hand off to a dynamically installed handler**: code
+registers a callback, and the next interrupt vectors to it instead of the
+default. `8E0F` is the one-shot gate. Writers of `8E0D` are `066F` (the ISR
+reading it) and `1003` (the installer); writers of `8E0F` are `05CD`, `065C`
+(the ISR), `0756`, `100B` and `1015`.
+
+### What is and is not established
+
+**Established:** there is a second, independent, fully-formed interrupt link;
+its physical layer is EF1/EF3/Q with the 1806 counter; `DLC_Comm` reaches it
+through `proc_06ba`; `PerformComm?` reads its counter.
+
+**Not established:** that its peer is the trunk. The name `DLC_Comm` is the
+user's, and "data link control" fits, but the peer has not been identified
+from this side and nothing yet shows what is exchanged over it.
+
+### What this settles about the unmatched codes
+
+The receive buffer `8022`–`8026` is filled **only** by the port-6 card reader
+ISR. Its write index at `8027` has exactly two references in the whole image:
+`507B` inside that ISR, and `6E7B`, an initialisation that sets it to `0x22`.
+Nothing else writes it.
+
+**Therefore the dispatcher at `333D` can only ever see card reader traffic**,
+and `CA`, `CB`, `TG` and `MN` are *not* trunk codes. They are reader-link
+codes that this reader firmware never sends — a different BSK model or
+revision. The same reasoning does not cover `?CE007`, which is transmitted
+rather than received, so that one remains unexplained.
 
 What is anchored to the reader, and why:
 
@@ -485,13 +564,11 @@ So port 6 / port 7 is the reader link. What is **not** anchored:
 
 | Item | Status |
 |---|---|
-| `CA`, `CB`, `TG`, `MN` | parsed by the phone, absent from the reader entirely |
-| `?CE007` (selector `08`) | sent by the phone, no parser branch in the reader |
-| `PerformComm?` (`1ABE`), `DLC_Comm` (`2F65`) | a separate subsystem — RAM code at `0x97xx`, flag `0x8167` — and the likeliest trunk path. "DLC" plausibly Data Link Control. |
-| Interrupt vectors `0699`, `067E`, `8E0D`, `8E0F` | unexamined; two point into RAM. A second link would need its own ISR. |
-
-Those five codes and that subsystem are where to look for the trunk. Nothing
-above should be read as asserting they are BSK31 traffic.
+| `CA`, `CB`, `TG`, `MN` | **resolved** — reader-link codes, see above; this reader firmware just never sends them |
+| `?CE007` (selector `08`) | **still open** — sent by the phone, no parser branch in the reader |
+| `PerformComm?` (`1ABE`), `DLC_Comm` (`2F65`) | the second-link subsystem, documented above |
+| Vectors `0699` / `067E` | **resolved** — the second link's prologue and epilogue |
+| `8E0D` / `8E0F` | the second link's RAM-resident chained vector and its gate |
 
 ## 9. Idioms and pitfalls
 
@@ -516,11 +593,65 @@ listing derails into the code that follows.
 
 See §4. Any opcode-level search must account for callee signatures.
 
+## 10a. `0xF000` — the control register
+
+**`0xF000` is a write-only control register with a RAM shadow at `0x8E10`** —
+the identical arrangement to the card reader's `0xE000`/`0x8021` pair. The
+register cannot be read back, so callers modify the shadow and push it out.
+
+| Routine | Role |
+|---|---|
+| `000C` / `000F` | initialiser; writes `0x00` or `0x03` (two entry points via `LSKP`) to **both** shadow and register |
+| `13A1` `copy_byte_from_8E10_to_F000` | re-commits the shadow to the register, preserving D through R5 |
+
+**It is not in any declared segment** (`code` `0000`–`7FFF`, `ram`
+`8000`–`9FFF`, `LCD` `E000`–`E007`), so these accesses show as unmapped until
+a block is declared.
+
+26 sites reference `0xF000`: `0016`, `0056`, `006C` (early init), `0411` and
+`302D` (the RAM payloads, §10), `13A6`, `29DB`, and a dense block at `1DC5`,
+`1DCF`, `1E39`, `1EA2`, `1ECA`, `1EE3`, `1F04`, `1F27`, `1F58`, `209A`,
+`20B4`, `2198`, `2221`, `2237`, `225B`, `226C`, `2282`, `22A6`. That block
+lies in the large unnamed span between `1C5F` and `24BC` and is where the
+register's individual bits should be identifiable. Only four sites touch the
+shadow: `0011`, `13A2`, `1ED1`, `1EEA`.
+
+### What it probably gates
+
+Both RAM-resident payloads (§10) write `0xF000`, and that is the clue. Payload
+1 disables interrupts, pokes `F000`, checksums a block, and re-commits the
+register. Payload 2 walks a verification list and, on the first mismatch,
+**writes `0x00` to `F000`** and returns failure.
+
+A routine that pokes a register and then reads memory, and which must live in
+RAM to do it, implies **the register gates the ROM itself** — bank select,
+write-enable or similar — because the ROM is not addressable while it is
+poked. Interrupts are off across the whole sequence, which fits: an interrupt
+would try to fetch from ROM. Clearing it as the response to a failed integrity
+check fits a capability-withdrawal or protection latch.
+
+**This is inference from structure, not proof.** The bits have not been
+identified.
+
 ## 10. Code executed from RAM
 
-`0x026A` (`CopyCodeTo9733AndJump`) and `0x304A`
-(`copy_0x26_from_3011_to_9771_and_jump`) copy ROM code into RAM and jump to
-it. Ghidra shows functions at `910B`, `9421`, `95BF`, `96F9`, `9708`,
+`0x026A` (`CopyCodeTo9733AndJump`) does
+`memcpy(dest=9733, src=040D, len=003F)` then `LBR 9733`. `0x304A`
+(`copy_0x26_from_3011_to_9771_and_jump`) copies `0x26` bytes from `3011` to
+`9771`. The two land **adjacent** at runtime: payload 1 occupies
+`9733`–`9770`, payload 2 starts at `9771`.
+
+To read either, disassemble the ROM source and add the offset — `+0x9326` for
+`040D`, `+0x6760` for `3011`. Absolute targets inside each block are already
+written for the RAM copy, which is why branches in the ROM image point at
+`97xx`.
+
+| Payload | ROM | RAM | Does |
+|---|---|---|---|
+| 1 | `040D`, `0x3F` bytes | `9733` | interrupts off → write `F000` → 16-bit checksum over R6 bytes at R7, accumulated at `8EFA` → compare against a stored word → `copy_byte_from_8E10_to_F000` → interrupts on |
+| 2 | `3011`, `0x26` bytes | `9771` | walk a pointer list (RC) of RD entries, require every target byte to equal `M(00F7)`; on mismatch write `0x00` to `F000` and return `0xFF` |
+
+Ghidra also shows functions at `910B`, `9421`, `95BF`, `96F9`, `9708`,
 `9733` (`proc_from_040D`) and `9771` (`proc_from_3011`).
 
 `PerformComm?` (`0x1ABE`) operates on RAM at `0x97xx` and on flag `0x8167`,
@@ -563,25 +694,36 @@ eject; the popcount-against-7 reading as remaining card credit (strongly
 supported by the reader being an optical-card device, but the card format was
 not independently verified); `0x8029` bit 0 as a busy/inhibit flag.
 
+**On `0xF000` (§10a):** that it is a write-only register shadowed at `0x8E10`
+is established, by the same shadow-and-recommit pattern the reader uses. That
+it **gates the ROM** is inference from the RAM-residency of the two payloads
+that poke it — strong, but not proven, and no bit has been identified.
+
 **Unknown:** what the mnemonics actually *do* — the parser gives each one a
 handler address, but those handlers are not yet read; why four templates have
 no literal call site; the other interrupt vectors (`0699`, `8E0D`, `8E0F`,
 `067E`); what fills the `8060` buffer that `33C5` parses.
 
-**Explicitly open, and a caveat on everything above: the trunk link is not
-identified (§9a).** Five codes — `CA`, `CB`, `TG`, `MN` on receive and `CE` on
-transmit — are unaccounted for by the reader at either end, and may belong to
-the trunk rather than to the BSK31 protocol.
+**On the second link (§9a):** that it exists, and its EF1/EF3/Q physical
+layer, are established. That its peer is the **trunk** is not — it is a strong
+inference from `DLC_Comm`'s name and its operator-driven entry, no more.
+
+`CA`, `CB`, `TG` and `MN` are no longer in doubt: the receive buffer has
+exactly one writer, so the dispatcher sees only reader traffic. **`?CE007`
+remains genuinely unexplained.**
 
 ## 13. Next steps
 
 1. Create functions at `5071`, `514B`, `5FB1` so the decompiler can render the
    link layer.
-2. **Identify the trunk link** (§9a). Start with `PerformComm?` / `DLC_Comm`
-   and the four unexamined interrupt vectors, and settle whether `CA`, `CB`,
-   `TG`, `MN` and `CE` belong to it.
+2. **Confirm the second link's peer** (§9a). The handler, its physical layer
+   and its entry point are known; what travels over it is not. The RAM code
+   copied from ROM `040D` and `3011`, and the chained vector at `8E0D`, are
+   the next things to read.
 3. Read the fourteen reader-side command handlers listed in §8 to find out
    what each mnemonic actually does.
+3a. Identify the bits of `0xF000` from the dense block of accesses between
+   `1DC5` and `22A6`, and declare a memory block for it in Ghidra.
 4. Chase the computed selector that reaches `?TE01` / `?TE02`: that drives the
    reader into factory adjustment mode, the most powerful thing the phone can
    ask of it.
