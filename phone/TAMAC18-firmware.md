@@ -463,7 +463,7 @@ adjustment mode.
 for by this reader firmware. It is a candidate for the trunk link (§9a), or
 for a different reader revision.
 
-## 9a. The second link — almost certainly the trunk
+## 9a. The second link — "DLC"
 
 **The phone has TWO complete interrupt handler sets**, identical in shape and
 entirely separate:
@@ -491,13 +491,42 @@ half-written. The `IDL` is the giveaway that this is a *session entry*: all
 further work happens inside `05A6`. Reached from **`DLC_Comm` (`2F65`)** after
 it prompts the operator, reads a keypress, and waits for EF3 to go active.
 
+### The peer is named `DLC`
+
+`DLC_Comm`'s own prompt says so. Hebrew in this ROM is stored in *display*
+order, so the bytes read right-to-left:
+
+| Addr | Stored | Reads |
+|---|---|---|
+| `2FCF` | `? DLC -ל  תרושקת` | **תקשורת ל-DLC ?** — "Communication to DLC?" |
+| `2FE9` | `תרפופשה  חנה  אנ` | **נא הנח השפופרת** — "Please replace the handset" |
+
+So `DLC` is **the firmware's own name for the remote peer**, not an inference
+from the function name. `DLC_Comm` is a maintenance or reporting session an
+operator starts from the keypad: confirm, put the handset down, then hand off
+to `proc_06ba`. What `DLC` stands for, and whether it is the trunk itself or
+equipment behind it, is still unknown.
+
 ### Physical layer — not a UART
 
 | Line | Use |
 |---|---|
 | **EF1** | counted in hardware by the 1806 counter in **SCM1** mode (`05D7` `STPC`, `05DB` `LDI 0C`/`LDC`, `05DD` `SCM1`) |
-| **EF3** | sampled a bit at a time via `setDF_to_EF3_inverted` (`0100`) |
+| **EF3** | **the hook switch** — not a data line; see the correction below |
 | **Q** | driven by `SEQ`/`REQ` (`REQ` at `07AC` in the `0721` setup) |
+
+> **Correction.** An earlier version of this file listed EF3 as a data or
+> carrier line sampled a bit at a time. **It is the hook switch.**
+> `DLC_Comm` displays *"Please replace the handset"* and then loops on
+> `setDF_to_EF3_inverted` until EF3 goes high, so **EF3 high = handset on
+> hook**. The second-link ISR calls it at `05F4` and files the result in the
+> `8DAC` flag array — that is hook *status*, not received data. A session
+> requires the handset down, which makes sense: the subscriber must not be
+> mid-call while the phone talks to the far end.
+>
+> That leaves **EF1 (hardware-counted) and Q (output)** as the actual data
+> path, and the data direction of this link is therefore still not pinned
+> down.
 
 Counter opcodes cluster at `05D7`–`05DD` (this ISR), `4079`–`407F`
 (`DisplayCommStatus` region), `6EEC`–`6EF2` (init), and **`GEC` at `1ADF` —
@@ -528,12 +557,15 @@ reading it) and `1003` (the installer); writers of `8E0F` are `05CD`, `065C`
 ### What is and is not established
 
 **Established:** there is a second, independent, fully-formed interrupt link;
-its physical layer is EF1/EF3/Q with the 1806 counter; `DLC_Comm` reaches it
-through `proc_06ba`; `PerformComm?` reads its counter.
+the peer is called **`DLC`** by the firmware itself; `DLC_Comm` reaches it
+through `proc_06ba`; the session requires the handset on hook (EF3);
+`PerformComm?` reads the same 1806 counter the ISR sets up in EF1-counting
+mode.
 
-**Not established:** that its peer is the trunk. The name `DLC_Comm` is the
-user's, and "data link control" fits, but the peer has not been identified
-from this side and nothing yet shows what is exchanged over it.
+**Not established:** what travels over it, in either direction. EF1 counting
+and Q are the only candidate data lines left now that EF3 is identified as
+the hook switch, and neither has been tied to a data format. Whether `DLC` is
+the trunk itself or equipment behind it is also unknown.
 
 ### What this settles about the unmatched codes
 
@@ -582,6 +614,31 @@ When X equals the PC register, `OUT`/`INP`/`RET`/`DIS` take their byte from
 the instruction stream and step over it. Those bytes are operands, not code.
 Confirmed at `51A8` (`OUT 6` ← `0x3E`) and `51B1` (`RET` ← `0x24`). The same
 idiom appears in the reader ROM at `0x1FF7`.
+
+### Hebrew strings are stored in display order
+
+Hebrew text is stored **reversed relative to logical order**, because the
+display is written left-to-right while Hebrew reads right-to-left. Latin
+strings in the same ROM are stored forward (`INTL. CALLS ONLY`,
+`TEMPORARY  FAULT`, `Collect Card` all read normally), and mixed strings keep
+each run in its own order. To read a Hebrew string, reverse it.
+
+This is **not** a general "everything is reversed" convention, and it is
+**not** evidence about the command templates at `0x3600` — those are reversed
+for a mechanical reason (fill down, send up), which is a different cause.
+
+One Latin string *is* stored backwards: `1AA9` holds `=LANIMRET`, i.e.
+`TERMINAL=`. It sits in the `PerformComm?` neighbourhood, so the plausible
+explanation is the same mechanism as the command templates — a buffer filled
+downward and sent upward — but that has not been verified.
+
+### Strings are reached through descriptors
+
+`LoadStringForDisplay` (`6E6B`) takes a pointer to a **descriptor**, not to
+text. The descriptor then points at the characters, which is why fetching the
+bytes at a `6E6B` argument shows a short binary record rather than a string.
+The project's Ghidra database follows the convention `descXxx` for the
+descriptor and `sXxx` for the text.
 
 ### Data blocks that disassemble as code
 
