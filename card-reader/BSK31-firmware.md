@@ -359,6 +359,60 @@ So the fault space is **`BR01`–`BR49` plus `BR100`/`BR101`**.
 (the phone is listening) and latched by flag `0x8102`. This is the reader's
 power-up announcement; everything after it is request/response.
 
+### Command parser — `0x0EC0`, fourteen commands
+
+The reader's side of the request direction. `R8` points at the received
+command; the parser reads character 0, compares it, and on a match does
+`INC R8` and compares character 1. A single-letter command dispatches on the
+first comparison alone.
+
+| Cmd | Handler | Note |
+|---|---|---|
+| `F` | `0CD9` | single letter |
+| `EF` | `10E6` | |
+| `EJ` | `22DC` | |
+| `EB` | `171E` | |
+| `ER` | `22DC` | shares the `EJ` handler |
+| `CC` | `139F` | |
+| `CD` | `070B` | |
+| `MD` | `223A` | |
+| `AV` | `20A8` | |
+| `RE` | `2050` | |
+| `PD` | `2354` | |
+| `TE` | `0D9E` | falls into the TE menu dispatcher at `0DC4` |
+| `DR` | `1F07` | |
+| `S` | `0F6E` | single letter; clears two page-`0x81` flags, `LBR 0C01` |
+
+Anything else falls through to `0F79`, which calls
+`print_msg_and_restart(0x11B9)`.
+
+`TE → 0D9E` sits immediately before the TE menu dispatcher at `0x0DC4`, which
+indexes by `M(0x8023)`, so a `TE` command with a step number is the documented
+route into the factory adjustment mode described in §10.
+
+**Commands are a separate namespace from replies.** None of these fourteen
+mnemonics appears in the reply vocabulary table at `0x02FF`, and none of the
+thirteen reply prefixes appears here.
+
+The parser is reached with `R8` holding the command buffer pointer, set up at
+`0x0EC3`–`0x0EC9` (`R8.lo = 0xAB`, so the buffer sits just below the composed
+output line at `0x80B0`).
+
+**Note the parser compares characters one at a time**, so the mnemonics do
+**not** appear as contiguous ASCII anywhere in the ROM. A string search for
+`"CD"` or `"EJ"` finds nothing; only an opcode-level search for the immediate
+compares reveals them.
+
+### The phone's side
+
+The TAMAC-18 payphone sends these as `?` + mnemonic + optional decimal digits,
+built from a template table at `0x3600` in its own ROM. Ten of its eleven
+templates match a branch above; `?CE007` does not. See
+[`../phone/TAMAC18-firmware.md`](../phone/TAMAC18-firmware.md) §8.
+
+The link-level handshake is visible from this side too: the serial ISR compares
+`0x3E` (`'>'`) at `082D` and `0x3F` (`'?'`) at `083C`.
+
 ### No public documentation
 
 Searches across the model name, the wire codes, the fault codes and the
