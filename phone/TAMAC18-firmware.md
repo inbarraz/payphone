@@ -32,6 +32,45 @@ Started: 2026-10-30.
 The labelled original and `PH00.bin` are byte-identical. Work below is against
 that image.
 
+## 1a. Board hardware
+
+From a photograph of the motherboard (`IMG_7788`). Relevant to the firmware
+because several conclusions below depend on which device a port actually
+reaches.
+
+| Ref | Part | Role |
+|---|---|---|
+| U201 | **CDP1806ACE** | the CPU |
+| U231 | **CDP1854ACE** | **UART (ACE)** — the device behind ports 6 and 7 |
+| U6 | SRM2A256 32K SRAM + lithium battery | battery-backed RAM, hence persistent state in `8000`–`9FFF` |
+| — | **MC145443** | single-chip FSK modem |
+| — | **CML FX611** | modem / signalling IC |
+| U19 | **PCD3311CP** | DTMF / tone generator |
+| U16 | TEA1060 | telephone speech/transmission circuit |
+| U3–U6, U18 | **HEF4094BP** ×5 | serial-in, parallel-out shift registers with output latches |
+| — | CD4021 | parallel-in, serial-out shift register (input expander) |
+| — | M74HC4066 ×2 | quad analog switches — signal routing |
+| — | 74HC373/374, 74HC139, 74HC173, 74HC4040, 4050, 4011, 4075 | address decode, latches, counter |
+| SCT1/SCT2 | sockets | "TAAS TAMAC MEMORY CARD", cat. no. 08-208-1300 |
+| — | EPROM labelled `TAMAC-18 V2.8 9451` | this firmware |
+| J1 / JP2 "M" / JP3 "R" / LINE | connectors | external interfaces |
+
+Three things follow that the firmware alone would not tell you:
+
+1. **Ports 6/7 are a CDP1854 UART**, not CPU bit-banging. Its status bits
+   match what the ISR tests exactly: bit 0 DA (data available), bits 1–3
+   OE/PE/FE errors, bit 7 THRE (transmitter ready). The byte-stream decode in
+   §6 is unaffected, but "port 6" means *the 1854's data register*.
+2. **There is only ONE UART on the board** — see §6a.
+3. **Q most likely clocks the HEF4094 shift-register chain**, not a
+   communication line. Five 4094s expand serial data into parallel control
+   outputs, and Q is the obvious source. An earlier version of these notes
+   listed Q as a data line of the second link; that is probably wrong.
+
+The modem chips and the LINE connector make the natural reading of the DLC
+session a **modem call over the telephone line** — which is also why
+`DLC_Comm` insists the handset be replaced first (§9a).
+
 ## 2. Memory map
 
 | Range | Contents |
@@ -259,6 +298,43 @@ message vocabulary — they sit beneath it.
 Link reset at **`0x5FB1`** clears bit 0 of `0x8029`, zeroes `8031` and
 `805C`–`805E`, calls `EraseBlock` over the receive buffer, and sets
 `8134 = 0xAA`.
+
+## 6a. One UART, two owners
+
+**The board has a single CDP1854, and the firmware has TWO complete service
+routines for it**, selected by which interrupt vector is armed:
+
+| Vector | ISR | Service | Buffers |
+|---|---|---|---|
+| `R1 = 28D8` | `5071` | inline, in the ISR | flat: `8022`–`8026` receive, `801A`–`8021` transmit |
+| `R1 = 0699` | `05A6` → `dlc_uart_service` (`0A61`) | separate routine | **ring buffers**: `8B0B`/`8B0D`/`8B0F` receive, `8C1F`/`8C21`/`8C23` transmit, advanced by `04F0` |
+
+`proc_06ba` swaps the vector with interrupts off, so **the UART is
+time-multiplexed between the two peers by changing which handler owns it.**
+The two buffer sets never touch.
+
+`dlc_uart_service` (`0A61`) tests the same status bits — `SHR` for DA, `SHL`
+for THRE, `ANI 0x08` for the framing-error bit — and files framing errors into
+a third ring at `8B0F`, setting `M(8C1D)` on error. It is altogether more
+careful than the card reader path, which fits a noisy modem link rather than a
+short cable run.
+
+### What this costs us
+
+The dispatcher at `333D` reads `8022`/`8023`, filled only by the `5071` ISR.
+So it still only sees traffic received **while the card-reader vector is
+armed**. But with a shared UART, *"received in card-reader mode"* is not the
+same as *"sent by the card reader"* — what is on the wire depends on external
+routing, and the board carries M74HC4066 analog switches that could route the
+UART between the reader connector and the modem.
+
+> **Correction.** An earlier version of these notes declared `CA`, `CB`, `TG`
+> and `MN` resolved as "reader-link codes this reader firmware never sends",
+> on the argument that the receive buffer has exactly one writer. The premise
+> is true but the conclusion was too strong: one writer does not mean one
+> peer. **Those four, and `?CE007`, cannot be attributed on firmware evidence
+> alone.** Settling it needs the board traced — specifically what the 4066
+> switches route and what J1 carries.
 
 ## 7. Receiving: the message dispatcher
 
@@ -513,7 +589,7 @@ equipment behind it, is still unknown.
 |---|---|
 | **EF1** | counted in hardware by the 1806 counter in **SCM1** mode (`05D7` `STPC`, `05DB` `LDI 0C`/`LDC`, `05DD` `SCM1`) |
 | **EF3** | **the hook switch** — not a data line; see the correction below |
-| **Q** | driven by `SEQ`/`REQ` (`REQ` at `07AC` in the `0721` setup) |
+| **Q** | driven by `SEQ`/`REQ` — but see §1a: Q most likely clocks the five HEF4094 output shift registers, so it is probably **not** a link data line |
 
 > **Correction.** An earlier version of this file listed EF3 as a data or
 > carrier line sampled a bit at a time. **It is the hook switch.**
@@ -596,7 +672,7 @@ So port 6 / port 7 is the reader link. What is **not** anchored:
 
 | Item | Status |
 |---|---|
-| `CA`, `CB`, `TG`, `MN` | **resolved** — reader-link codes, see above; this reader firmware just never sends them |
+| `CA`, `CB`, `TG`, `MN` | **not attributable** — see the correction in §6a; one UART is shared between both peers |
 | `?CE007` (selector `08`) | **still open** — sent by the phone, no parser branch in the reader |
 | `PerformComm?` (`1ABE`), `DLC_Comm` (`2F65`) | the second-link subsystem, documented above |
 | Vectors `0699` / `067E` | **resolved** — the second link's prologue and epilogue |
