@@ -253,6 +253,32 @@ so by what. Settling it needs continuity measurements, not photographs:
    still missing, because it would tie the physical path to the vector swap in
    `proc_06ba`.
 
+### CDP1806AC pinout (U201), 40-pin DIP
+
+From `Documentation/Datasheets/cdp1806.pdf`. The pins that matter for tracing:
+
+| Pin | Signal | | Pin | Signal |
+|---|---|---|---|---|
+| 4 | **Q** | | 21 | **EF4** |
+| 7 | /MRD | | 22 | **EF3** |
+| 8–15 | BUS 7..0 | | 23 | **EF2** |
+| 16 | V<sub>DD</sub> | | 24 | **EF1** |
+| 17 | **N2** | | 25–32 | MA0..MA7 |
+| 18 | **N1** | | 33 | TPB |
+| 19 | **N0** | | 34 | TPA |
+| 20 | V<sub>SS</sub> | | 35 | /MWR |
+| 1 | CLOCK | | 36 | **/INTERRUPT** |
+| 5/6 | SC1 / SC0 | | 37/38 | DMA OUT / DMA IN |
+
+`N0`–`N2` are the three I/O port-select lines: they carry the port number of
+every `INP n` / `OUT n`, so whatever decodes them determines which device each
+port reaches.
+
+Per the block diagram in `cdp1806 diagram.pdf`, the counter/timer's **mode
+control takes EF1, EF2 and TPA** as its possible clock sources. So the
+`SCM1`/`SCM2` ambiguity noted in §9a is not academic: it decides whether the
+second link counts **EF1 or EF2**, and tracing both resolves it from hardware.
+
 ## 2. Memory map
 
 | Range | Contents |
@@ -567,6 +593,19 @@ pin 4 for everything the phone transmits and pin 15 for everything it
 receives, and the whole protocol reconstructed in §6–§8 can be checked against
 live traffic — message framing, the `?`/`>` handshake, the `?XX` command
 forms, and whether `CA`/`CB`/`TG`/`MN` ever actually appear.
+
+### CPU pins worth tracing
+
+In priority order, with what each would resolve:
+
+| Pin | Signal | What it answers |
+|---|---|---|
+| **19, 18, 17** | N0, N1, N2 | **Highest value.** Trace to the decoder (likely `U208`, a 74HC139) and then its outputs: that gives the **device behind every port number**. The firmware uses `INP 1/2/3/6/7` and `OUT 4/5/6/7` and only ports 6/7 are identified. |
+| **24, 23** | EF1, EF2 | The second link's clock source. If either reaches the `MC145443` modem, the DLC-over-modem reading is confirmed, and it settles `SCM1` vs `SCM2` from hardware. |
+| **36** | /INTERRUPT | If it comes from the CDP1854's INT (its pin 13), **both** ISRs are UART-driven, which is strong support for the time-multiplexed-UART model. If something else raises it, the second link is not the UART at all. |
+| **4** | Q | Tests the claim in §1a that Q clocks the `MC14094` chain. **Also worth checking whether Q reaches U230 pin 9** — if it does, the peer select is software-driven after all. |
+| **22** | EF3 | Should reach J1 pins 15/37 (Hook). Would confirm the hook identification from hardware; currently it rests on firmware plus the J1 mapping. |
+| **21** | EF4 | Unidentified. Only one `BN4` appears in the whole credit-card span. |
 
 ### What drives the select line — still open
 
