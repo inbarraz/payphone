@@ -151,6 +151,67 @@ Three consequences:
    transmit, receive, power and a control line, consistent with it being the
    CDP1854's peer.
 
+### The firmware does support a credit card reader
+
+Confirmed. The ROM carries a complete credit-card **user interface and
+policy layer** for hardware this deployment never had. Strings, in 17-byte
+two-line display slots with Hebrew and English paired:
+
+| Addr | Text |
+|---|---|
+| `6825` / `6836` | `INSERT TELECARD/` + `SWIPE CREDIT CRD` |
+| `687A` | `TELECARD    ONLY` |
+| `689C` | `CREDIT CARD ONLY` |
+| `68F1` | `CARD    REJECTED` |
+| `6935` | `CREDIT   EXPIRED` |
+| `6A89` | `CREDIT:` + Hebrew `יתרתך` ("your balance") |
+
+The code that drives them is in the unnamed span after `FUN_4455`, around
+`47E0`–`48D8`. It reads bits of the flag byte at `0x8139` to decide which card
+types the terminal currently accepts, and shows `TELECARD ONLY`,
+`CREDIT CARD ONLY` or the combined prompt accordingly.
+
+Incidentally, **Q is used there as a one-bit state flag**: `SEQ` at `481B`
+when one prompt is shown, `REQ` at `4830` for the other, then `LBQ`/`LBNQ` at
+`47F1`/`4852` to recall which. `BQ` tests the CPU's own Q latch, so this is
+the firmware reading back a bit it set — further evidence against Q being a
+communication line (§1a).
+
+### But there is NO magnetic-stripe decoder
+
+A scan of the whole `4478`–`4BD7` span finds:
+
+- **one** EF-line branch in total (`49BD: BN4`)
+- no bit-shift-and-parity loop
+- no track-2 sentinel compares (start `0x0B`, end `0x0F`, separator `0x0D`)
+- I/O limited to `INP 1` ×4, `INP 2`, `INP 3`, `OUT 7`
+
+A real F2F magnetic-head decoder would be unmistakable — a tight loop on an EF
+line or port, shifting bits and checking parity. **There is none.** So the
+firmware does not bit-bang a magnetic head.
+
+### Which suggests the mag reader is a SERIAL peripheral
+
+This resolves into a single hypothesis that accounts for every loose end at
+once. The Mag. Reader socket has **four lines** on the distribution board.
+Earlier these notes guessed card-present/data/clock/ground. But four lines is
+equally **TX, RX, power, ground** — a serial-attached reader. If so:
+
+| Loose end | Explained by |
+|---|---|
+| `CA`, `CB`, `TG`, `MN` parsed but never sent by the BSK31 | they are the **magnetic reader's** message prefixes, parsed by the same dispatcher because it is the same UART and the same `8022` buffer |
+| `?CE007` sent but with no branch in the BSK31's parser | it is a **command to the magnetic reader** |
+| no such traffic ever observed | the socket was **never fitted** |
+| no stripe decoder in the ROM | none is needed — an intelligent reader sends ASCII messages, exactly like the BSK31 |
+| `CA`/`CB` share the `CO` handler at `33C5` | all three carry card data in a similar format |
+
+That is five anomalies closed by one assumption, which is why it is worth
+recording. **It is still a hypothesis.** The test is the routing question in
+§6a: if the two `M74HC4066` switches route the UART between the Optical Reader
+pins on J1 (16, 32, 35, 38, 40) and the Mag. Reader pins (23, 25, 26, 44),
+the hypothesis is confirmed and the phone has **three** UART peers — optical
+reader, magnetic reader, and the DLC modem — selected by vector and switch.
+
 ### The unattributed codes, after the J1 mapping
 
 `CA`, `CB`, `TG` and `MN` are parsed by the dispatcher but never sent by the
@@ -161,16 +222,10 @@ BSK31.
 > cannot be the origin of any traffic the phone actually received. The idea
 > was also weak on its own terms, since four lines is not a UART.
 
-What the unfitted socket does suggest is a more general point: **this firmware
-carries support for hardware that is not installed.** `SWIPE CREDIT CARD` is
-in the ROM and there is no magnetic reader to produce it. So the four
-unattributed prefixes may simply be **dead paths for a peripheral or a reader
-variant this deployment never had** — code that compiles into every TAMAC-18
-regardless of what each site fits.
-
-That is a hypothesis, not a finding, and it is untestable from this image
-alone. It would be supported if other dead code for the magnetic reader turned
-up, and weakened if the four prefixes are reachable from live paths.
+The unfitted socket establishes the general point that **this firmware carries
+support for hardware that is not installed** — and the credit-card UI above
+confirms it concretely. The best current account of the four prefixes is the
+serial-magnetic-reader hypothesis immediately above.
 
 ### What the photographs cannot settle
 
