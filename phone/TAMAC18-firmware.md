@@ -503,7 +503,12 @@ short cable run.
 
 ### The router: U230
 
-**Measured:** the UART's **SDO (U231 pin 25) connects to U230 pin 4.**
+**Measured, both directions:**
+
+| UART | | U230 | Switch |
+|---|---|---|---|
+| **SDO** (pin 25, transmit) | → | **pin 4** | **C common** |
+| **SDI** (pin 20, receive) | → | **pin 15** | **B common** |
 
 `U230` is an `MC74HC4053N` — a triple 2-channel analog multiplexer, i.e. three
 independent SPDT switches each with its own control input. Per the TI
@@ -532,28 +537,48 @@ destinations** — pin 5 (CX) or pin 3 (CY) — selected by pin 9.
 **The UART is switched between two peers, in hardware, under software
 control.** That is now measurement rather than inference.
 
-The other two switches in the same package almost certainly carry the return
-path and one more signal: the A switch (12/13 → 14, control 11) and the B
-switch (1/2 → 15, control 10). Three switches is exactly enough to route
-transmit, receive and one handshake line between two peers.
+**Transmit and receive are switched symmetrically**, as a matched pair:
+
+```
+                        C switch                        B switch
+  SDO (TX) --> pin 4 ==<  pin 5 (CX)      pin 2 (BX) >== pin 15 <-- SDI (RX)
+                        \  pin 3 (CY)      pin 1 (BY) /
+                    control C = pin 9   control B = pin 10
+```
+
+That leaves the **A switch** (pins 12/13 → 14, control 11) spare — plausibly a
+handshake line, since the 1854 brings out CTS (pin 39) and RTS (pin 24).
 
 Note the arithmetic: **three SPDT switches route TWO peers, not three.** So
 `U230` selects between two of {optical reader, magnetic reader, DLC modem} and
 the third must be reached another way — or is simply the unfitted one.
 
-Still to measure:
+### U230 is the choke point for ALL serial traffic
 
-1. **U230 pin 9** — what drives it. If it is an `MC14094BCP` shift-register
-   output, peer selection is software-controlled and ties directly to the
+Every byte the phone exchanges with a card reader or with DLC passes through
+pins 4 and 15. **That makes them the ideal tap for a logic analyser**: probe
+pin 4 for everything the phone transmits and pin 15 for everything it
+receives, and the whole protocol reconstructed in §6–§8 can be checked against
+live traffic — message framing, the `?`/`>` handshake, the `?XX` command
+forms, and whether `CA`/`CB`/`TG`/`MN` ever actually appear.
+
+### Still to measure
+
+1. **Continuity between U230 pin 9 and pin 10.** If the two control inputs
+   are commoned, there is a single peer-select line and transmit and receive
+   always follow each other — the expected design. If they are independent,
+   the firmware can transmit to one peer while listening to another, which
+   would be worth knowing.
+2. **What drives pin 9 (and 10).** An `MC14094BCP` shift-register output
+   means peer selection is software-controlled and ties directly to the
    vector swap in `proc_06ba`.
-2. **U230 pins 5 and 3** — the two destinations. Whether they reach the
-   Optical Reader pins on J1 (16, 32, 35, 38, 40), the Mag. Reader pins
-   (23, 25, 26, 44), or the modem, decides the serial-magnetic-reader
+3. **U230 pins 5 and 3, and pins 2 and 1** — the two peers. Whether they
+   reach the Optical Reader pins on J1 (16, 32, 35, 38, 40), the Mag. Reader
+   pins (23, 25, 26, 44), or the modem, decides the serial-magnetic-reader
    hypothesis above.
-3. **U231 pin 20 (SDI)** — expected at `U230` pin 14 or 15 (the A or B
-   common) if the receive path is switched symmetrically.
 4. **U230 pin 6 (INH)** — if driven rather than tied, the firmware can
    isolate the UART entirely.
+5. **U230 pins 12/13/14** — what the spare A switch carries.
 
 ### What this costs us
 
