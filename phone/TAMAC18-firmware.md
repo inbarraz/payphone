@@ -546,8 +546,14 @@ control.** That is now measurement rather than inference.
                     control C = pin 9   control B = pin 10
 ```
 
-That leaves the **A switch** (pins 12/13 → 14, control 11) spare — plausibly a
-handshake line, since the 1854 brings out CTS (pin 39) and RTS (pin 24).
+**Measured: pins 9, 10 and 11 are all connected together.** So the three
+switches are ganged — `U230` is wired as a **3-pole, 2-throw switch driven by
+a single select line**. Transmit, receive and one further signal all move to
+the same peer together, and cross-connection is impossible by construction.
+
+That means the A switch (pins 12/13 → 14) is **not spare**: it is the third
+wire of a 3-wire interface. A handshake is the obvious candidate, since the
+1854 brings out CTS (pin 39) and RTS (pin 24).
 
 Note the arithmetic: **three SPDT switches route TWO peers, not three.** So
 `U230` selects between two of {optical reader, magnetic reader, DLC modem} and
@@ -562,23 +568,47 @@ receives, and the whole protocol reconstructed in §6–§8 can be checked again
 live traffic — message framing, the `?`/`>` handshake, the `?XX` command
 forms, and whether `CA`/`CB`/`TG`/`MN` ever actually appear.
 
-### Still to measure
+### What drives the select line — still open
 
-1. **Continuity between U230 pin 9 and pin 10.** If the two control inputs
-   are commoned, there is a single peer-select line and transmit and receive
-   always follow each other — the expected design. If they are independent,
-   the firmware can transmit to one peer while listening to another, which
-   would be worth knowing.
-2. **What drives pin 9 (and 10).** An `MC14094BCP` shift-register output
-   means peer selection is software-controlled and ties directly to the
-   vector swap in `proc_06ba`.
-3. **U230 pins 5 and 3, and pins 2 and 1** — the two peers. Whether they
-   reach the Optical Reader pins on J1 (16, 32, 35, 38, 40), the Mag. Reader
-   pins (23, 25, 26, 44), or the modem, decides the serial-magnetic-reader
+This is now the single most valuable unknown, because it is the join between
+the firmware and the hardware: whatever drives pins 9/10/11 is what the
+firmware writes to choose a peer, and it should pair with the interrupt-vector
+swap in `proc_06ba`.
+
+**One candidate is already eliminated.** `SetByte_Array8dac` (`0331`) and
+`ResetByte_Array_8dac` (`034B`) look like hardware bit-setters — `proc_06ba`
+calls `SetByte_Array8dac(0x0E)` on its way into a DLC session — but they are
+not. Both simply write `1` or `0` to **RAM** at `0x8DAC + index`, with a bounds
+check at 30 entries:
+
+```
+0331  SMI 1E / LBDF 0A5C      index >= 0x1E -> error
+0338  R6 = 8DAC ; R6 += index
+0345  LDI 1 / STR R6          M(8DAC+index) = 1
+```
+
+So `0x8DAC`–`0x8DC9` is a **software flag array**, cleared in blocks by
+`0721` and `ClearBytesAt_Array8dac` (`0A3E`), and it drives nothing directly.
+
+Remaining candidates for the select line, in rough order of likelihood:
+
+| Candidate | Why |
+|---|---|
+| `U202` **CD4099BE** addressable latch | the right part for individually settable control bits |
+| an `MC14094BCP` output | five of them on the board, serial-loaded |
+| `CTRL_F000` bit 0 or 1 | a 2-bit write-only control register already identified (§10a) |
+| a port bit — note `OUT 7` appears at `0701`, `4997`, `7592`, `75A6` | direct, if port 7 writes reach a latch |
+
+**Next measurements**
+
+1. **Trace U230 pin 9 back to its driver.** That answers the question outright.
+2. **U230 pins 5 and 3, and pins 2 and 1** — the two peers. Whether they reach
+   the Optical Reader pins on J1 (16, 32, 35, 38, 40), the Mag. Reader pins
+   (23, 25, 26, 44), or the modem, decides the serial-magnetic-reader
    hypothesis above.
-4. **U230 pin 6 (INH)** — if driven rather than tied, the firmware can
-   isolate the UART entirely.
-5. **U230 pins 12/13/14** — what the spare A switch carries.
+3. **U230 pin 6 (INH)** — if driven rather than tied, the firmware can isolate
+   the UART entirely.
+4. **U230 pins 12/13/14** — which third signal rides with TX and RX.
 
 ### What this costs us
 
@@ -848,7 +878,7 @@ equipment behind it, is still unknown.
 
 | Line | Use |
 |---|---|
-| **EF1** | counted in hardware by the 1806 counter in **SCM1** mode (`05D7` `STPC`, `05DB` `LDI 0C`/`LDC`, `05DD` `SCM1`) |
+| **EF1** | counted in hardware by the 1806 counter — `05D7` `STPC`, `05DB` `LDI 0C`/`LDC`, then the counter-mode opcode `68 05` at `05DD`. **Note:** the Ghidra module decodes `68 05` as `SCM2`, while the RCA opcode table has `68 03` = SCM2 and `68 05` = SCM1. One of the two is wrong and it has not been checked against `Documentation/Datasheets/CDP1805AC.PDF`. Either way it is a counter mode counting an EF line |
 | **EF3** | **the hook switch** — not a data line; see the correction below |
 | **Q** | driven by `SEQ`/`REQ` — but see §1a: Q most likely clocks the five HEF4094 output shift registers, so it is probably **not** a link data line |
 
