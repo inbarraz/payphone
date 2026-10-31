@@ -79,6 +79,25 @@ Three things follow that the firmware alone would not tell you:
    match what the ISR tests exactly: bit 0 DA (data available), bits 1–3
    OE/PE/FE errors, bit 7 THRE (transmitter ready). The byte-stream decode in
    §6 is unaffected, but "port 6" means *the 1854's data register*.
+
+   The board runs it in **Mode 1** (pin 2 tied to V<sub>DD</sub>), the direct
+   CDP1800 interface. Pins that matter, from the Intersil datasheet:
+
+   | Pin | Signal | | Pin | Signal |
+   |---|---|---|---|---|
+   | 1 | V<sub>DD</sub> | | 20 | **SDI** — serial data in |
+   | 2 | MODE (= V<sub>DD</sub>) | | 24 | RTS |
+   | 3 | V<sub>SS</sub> | | 25 | **SDO** — serial data out |
+   | 13 | INT | | 38 | ES |
+   | 17 | R CLOCK | | 39 | CTS |
+   | 18 | TPB | | 40 | T CLOCK |
+
+   **Locating pins on the board:** the square pad at the **bottom-right** of
+   `U231` on the *solder* side is pin 1 (the `>` silkscreen marker and the
+   `C225` decoupling cap are at the same end). Mirrored, that puts
+   **SDI (pin 20) at the bottom-row leftmost pad** and **SDO (pin 25) fifth
+   from the left on the top row**. Those are the two probe points for settling
+   the routing question below.
 2. **There is only ONE UART on the board** — see §6a.
 3. **Q most likely clocks the HEF4094 shift-register chain**, not a
    communication line. Five 4094s expand serial data into parallel control
@@ -88,6 +107,54 @@ Three things follow that the firmware alone would not tell you:
 The modem chips and the LINE connector make the natural reading of the DLC
 session a **modem call over the telephone line** — which is also why
 `DLC_Comm` insists the handset be replaced first (§9a).
+
+### J1 and the distribution board
+
+**J1 is not a peripheral connector — it is the link to a separate distribution
+board**, which fans out to everything else in the phone. Mapped by hand with a
+meter (`Hardware RE/Hardware RE - Pinouts.xlsx`), so this is measurement, not
+inference from photographs:
+
+| Device | J1 pins |
+|---|---|
+| **Optical Reader** (the BSK31) | 16 → OR 03, 32 → OR 05, 35 → OR 07?, 38 → OR 11, 40 → OR 07, 47 → OR 12-15 |
+| **Mag. Reader** | 23 → MR 03, 25 → MR 02, 26 → MR 04, 44 → MR 01 |
+| Display (HD44780) | 3, 5, 6, 7, 8, 9, 10, 11, 12, 14, 22, 43 → Display 02..14 |
+| Display contrast | 42 → Display POT |
+| LCD backlight | 36 → Light 2 (A), 46 → Light 1 (K) |
+| Keyboard | 20, 21, 27, 28, 29, 30, 31, 33, 34 → Keyboard 01..09 |
+| **Hook switch** | 15 → Hook 4, 37 → Hook 1 |
+| CHC SW | 24 → CHC SW 01 |
+| Battery | 41, 49, 50 (and a separate battery connector, see the workbook) |
+| GND | 1, 2, 18 |
+| unassigned | 4, 13, 17, 19, 39, 45, 48 |
+
+(The exact OR pin for J1 35 should be read from the workbook; the others are
+as listed.)
+
+Three consequences:
+
+1. **There are TWO card readers.** The "Optical Reader" is the Landis & Gyr
+   BSK31 these notes are mostly about. The "Mag. Reader" is a *separate
+   device* on four lines — which is a magnetic-head interface (card present,
+   data, clock, ground), **not** a UART, so it is bit-banged rather than
+   carried by the 1854. This matches display strings in the ROM that had no
+   home until now: `SWIPE CREDIT CARD`, `INSERT CARD`, `Collect Card`.
+2. **The hook switch reaches the CPU through J1** (pins 15 and 37). That
+   independently corroborates EF3 = hook, which §9a derived only from the
+   "please replace the handset" prompt.
+3. **The optical reader has five signal lines plus ground** — enough for
+   transmit, receive, power and a control line, consistent with it being the
+   CDP1854's peer.
+
+### A new candidate for the unattributed codes
+
+`CA`, `CB`, `TG` and `MN` are parsed by the dispatcher but never sent by the
+BSK31. A second card peripheral now exists on the same distribution board, so
+**a magnetic-reader subsystem is a candidate source** alongside the DLC modem.
+`CA`/`CB` as card-type codes would fit the two-reader arrangement. Still
+speculation — the mag reader's four lines are not a UART, so how its messages
+would reach the `8022` buffer is unexplained.
 
 ### What the photographs cannot settle
 
