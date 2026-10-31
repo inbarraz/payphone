@@ -551,10 +551,54 @@ Which makes one instruction worth singling out, at `0x0701`:
 ```
 
 This is the **only** genuine UART configuration write in the image, and it is
-performed with interrupts disabled. The value is **`0x32`** (`00110010`). The
-control-register bit map is not in the datasheet excerpt consulted, so the word
-length, parity and stop-bit settings it encodes are **not decoded here** —
-worth finishing, since it is the wire format of the link.
+performed with interrupts disabled.
+
+**Decoded.** `Documentation/Datasheets/CDP1854A.PDF`, Table 4 — Control
+Register Bit Assignment:
+
+| Bit | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
+|---|---|---|---|---|---|---|---|---|
+| Signal | TR | BREAK | IE | WLS2 | WLS1 | SBS | EPE | PI |
+
+`0x32` = `0011 0010`:
+
+| Bit | Value | Meaning |
+|---|---|---|
+| 7 TR | 0 | transmit request not asserted |
+| 6 BREAK | 0 | no break |
+| **5 IE** | **1** | **interrupts ENABLED** |
+| 4 WLS2 | 1 | \ |
+| 3 WLS1 | 0 | — word length / stop bits, see below |
+| 2 SBS | 0 | / |
+| **1 EPE** | **1** | **even** parity |
+| **0 PI** | **0** | parity **not** inhibited — parity is active |
+
+WLS2=1, WLS1=0, SBS=0 gives **7 data bits, 1 stop bit**.
+
+### The wire format is 7E1
+
+> **7 data bits, even parity, 1 stop bit, interrupts enabled.**
+
+Which fits the protocol exactly: everything on this link is **7-bit ASCII** —
+`OK`, `RY`, `BR30`, `?CD007`, `?TE01`, CR and LF. A 7-bit word length is not a
+coincidence, it is the natural choice for a text protocol, and it corroborates
+the whole reconstruction in §6–§8 independently of the firmware.
+
+**IE = 1 also matters**: the UART is configured to raise interrupts. That makes
+it near-certain that the CPU's `/INTERRUPT` (pin 36) is driven by the 1854's
+INT output (pin 13), which was listed as an open trace in §1a — and it supports
+the model that **both** interrupt handlers are UART-driven (§6a).
+
+### Baud rate is not in the control register
+
+The 1854 has no baud generator: bit rate comes from the external **T CLOCK**
+(pin 40) and **R CLOCK** (pin 17), each at **16×** the bit rate. To establish
+the baud rate, either measure those pins or work out the divider chain from the
+crystal (`X201`) through the `CD74HC4040E` counters (`U210`, `U212`) and the
+`CD4521BE`. **Not yet determined.**
+
+So anyone tapping pins 4 and 15 of `U230` (§6b) should set their analyser to
+**7E1** and find the baud rate empirically.
 
 > **Correction.** An earlier opcode scan reported `OUT 7` at `4997`, `7592` and
 > `75A6` as well. All three are false: `4997` lies inside a
