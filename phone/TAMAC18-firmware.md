@@ -134,12 +134,16 @@ as listed.)
 
 Three consequences:
 
-1. **There are TWO card readers.** The "Optical Reader" is the Landis & Gyr
-   BSK31 these notes are mostly about. The "Mag. Reader" is a *separate
-   device* on four lines — which is a magnetic-head interface (card present,
-   data, clock, ground), **not** a UART, so it is bit-banged rather than
-   carried by the 1854. This matches display strings in the ROM that had no
-   home until now: `SWIPE CREDIT CARD`, `INSERT CARD`, `Collect Card`.
+1. **The distribution board has a second card reader socket, but it was
+   NOT FITTED.** The "Optical Reader" is the Landis & Gyr BSK31 these notes
+   are about and is the one actually present. The "Mag. Reader" socket — four
+   lines, a magnetic-head interface (card present, data, clock, ground) rather
+   than a UART — **was never populated in this deployment**.
+
+   So the hardware supports a magnetic card reader that Bezeq did not install.
+   That is consistent with the display strings `SWIPE CREDIT CARD`,
+   `INSERT CARD` and `Collect Card` being present in the ROM: the firmware
+   carries support for a reader the phone does not have.
 2. **The hook switch reaches the CPU through J1** (pins 15 and 37). That
    independently corroborates EF3 = hook, which §9a derived only from the
    "please replace the handset" prompt.
@@ -147,14 +151,26 @@ Three consequences:
    transmit, receive, power and a control line, consistent with it being the
    CDP1854's peer.
 
-### A new candidate for the unattributed codes
+### The unattributed codes, after the J1 mapping
 
 `CA`, `CB`, `TG` and `MN` are parsed by the dispatcher but never sent by the
-BSK31. A second card peripheral now exists on the same distribution board, so
-**a magnetic-reader subsystem is a candidate source** alongside the DLC modem.
-`CA`/`CB` as card-type codes would fit the two-reader arrangement. Still
-speculation — the mag reader's four lines are not a UART, so how its messages
-would reach the `8022` buffer is unexplained.
+BSK31.
+
+> **Retracted.** A previous version of this section floated the magnetic
+> reader as their source. **The Mag. Reader socket was never fitted**, so it
+> cannot be the origin of any traffic the phone actually received. The idea
+> was also weak on its own terms, since four lines is not a UART.
+
+What the unfitted socket does suggest is a more general point: **this firmware
+carries support for hardware that is not installed.** `SWIPE CREDIT CARD` is
+in the ROM and there is no magnetic reader to produce it. So the four
+unattributed prefixes may simply be **dead paths for a peripheral or a reader
+variant this deployment never had** — code that compiles into every TAMAC-18
+regardless of what each site fits.
+
+That is a hypothesis, not a finding, and it is untestable from this image
+alone. It would be supported if other dead code for the magnetic reader turned
+up, and weakened if the four prefixes are reachable from live paths.
 
 ### What the photographs cannot settle
 
