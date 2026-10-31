@@ -63,7 +63,8 @@ label denotes a build, not a different product.
 | U3, U4, U5, U14, U18 | **MC14094BCP** ×5 | serial-in, parallel-out shift registers with output latches |
 | U204 | MC14021BCP | parallel-in, serial-out shift register (input expander) |
 | U202 | CD4099BE | 8-bit addressable latch |
-| **U214**, **U11** | **M74HC4066B1** ×2 | quad analog switches — **the routing suspects**; U214 sits by the CPU/decode area, U11 among the modem chips |
+| **U230** | **MC74HC4053N** | **triple 2-channel analog multiplexer — the UART peer selector**, see §6b |
+| U214, U11 | M74HC4066B1 ×2 | quad analog switches; U214 by the CPU/decode area, U11 among the modem chips. **Not** the UART router — most likely audio switching around the speech circuit |
 | U215, U217, U218, U219 | SN74HC367N ×4 | buffers driving the J1 connector |
 | U224 | MC74HC245AN | bus transceiver |
 | U210, U212 | CD74HC4040E | 12-stage counters |
@@ -499,6 +500,60 @@ for THRE, `ANI 0x08` for the framing-error bit — and files framing errors into
 a third ring at `8B0F`, setting `M(8C1D)` on error. It is altogether more
 careful than the card reader path, which fits a noisy modem link rather than a
 short cable run.
+
+### The router: U230
+
+**Measured:** the UART's **SDO (U231 pin 25) connects to U230 pin 4.**
+
+`U230` is an `MC74HC4053N` — a triple 2-channel analog multiplexer, i.e. three
+independent SPDT switches each with its own control input. Per the TI
+CD4053B datasheet:
+
+| Pin | Signal |
+|---|---|
+| 1 | BY in/out |
+| 2 | BX in/out |
+| 3 | **CY in/out** |
+| **4** | **C common out/in** |
+| 5 | **CX in/out** |
+| 6 | INH (disables all channels) |
+| 9 | **control C** |
+| 10 | control B |
+| 11 | control A |
+| 12 | AX in/out |
+| 13 | AY in/out |
+| 14 | A common out/in |
+| 15 | B common out/in |
+
+**Pin 4 is the C switch's COMMON terminal, not a channel input.** So the UART
+transmit output arrives at the common and is steered to **one of two
+destinations** — pin 5 (CX) or pin 3 (CY) — selected by pin 9.
+
+**The UART is switched between two peers, in hardware, under software
+control.** That is now measurement rather than inference.
+
+The other two switches in the same package almost certainly carry the return
+path and one more signal: the A switch (12/13 → 14, control 11) and the B
+switch (1/2 → 15, control 10). Three switches is exactly enough to route
+transmit, receive and one handshake line between two peers.
+
+Note the arithmetic: **three SPDT switches route TWO peers, not three.** So
+`U230` selects between two of {optical reader, magnetic reader, DLC modem} and
+the third must be reached another way — or is simply the unfitted one.
+
+Still to measure:
+
+1. **U230 pin 9** — what drives it. If it is an `MC14094BCP` shift-register
+   output, peer selection is software-controlled and ties directly to the
+   vector swap in `proc_06ba`.
+2. **U230 pins 5 and 3** — the two destinations. Whether they reach the
+   Optical Reader pins on J1 (16, 32, 35, 38, 40), the Mag. Reader pins
+   (23, 25, 26, 44), or the modem, decides the serial-magnetic-reader
+   hypothesis above.
+3. **U231 pin 20 (SDI)** — expected at `U230` pin 14 or 15 (the A or B
+   common) if the receive path is switched symmetrically.
+4. **U230 pin 6 (INH)** — if driven rather than tied, the firmware can
+   isolate the UART entirely.
 
 ### What this costs us
 
