@@ -507,6 +507,71 @@ Link reset at **`0x5FB1`** clears bit 0 of `0x8029`, zeroes `8031` and
 `805C`–`805E`, calls `EraseBlock` over the receive buffer, and sets
 `8134 = 0xAA`.
 
+## 6. How the ports are decoded — measured
+
+**There is no external I/O decoder for the UART. It decodes its own port
+select**, which is the entire point of the 1854's Mode 1.
+
+| CPU (U201) | | UART (U231) | Signal |
+|---|---|---|---|
+| pin 19 **N0** | → | pin 16 | **RSEL** — register select |
+| pin 18 **N1** | → | pin 23 | **CS1** |
+| pin 17 **N2** | → | pin 35 | **CS3** |
+
+The datasheet's timing notes give the selection logic:
+
+> "Write is the overlap of TPB, **CS1, and CS3 = 1** and **/CS2**, RD/WR = 0"
+> "Read is the overlap of **CS1, CS3**, RD/WR **= 1** and **/CS2 = 0**"
+
+So **CS1 and CS3 are active HIGH** and CS2 is active low. The UART is therefore
+selected whenever **N1 = 1 and N2 = 1** — which is exactly **ports 6 and 7**,
+and nothing else.
+
+**This confirms from hardware the port map derived from firmware in §6.** It
+also explains why only ports 6 and 7 ever touch the UART: no other port number
+can select it.
+
+`N0` → `RSEL` then picks the register pair:
+
+| Port | RSEL | Read | Write |
+|---|---|---|---|
+| **6** | 0 | receiver holding register | transmitter holding register |
+| **7** | 1 | **status register** | **control register** |
+
+### `OUT 7` writes the UART control register
+
+Which makes one instruction worth singling out, at `0x0701`:
+
+```
+06FE  SEX R4
+06FF  DIS   <- inline 0x44    X=4, P=4; interrupts OFF
+0701  OUT 7 <- inline 0x32    UART CONTROL REGISTER = 0x32
+0703  RET   <- inline 0x24    X=2, P=4; interrupts ON
+0705  XIE
+```
+
+This is the **only** genuine UART configuration write in the image, and it is
+performed with interrupts disabled. The value is **`0x32`** (`00110010`). The
+control-register bit map is not in the datasheet excerpt consulted, so the word
+length, parity and stop-bit settings it encodes are **not decoded here** —
+worth finishing, since it is the wire format of the link.
+
+> **Correction.** An earlier opcode scan reported `OUT 7` at `4997`, `7592` and
+> `75A6` as well. All three are false: `4997` lies inside a
+> `LoadStringForDisplay` descriptor (`01 00 10 <ptr> 0c 01 <ptr>`), and the
+> other two were mis-aligned — the byte at `7592` is `0x61`, not `0x67`. The
+> span around `7585` is a run of `OUT` instructions with X pointed at `0x8033`,
+> writing one byte to several ports in turn.
+
+### Still to trace here
+
+- **UART pin 4 (CS2)** — the remaining enable. If it is tied low the UART
+  answers ports 6/7 unconditionally; if it is driven, something can gate the
+  UART off the bus entirely.
+- **Whether N0–N2 branch anywhere else.** Ports 1–5 are used by the firmware
+  (`INP 1/2/3`, `OUT 4/5`) and cannot be the UART, so another device must
+  decode them.
+
 ## 6a. One UART, two owners
 
 **The board has a single CDP1854, and the firmware has TWO complete service
