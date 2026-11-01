@@ -1117,6 +1117,101 @@ So port 6 / port 7 is the reader link. What is **not** anchored:
 | Vectors `0699` / `067E` | **resolved** — the second link's prologue and epilogue |
 | `8E0D` / `8E0F` | the second link's RAM-resident chained vector and its gate |
 
+## 8a. The DLC frame format
+
+The outbound record and its framing are now traced end to end.
+
+### Relocated code
+
+`07A3` does `memcpy(dest=9100, src=1CB7, len=067A)` — **1658 bytes of ROM
+`1CB7`–`1F30` run at RAM `9100`–`9779`**, offset `+0x7449`. So that code
+exists in two places and an edit to one copy does not affect the other. The
+smaller payloads from `040D` and `3011` (§10) land *inside* this block,
+overwriting its tail.
+
+### `build_dlc_record` (RAM `910B`, ROM `1CC2`)
+
+Composes a ~70-byte record at **`0x8D26`**. `SEX RB / RNX R9` sets the output
+pointer. Fields in order:
+
+| Off | Size | Source | Content |
+|---|---|---|---|
+| 0 | 1 | literal | `01` record type |
+| 1 | 4 | ROM `13E8` | **`"DLCA"`** tag |
+| 5 | 4 | literal | zeros |
+| 9 | 11 | RAM `8501` | identifier, **zero bytes replaced by `'A'`** |
+| 20 | 4 | RAM `8EFD` | |
+| 24 | 2 | ROM `7BFA` | `04 30` |
+| 26 | 2 | ROM `7BFE` | `7A AE` |
+| 28 | 6 | literal | zeros |
+| 34 | 2 | ROM `7C02` | `00 9E` |
+| 36 | 2 | ROM `7C02` | the same constant **again** |
+| 38 | 2 | literal | zeros |
+| 40 | 2 | RAM `8DF4` | |
+| 42 | 1 | RAM `8EFC` | |
+| 43 | 1 | RAM `97A1` | mode |
+| 44 | 5 | conditional | if `M(97A1)==2`: 4 bytes from `8DE8` + 1 from `8DF0`; else zeros |
+| 49 | 2 | RAM `8DD7` | |
+| 51 | 4 | RAM `8DD9`… | **copied, and the source zeroed as it goes** |
+| 55 | 1 | RAM | |
+| 56 | 4 | RAM | |
+| 60 | 1 | RAM `8DC2` | |
+| 61 | 9 | literal | nine `0x46` `'F'` filler |
+
+**The read-and-clear at `91DB`–`91E6` is the telling detail.** You only zero a
+counter once its value is captured for reporting, so this is an **accounting
+record**, not merely an identity block.
+
+The ROM constants sit just after the banner at `7BDF`, which also carries
+author credits (`...I SHABTAI and BERENIKE SHAMSHON`, then `TAMAC18`). Their
+meaning — version, build, checksum — is **not established**.
+
+### The framer, `038D`
+
+**Variable inline signature**, which is a genuine edge case for the analyzer
+(§12), since it assumes one fixed signature per callee:
+
+- `D == 0` → **three** inline bytes; the payload length is read *from memory*
+- `D != 0` → **two** inline bytes; the payload length is an *immediate*
+
+Either way `RA.hi` is the payload length. It then builds at `0x8C27`:
+
+```
+CC  00  <len>  <2 from 8DA7>  <2 mode>  <payload…>  <CRC hi> <CRC lo>  84
+```
+
+with **`len` = payload + 7**, counting from `0xCC` up to but not including the
+CRC. `0xCC` opens the frame and `0x84` closes it.
+
+### The CRC is CRC-16/MODBUS
+
+`0837` seeds a 16-bit accumulator with **`0xFFFF`**, XORs each data byte into
+the low half, does eight right shifts per byte, and XORs with **`0xA001`**
+whenever the shifted-out bit is 1. That is reflected CRC-16-IBM —
+**CRC-16/MODBUS**, no final XOR.
+
+`8E6D` holds the high half (it takes the `0xA0` XOR), `8E6E` the low half.
+The framer appends them **high byte first**, consistent with this firmware's
+big-endian convention — but **note that most MODBUS implementations transmit
+the CRC low byte first**, so this is byte-swapped relative to the usual wire
+order. Worth knowing before checking a capture against a reference
+implementation.
+
+The routine refuses a length of zero or above `0xA0` (160), returning 2.
+
+### The chain
+
+```
+proc_0889
+  -> build_dlc_record (910B)   70 bytes at 8D26, counters read-and-cleared
+  -> 038D with length 0x46     frame at 8C27: CC, len, header, payload,
+                               CRC-16/MODBUS, 84
+```
+
+`0x8C27` sits immediately above the DLC transmit ring at `8C1F`/`8C21`/`8C23`
+(§6a), which is consistent with the framer writing where the ring can pick it
+up — **worth confirming rather than assuming.**
+
 ## 9. Idioms and pitfalls
 
 ### `RLXA R4` is a jump
