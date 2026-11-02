@@ -1789,6 +1789,232 @@ anywhere**. A patch at `48A9` cannot recover which of the thirteen sites
 failed without either recording it at the site or inferring it from `RF.0`
 and the surrounding state.
 
+## 10d. `RF.0` — the global state register
+
+`RF.0` holds the phone's current operating or fault state. It is the pivot the
+whole call-progress flow turns on: the out-of-service display, the retry
+logic, the fault log and the main idle loop are all selected by its value.
+
+### Bit 7 partitions the space
+
+`497F` does `GLO RF / SMI 0x80 / LBDF 4AF6` — **every state `>= 0x80` leaves
+for the main idle loop**. That split is load-bearing, and it sorts the map:
+
+| Range | Meaning |
+|---|---|
+| `0x00` | idle / cleared |
+| `< 0x80` | normal operating states |
+| `>= 0x80` | abnormal — terminal faults and transients |
+
+### Two chained predicates, both with multiple entry points
+
+The abnormal range is read by two routines of identical shape, and their sets
+are **disjoint**:
+
+| Routine | Set | Behaviour |
+|---|---|---|
+| `is_out_of_service_state` (`744F`) | `{80, 84, 87, 94, 99}` | pure test; returns Z on match |
+| `clear_state_if_transient` (`4D1C`) | `{81, 82, 83, 85, 93, 96, 98}` | **mutates** — `4D44: PLO RF` resets the state to 0 |
+
+Both are chains of `GLO RF / XRI nn / LBZ <tail>`, which means **entering part
+way through tests only the remaining codes**:
+
+| Entry | Codes tested |
+|---|---|
+| `SCAL 744F` | all five |
+| `SCAL 7461` | `{87, 94}` — used at `48DE` |
+| `SCAL 4D1C` | all seven |
+| `SCAL 4D22` | `{82, 83, 85, 93, 96, 98}` — used at `495B` |
+
+Any reference landing mid-chain is a deliberately narrowed test. **Check the
+entry address before assuming what a caller cares about** — this is the
+easiest way to misread this subsystem.
+
+### The setters, and an idiom that defeats scanning
+
+States are written with `LDI nn / PLO RF`, but three sites use a two-way form
+where `LSKP` sits between two loads, giving one routine two entry points:
+
+```
+7440  LDI 0x89
+7442  LSKP          skips the next two bytes
+7443  LDI 0x84
+7445  PLO RF
+7446  SEX R2 / SRET R3
+```
+
+| Site | Entry → value |
+|---|---|
+| `7440` / `7443` | `0x89` / `0x84` |
+| `48A0` / `48A3` | `0x89` / `0x88`, then `LBR 4AF6` |
+| `31D0` / `31D3` | `0x74` / `0x73` |
+
+A scan for `F8 nn AF` **misses the first value of each pair**, because the
+`LSKP` breaks the byte pattern.
+
+### Meanings, from the messages each state selects
+
+Several states name themselves: the per-state handler block at `4BEF`–`4D1C`,
+reached from the main idle loop, tests `RF.0` and calls `LoadStringForDisplay`
+with an inline descriptor. Reading the descriptor gives the state's meaning.
+
+| State | Handler | Message |
+|---|---|---|
+| `0x26` | `62A5` | תקלה בקורא אופטי או בכרטיס תשלום — *fault in the optical reader or in the payment card* |
+| `0x73`, `0x74` | setters `31D0`/`31D3`, `61DF` | אנא המתן... / `PLEASE WAIT...` |
+| `0x75` | `4BEF` | כרטיס זה אינו מאפשר חיוג לחו"ל — *this card does not permit international dialling* |
+| `0x81` | `4C0E` | עקב תקלה נותקת / `TEMPORARY  FAULT` |
+| `0x88` | `4C37` | יתרתך: / `CREDIT:` — displays the card balance from RAM at `804C` |
+| `0x94` | `48A9` | הטלפון אינו שמיש / `OUT  OF  SERVICE` (§10c) |
+| `0xA9` | `2A78` | שיבוש בקריאת כרטיס — *corruption reading card* |
+
+**Two traps when doing this sweep.** A naive "nearest `LoadStringForDisplay`"
+search produces false pairs:
+
+- the six states in the `4D1C` chain all appear to select `6741`, but that
+  descriptor belongs to the code *after* the predicate, reached by `LBR 4D49`
+  from `show_fault_log`. The chain entries select nothing.
+- the setters at `48A0`/`48A3` sit immediately before `Print_Out_of_Service`,
+  so `0x88` and `0x89` look like out-of-service codes. They are not — both
+  branch to the main idle loop, and `0x88`'s own handler at `4C37` displays
+  the credit balance.
+
+Only associations where the state's **own handler** loads the descriptor, or
+where two independent sites agree, are listed above.
+
+### The map
+
+| Value | Role | Setters |
+|---|---|---|
+| `00` | idle / cleared | `4901`, `494F`, `4988`, `4D44`, `5FD4`, `47F7`, `4D05`, `4DB1`, `62BC`, `777A` |
+| `54` | normal operating state | `289C` |
+| `73`, `74` | **please wait** | `31D3`, `31D0`, `61DF` |
+| `75` | **no international calls** | `4710` |
+| `25` | normal — tested only (`464B`, `4759`) | not seen written by `LDI`/`PLO` |
+| `26` | **optical reader / payment card fault** | not seen written; cleared at `62BB` |
+| `80` | out of service | `4AED`, when a counter reaches `0x19` |
+| `84` | out of service | `7443`, `269A` |
+| `87` | out of service | `287B` |
+| `94` | out of service | `286E` |
+| `99` | out of service | `284A` |
+| `81` | **temporary fault**, auto-cleared | `32D5` |
+| `82`, `93`, `96`, `98` | transient, auto-cleared | `2DC3`, `2DC9`/`34DC`, `34B6`, `515E` |
+| `83`, `85` | transient, auto-cleared | **tested but never `LDI`-written** |
+| `88` | **show credit / balance** | `48A3` |
+| `A9` | **error reading card** | `33B5` |
+| `86`, `89`, `90`, `95`, `97` | abnormal, in neither predicate set | `4A51`, `7440`/`48A0`, `378A`, `35F5`, `2776` |
+| `91` | **special** — see below | **never `LDI`-written** |
+
+**`0x50` is probably not a state.** It appears only at `628D` as
+`GLO RF / SMI 0x50` — a magnitude comparison, not an equality test — so it
+reads more like a threshold than a member of the set.
+
+`0x91` is tested six times (`283E`, `4949`, `495F`, `4C8E`, `7380`, `75D8`)
+and never assigned by an immediate, so it arrives from a register — most
+likely set by an interrupt handler. `wait_and_triage_state` clears it at
+`494F` and gates its hook-switch retry arm on it. Worth pinning down.
+
+### Caveat on method
+
+`RF.0` is a register, so **it cannot be cross-referenced**. This map comes from
+byte scanning validated against decoded instruction streams. Scans over this
+image are unreliable in data regions — the run of `RLDI RF,68CF` at `6B7A` is
+a pointer table being misread, and `F8 93 AF` at `2DC9` reads equally well as
+`GHI R3 / PLO RF` at the wrong alignment (§9).
+
+Every value above was checked against a decoded stream, but **the setter list
+is a lower bound**: assignments through `GHI`/`GLO Rn` → `PLO RF` are not
+enumerated.
+
+## 10e. `wait_and_triage_state` (`0x48E8`) and the fault log
+
+### `wait_and_triage_state` — beep, wait, triage
+
+Entered **by a branch, not a call** — `45D3` is `LBR 48E8`, which Ghidra
+reports as an unconditional call only because `48E8` is a function entry. It
+never returns; there is no `SRET` in it. The guard upstream is:
+
+```
+45CC  LDN R6 / XRI 0x10 / LBZ 45D6     M(8030) == 0x10 -> normal path
+45D2  STR R6                           else flip bit 4 back into M(8030)
+45D3  LBR 48E8                         and come here
+```
+
+What it does:
+
+| Step | |
+|---|---|
+| `48E8` | `M(8034) \|= 0x04` — PORT5 shadow, opens the audio path |
+| `48F1` | `SCAL 6FFF` → `play_toggle_pattern` (`3AA8`) with inline arg `3AA0` — **an audible beep** |
+| `4901` | `PLO RF` with D still 0 — **clears the state** |
+| `4902` | `M(8034) &= ~0x04` — closes the audio path; the pair around the tone is a pulse |
+| `491A` | `M(8131) = 30`, `M(8139) = 4` — two timers |
+| `492C` | `IDL` wait loop, polling the timers |
+| `492D` | `GLO RF / XRI 0x94 / LBZ 48A9` — the one out-of-service site that **inlines** the test instead of calling `744F` |
+| `4953` | `SCAL 744F` → the full check |
+| `495B` | `SCAL 4D22` → `clear_state_if_transient`, narrowed entry |
+| `496A` | `SCAL 0100` — samples **EF3, the hook switch**, returning it in DF |
+| `4975` | arms a retry: `M(816C) = 0xAA`, `M(812F) = 50` |
+| `497E` | `GLO RF / SMI 0x80 / LBDF 4AF6` — the bit-7 partition |
+
+Three exits:
+
+| Target | Condition |
+|---|---|
+| `48A9` `Print_Out_of_Service` | `RF.0` is a terminal fault |
+| `4AF6` the main idle loop | `RF.0 >= 0x80` |
+| `5F67` `show_fault_log` | `M(8165) == 0` |
+
+`Print_Out_of_Service` makes the **same `M(8165)` test** at `48C6`, so
+`M(8165)` is what decides between sitting on the fault message and dropping
+into the fault-log readout.
+
+**Not established:** what `M(8030)` means, and therefore what condition routes
+here rather than to `45D6`. The timers (`8131`, `8139`, `812F`) and flags
+(`8149`, `816C`, `8165`) are known only by address. Treat the routine's
+purpose as structural — beep, wait, triage — not as a named feature.
+
+### `show_fault_log` (`0x5F67`)
+
+This is the diagnostic readout — the "reports faults to the service centre"
+capability from the technician story in §12a, at least its local half.
+Identified from what it displays:
+
+| Call | Descriptor | Text |
+|---|---|---|
+| `5FE5` | `643F` | two lines of dots — a cleared screen |
+| `5FFA` | `670B` | `698A` = תקלה מס':  -בדוק (*Fault no.: - check*) |
+| `6052` | `65F4` | `699B` = אין תקלות נוספות (*No further faults*) |
+
+It drives `get_key_with_timeout` (`5EEB`, inline arg `05`) between entries and
+only advances on key code `0x0C`.
+
+The log is a table in battery-backed RAM, walked at `600D`–`604B`:
+
+```
+600D  RLDI RB,840A           first entry
+6011  LDN RB / ANI 0x7F      code = low 7 bits; 0 means empty, skip
+6017  RLDI RD,6069           code table base
+601B  LDN RB / ANI 0x7F / SMI 0x46
+6020  RD += (code - 0x46)    so valid codes start at 0x46
+6029  LDN RD                 the table entry for this fault
+6031  SCAL 5E8B              format / display
+6036  SCAL 5EEB, arg 05      wait for a key
+603E  XRI 0x0C / LBNZ 6035   only 0x0C advances
+6043  INC RB / INC RB        2 BYTES PER ENTRY
+6045  GLO RB / SMI 0x42      stop at 8442
+604B  LBNF 6011              loop
+```
+
+So the fault log occupies **`840A`–`8441`, 28 entries of 2 bytes**, with bit 7
+of the first byte a flag, the low 7 bits the fault code, and codes indexing a
+table at `6069` biased by `0x46`.
+
+**Open:** the contents of the `6069` table, and what the second byte of each
+entry holds. The Hebrew technician strings nearby — `69D4` קוד טכנאי:
+(*technician code*), `69DF` קוד מכלול (*module code*), `69F0` הכנס קודי הודעות
+— belong to this subsystem and are the obvious next thread.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -1820,7 +2046,9 @@ with it.
 Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 `FUN_365c` → **`send_reader_command`**; `proc_279a` →
 **`LCD_RenderNextDescriptor`** (§10b); `FUN_744f` →
-**`is_out_of_service_state`** (§10c).
+**`is_out_of_service_state`** (§10c); `FUN_4d1c` →
+**`clear_state_if_transient`**; `FUN_48e8` → **`wait_and_triage_state`**;
+`FUN_5f67` → **`show_fault_log`** (§10d–10e).
 
 Data named: `8037` → `LCD_verify_errcount`; `8038` → `LCD_next_descriptor`;
 `803A` → `LCD_dwell_countdown`; `803B` → `LCD_last_command`.

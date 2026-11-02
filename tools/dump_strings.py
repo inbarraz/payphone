@@ -72,10 +72,14 @@ def logical(text: str, raw: bytes) -> str:
     Ambiguous Hebrew is treated as display order, which is the overwhelming
     majority in this image (23 of 24 decidable runs).
     """
-    order = guess_order(raw)
-    if order == "logical":
+    if guess_order(raw) == "logical":
         return text
-    return text[::-1]
+    # Reverse the line, then put Latin runs back the right way round: on a
+    # mixed line the ROM holds each run in its own direction, so reversing
+    # the whole string fixes the Hebrew and breaks the Latin.
+    flipped = text[::-1]
+    return re.sub(r"[A-Za-z][A-Za-z0-9.\\'&/-]*",
+                  lambda m: m.group()[::-1], flipped)
 
 
 def find_strings(rom: bytes, minlen: int):
