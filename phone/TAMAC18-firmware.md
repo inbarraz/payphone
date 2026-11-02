@@ -2195,6 +2195,108 @@ codes share a displayed number (14, 23, 40, 41, 43 each appear more than
 once), so the mapping is many-to-one — the displayed number identifies a
 **class** of fault, not the code.
 
+## 10g. The `8119` buffer and its three routines
+
+A 25-byte RAM buffer at **`8101`–`8119` that grows downward**, with two
+pointer cells just above it. Three routines own it, and the single caller
+uses all three in sequence.
+
+| Routine | Address | Was |
+|---|---|---|
+| `InitBuffer8119` | `1A26` | `FUN_1a26` |
+| `LoadBuffer8119` | `2C81` | `FUN_2c81` |
+| `WaitForBuffer8119` | `2C6E` | `FUN_2c6e` |
+
+### `InitBuffer8119` (`1A26`)
+
+```
+1A26  RLDI RC,8119 / RLDI RA,0019
+1A31  STXD / DBNZ RA,1A31     zero 0x19 bytes downward: 8101..8119
+1A5F  RLDI RC,811B
+1A63  LDI 0x19
+1A65  STXD                    M(811B) = 0x19
+1A66  STR RC                  M(811A) = 0x19
+```
+
+Both pointers start at `0x19`, the low byte of the buffer's top, so **equal
+pointers mean nothing pending**. It also clears `M(814C)`, `M(812B)`,
+`M(8182)`, sets `M(814B) = 0x80` and `M(813A) = M(8513) - 1`.
+
+### `LoadBuffer8119` (`2C81`)
+
+```
+2C81  RLDI RD,8119    destination, the TOP
+2C86  LDA RC          read source FORWARD
+2C87  LBZ 2C8E        first zero ends it, and is not copied
+2C8A  STXD            write BACKWARD
+2C8B  LBR 2C86
+2C8E  GLO RD / RLDI RD,811A / STR RD    M(811A) = where it stopped
+```
+
+`source[0]` lands at `8119`, `source[1]` at `8118`, and so on — the
+`LDA` forward / `STXD` backward pairing from §9. It always starts at `8119`
+regardless of the current pointer, so it **loads** the buffer rather than
+appending.
+
+### `WaitForBuffer8119` (`2C6E`)
+
+```
+2C6E  IDL
+2C70  SCAL R3,729E    the periodic service pass, every iteration
+2C74  RLDI R6,811A / SEX R6
+2C79  LDA R6          D = M(811A), R6 -> 811B
+2C7A  XOR             D ^= M(811B)
+2C7B  LBNZ 2C6E       loop while they differ
+```
+
+The **same idiom appears at `3B5F`**, so "compare `M(811A)` against `M(811B)`
+and loop" is a reusable drain check rather than something specific to this
+call site. `FUN_729E` is not a transmit routine — it is the general periodic
+supervision pass (§10d, it holds the `0x91` resolution at `7380`), called
+here to keep the machine serviced while blocked.
+
+### The only caller
+
+```
+19DA  SCAL 1A26       init
+19DE  RLDI RC,1A81    source
+19E3  SCAL 2C81       load
+19E8  SCAL 2C6E       wait
+19ED  SCAL 6FA5
+```
+
+The source at `1A81` is `01 03 01 00`, so **only three bytes are copied** —
+the copy stops at the `00` at `1A84`. This sits in the `PerformComm`
+neighbourhood that also holds the backwards `=LANIMRET` (`TERMINAL=`) at
+`1AA9` and the `"\r.\rD1\r34011503\r"` script bytes at `1A86`.
+
+### What is not established
+
+**Where the pointers advance, so that the wait can ever end.** Every *direct*
+write to `811B` — `1A65`, `3B20`, `7054`, `45F1` — only resets it to `0x19`.
+The one site that moves `M(811A)`, at `25D4`, *decrements* it with a wrap
+from `0x01` to `0x15`:
+
+```
+25D4  RLDI R7,811A / RLDI R8,8119
+25DC  LDN R7 / PLO R8 / PLO RA     form the pointer 81:M(811A)
+25DF  XRI 0x01 / LBZ 25E8
+25E4  LDN R7 / SMI 0x01 / LSKP
+25E8  LDI 0x15
+25EA  STR R7
+```
+
+That reads like a ring over `8101`–`8115` and does not obviously converge on
+`0x19`. So either an interrupt path advances a pointer through a register
+alias that leaves no cross-reference on `811A`/`811B`, or `25D4` belongs to a
+different flow reusing the same cells. **Do not infer the direction of
+consumption from `WaitForBuffer8119` alone** — and in particular, do not
+assume the downward fill means the bytes come out reversed until the consumer
+is found.
+
+What *is* settled is that `M(811A)` is a pointer low byte: both `25D4` and
+`2652` combine it with a `0x81` page to form an address.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -2228,7 +2330,10 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 **`LCD_RenderNextDescriptor`** (§10b); `FUN_744f` →
 **`is_out_of_service_state`** (§10c); `FUN_4d1c` →
 **`clear_state_if_transient`**; `FUN_48e8` → **`wait_and_triage_state`**;
-`FUN_5f67` → **`show_fault_log`** (§10d–10e).
+`FUN_5f67` → **`show_fault_log`** (§10d–10e);
+`FUN_2aab` → **`FormatCardDigitsToAscii`**; `FUN_1a26` →
+**`InitBuffer8119`**; `FUN_2c81` → **`LoadBuffer8119`**; `FUN_2c6e` →
+**`WaitForBuffer8119`** (§10g).
 
 Data named: `8037` → `LCD_verify_errcount`; `8038` → `LCD_next_descriptor`;
 `803A` → `LCD_dwell_countdown`; `803B` → `LCD_last_command`.
