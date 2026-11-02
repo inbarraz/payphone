@@ -656,14 +656,54 @@ So anyone tapping pins 4 and 15 of `U230` (§6b) should set their analyser to
 > span around `7585` is a run of `OUT` instructions with X pointed at `0x8033`,
 > writing one byte to several ports in turn.
 
+### Ports 2 and 5 are output latches with RAM shadows
+
+Established at `399D`:
+
+```
+399D  RLDI RB,8034
+39A5  SEX RB          X = 8034
+39A6  OUT 5           sends M(8034) to PORT 5; R(X) -> 8035
+39A7  NOP / NOP       settling
+39A9  OUT 2           sends M(8035) to PORT 2
+```
+
+`OUT` writes `M(R(X))` and then **increments** `R(X)`, so a single pointer
+load serves both ports. The same idiom appears at `241D`, `2950` and `295E`.
+
+| Port | Direction | Shadow |
+|---|---|---|
+| **2** | output | **`0x8035`** (`PORT2_shadow`) |
+| **5** | output | **`0x8034`** (`PORT5_shadow`) |
+| 6 | UART data | — |
+| 7 | UART status / control | — |
+
+**Their adjacency is load-bearing** — the two-port write depends on `8035`
+following `8034` in memory.
+
+This explains the read-modify-write pattern (`LDN` / `ORI` or `ANI` / `STR`)
+that appears on these two bytes all over the ROM: they are shadows of
+write-only latches, exactly like `CTRL_F000` and its shadow at `8E10`
+(§10a). Around 26 sites load a pointer to `8034`, so **any `ORI`/`ANI` on it
+is a hardware output change, not internal state.**
+
+Known bits of `8034`: bit 0 toggled in timed patterns by
+`play_toggle_pattern` and cleared by `proc_35a5` on return to idle; bit 2 an
+enable; bit 6 toggled at `39A1`; bits 4–5 manipulated at `53A0`. **No bit has
+been traced to a component.**
+
+`399D` also performs a **hardware self-test**: it writes both ports, reads
+back port 1, and jumps into the halt path of `standby_reboot_or_halt` if the
+top two bits do not come back set. A failure there is fatal.
+
 ### Still to trace here
 
 - **UART pin 4 (CS2)** — the remaining enable. If it is tied low the UART
   answers ports 6/7 unconditionally; if it is driven, something can gate the
   UART off the bus entirely.
-- **Whether N0–N2 branch anywhere else.** Ports 1–5 are used by the firmware
-  (`INP 1/2/3`, `OUT 4/5`) and cannot be the UART, so another device must
-  decode them.
+- **Whether N0–N2 branch anywhere else.** Ports 1, 3 and 4 are still
+  unidentified (`INP 1/2/3`, `OUT 4`), and cannot be the UART, so another
+  device must decode them.
 
 ## 6a. One UART, two owners
 
@@ -1266,6 +1306,17 @@ up — **worth confirming rather than assuming.**
 ### `RLXA R4` is a jump
 
 See §3. The decompiler will not show it.
+
+### `DIS` and `RET` change X too
+
+A trap when hand-tracing the `X == P` idiom below: **`DIS` and `RET` load
+both X and P from their operand byte**, not just P. At `551B` a `DIS` carries
+inline `0xB4`, which sets `X = RB` and `P = R4` — so the `OUT` instructions
+that follow are sending *memory through `R(X)`*, not inline bytes.
+
+Anything that tracks only `SEX` when deciding whether `X == P` will misread
+that whole region. Two of the hand disassemblies in this project got it wrong
+before it was spotted.
 
 ### The `X == P` inline-operand idiom
 
