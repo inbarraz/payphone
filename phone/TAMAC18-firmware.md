@@ -56,6 +56,7 @@ label denotes a build, not a different product.
 | U201 | **CDP1806ACE** | the CPU |
 | U231 | **CDP1854ACE** | **UART (ACE)** — the device behind ports 6 and 7 |
 | U6 (daughter) | SRM2A256LLMT10 32K SRAM + lithium battery | battery-backed RAM, hence persistent state in `8000`–`9FFF` |
+| (daughter, socketed) | **Atmel AT29C256** | the firmware flash — 256 Kbit as 32 KB × 8, A0–A14. Hence the 32 KB images and the `0000`–`7FFF` ROM window. |
 | U16 | **MC145443P** | single-chip FSK modem |
 | — | **CML FX611J** | modem / signalling IC |
 | U19 | **PCD3311CP** | DTMF / tone generator |
@@ -384,7 +385,7 @@ firmware line diverged.
 |---|---|
 | `0x0000`–`0x7FFF` | ROM (`code` segment) |
 | `0x8000`–`0x9FFF` | RAM (`ram` segment) |
-| `0xE000`–`0xE007` | **LCD** |
+| `0xE000`–`0xE007` | **LCD**, an HD44780 (16x2). `E000` = instruction register, `E001` = data register — see §10b |
 | `0xF000` | **write-only control register**, shadowed at `0x8E10` — not declared as a segment (§10a) |
 
 RAM extends to `0x9FFF`, further than the reader's, and part of it holds
@@ -1400,6 +1401,11 @@ bytes at a `6E6B` argument shows a short binary record rather than a string.
 The project's Ghidra database follows the convention `descXxx` for the
 descriptor and `sXxx` for the text.
 
+The nine-byte record is decoded in full in §10b: cursor column, field width,
+text pointer, an LCD command, a dwell time, and a pointer to the **next**
+descriptor. Descriptors chain, and `LCD_RenderNextDescriptor` (`279A`) walks
+one link per call.
+
 ### Data blocks that disassemble as code
 
 Both the dispatch table at `0x3300` and the command table at `0x3600` are data
@@ -1450,6 +1456,143 @@ check fits a capability-withdrawal or protection latch.
 **This is inference from structure, not proof.** The bits have not been
 identified.
 
+## 10b. The display: HD44780 and the display list
+
+`LCD_RenderNextDescriptor` (`0x279A`, was `proc_279a`) is the bottom of the
+display stack. It is **not** a `printf` — there is no format-specifier parsing
+anywhere in it. It renders **one descriptor per call** to an HD44780-class
+LCD and saves the successor, so repeated calls cycle messages across the
+display.
+
+### The controller is an HD44780
+
+Three writes identify it, and all three are textbook HD44780 instructions:
+
+| Address | Code | Byte written to `E000` | HD44780 instruction |
+|---|---|---|---|
+| `27BB` | `LDA RC / ADI 80 / SMI 01` | `0x80 \| (unkByte1-1)` | Set DDRAM Address, line 1 |
+| `27E3` | `LDI C1 / SMI 01` | `0xC0` = `0x80 \| 0x40` | Set DDRAM Address, **line 2** |
+| `27FF` | `STR R7` (descriptor `+5`) | typically `0x0C` | Display on, cursor off, blink off |
+
+The two registers inside the `E000`–`E007` block are therefore:
+
+| Address | Register |
+|---|---|
+| `0xE000` | instruction register. `STR R7` writes a command; `LDN R7` reads back the busy flag and the address counter. |
+| `0xE001` | data register. The character loop does `INC R7` / `STR R7` / `DEC R7`. |
+
+`HD44780.pdf` and `HD44100.pdf` are both in the local datasheets folder — the
+'780 controller plus the '44100 segment-driver extender, which is the usual
+pairing for a panel wider than the controller drives alone.
+
+Writing `0xC0` as the wrap target means the panel has **2 lines**, and the
+field width in the descriptor (below) is `0x0010`, so **16 columns**.
+
+### The descriptor format
+
+Nine bytes. Field names are kept from the annotations already in the Ghidra
+project.
+
+| Offset | Size | Name | Meaning |
+|---|---|---|---|
+| `+0` | byte | `unkByte1` | cursor position **+ 1**; emitted as `0x80\|(n-1)`, so `01` is column 0 of line 1 |
+| `+1` | word | `strModifierLen` | **field width**. After this many characters the renderer emits `0xC0` and continues on line 2. `0x0010` = 16. |
+| `+3` | word | `ptrString` | the text, NUL-terminated |
+| `+5` | byte | `unkByte2` | an LCD command emitted after the text; also saved to `M(803B)` |
+| `+6` | byte | `unkByte3` | **dwell** — reloaded into the `M(803A)` countdown, setting how many calls this message stays up |
+| `+7` | word | — | **next descriptor**; `0000` ends the chain |
+
+Checked against `desc` at `6672` = `01 00 10 6a 89 0c 01 67 9b`: column 0,
+width 16, text at `6A89`, command `0x0C`, dwell 1, next descriptor `679B` —
+the same chain the pointer walk at `3A0B` followed.
+
+This supersedes the earlier guess that the record was `01 00 10 <text> 0c 01
+<next>` with an unexplained second pointer. The "second pointer" is the next
+descriptor, and the three loose bytes are a cursor column, an LCD command and
+a dwell time.
+
+### One descriptor per call, paced by the dwell byte
+
+The entry guard is a countdown, not an argument check:
+
+```
+279F  LDX / LSZ / SMI 01 / STXD / LBNZ 27AF
+```
+
+`M(803A)` is decremented (floored at zero) and the routine **returns
+immediately unless the result is 0**. So a descriptor's `+6` byte sets how
+long it stays on screen before the next one is rendered.
+
+The pointer test at `27AA` is a neat idiom worth recognising elsewhere:
+
+```
+27AA  INC RC
+27AB  DBNZ RC,27B2
+```
+
+The `INC` and the `DBNZ`'s own decrement cancel, so this tests `RC` for zero
+**without disturbing it**. A `0000` pointer ends the chain and the display
+freezes on the last message until something rewrites `8038`.
+
+### The persistent state block
+
+`RD` is loaded with `803A` at entry and walked down, so the structure sits
+either side of it:
+
+| Address | Size | Contents |
+|---|---|---|
+| `0x8036` | byte | `R6` from the last render — the verify error count |
+| `0x8038` | word | pointer to the **next** descriptor, big-endian |
+| `0x803A` | byte | countdown; the renderer returns immediately until it reaches 0 |
+| `0x803B` | byte | the last LCD command emitted (copy of `+5`) |
+
+A trap in reading the tail: the existing comment at `2802` reads "Load and
+ignore `strdesc.unkByte3`", and the `LDXA` does look like a discard — but
+`RLXA` at `2803` **does not touch D**, so that byte is still live when `STXD`
+at `2807` writes it to `M(803A)`. It is the dwell reload. On the 1802/1806 it
+is always worth asking which instructions leave `D` alone.
+
+### `R6` is an LCD write-verify error count
+
+After each **command** write the routine stashes the byte at `M(R2)` and reads
+`E000` back:
+
+```
+SHL / LSNF / INC R6        bit 7 of the readback is the BUSY FLAG
+SHR / XOR  / LSZ / INC R6  SHL-then-SHR masks bit 7 off, leaving the
+                           ADDRESS COUNTER, XORed against the address
+                           just written
+```
+
+So `R6` counts "controller still busy" plus "panel did not accept the
+command", and it is handed back on the stack at `280A`. The character loop
+deliberately skips the verify — its `LDN R7` at `27DD` is a read-and-discard
+for timing only.
+
+### Callers, and the power-up display self-test
+
+All four call sites are `SCAL R3` (`68 83 27 9a`):
+
+| Site | Context |
+|---|---|
+| `2793` | in `FUN_2500`, falls through to `280F` |
+| `063C` | after `SCAL 3733` and `SCAL 7572` |
+| `39CB`, `39CF` | **called twice in a row**, after `SCAL 6E6B` (`LoadStringForDisplay`), inside a `DBNZ RA` loop back to `399D` that ends in `LBR 29D8` = reboot |
+
+The `39CB`/`39CF` pair is what the `R6` error count exists for: load a
+message, render it twice, and on failure fall through to a reboot. That is a
+**power-up display self-test**.
+
+### Where formatting actually happens
+
+Numbers are composed into RAM buffers before a descriptor ever sees them:
+
+- `NumToString` (`4FDF`) for packed BCD
+- `printNumberString_at_R7` (`586C`) for keypad-code digit strings
+
+A descriptor then just points at the result. So the display path is three
+layers: compose into RAM → describe (position, width, dwell) → render.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -1479,7 +1622,11 @@ with it.
 ## 11. Naming added in this session
 
 Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
-`FUN_365c` → **`send_reader_command`**.
+`FUN_365c` → **`send_reader_command`**; `proc_279a` →
+**`LCD_RenderNextDescriptor`** (§10b).
+
+Data named: `8036` → `LCD_verify_errcount`; `8038` → `LCD_next_descriptor`;
+`803A` → `LCD_dwell_countdown`; `803B` → `LCD_last_command`.
 
 Commented: `6E03` (the P switch), `28D8` (vector, prologue, epilogue),
 `5071` (ISR body and flag map), `50DD` (character classifier), `514B`
@@ -1528,6 +1675,36 @@ inference from `DLC_Comm`'s name and its operator-driven entry, no more.
 `CA`, `CB`, `TG` and `MN` are no longer in doubt: the receive buffer has
 exactly one writer, so the dispatcher sees only reader traffic. **`?CE007`
 remains genuinely unexplained.**
+
+## 12a. Prior work by the author
+
+The owner of this project published a Hebrew write-up of the earlier phase of
+this work, which is worth reading for provenance and for the hardware-side
+experiments that the firmware analysis here builds on:
+
+- [מסתבר שגם טלפון ציבורי הוא טלפון חכם](https://www.retro.unarmedsecurity.net/post/%D7%9E%D7%A1%D7%AA%D7%91%D7%A8-%D7%A9%D7%92%D7%9D-%D7%98%D7%9C%D7%A4%D7%95%D7%9F-%D7%A6%D7%99%D7%91%D7%95%D7%A8%D7%99-%D7%94%D7%95%D7%90-%D7%98%D7%9C%D7%A4%D7%95%D7%9F-%D7%97%D7%9B%D7%9D)
+  (9 December 2024) — acquiring the phone in Binyamina in November 2019,
+  picking the case lock, identifying the CDP1806ACE and the Atmel AT29C256,
+  dumping the 32 KB image, and writing the Ghidra processor module.
+
+Three points from that post corroborate findings reached here independently
+from the firmware:
+
+| Blog observation | Firmware confirmation |
+|---|---|
+| The LCD is "a completely standard LCD" and **Arduino LCD libraries drive it** | Arduino's `LiquidCrystal` *is* an HD44780 driver. §10b identifies the controller from the instruction bytes the firmware writes (`0x80\|addr`, `0xC0`, `0x0C`). |
+| "The string length is set by the phone's screen width" | That width is the `strModifierLen` field at descriptor `+1`, `0x0010` = 16, and overflow wraps to line 2 via `0xC0`. |
+| "The Hebrew string encoding is non-standard" | Hebrew is stored in **display order**, reversed relative to logical order, while Latin is stored forward (§9). |
+
+The post also notes that the author **patched the error routine to render a
+failing address to the LCD**, having had no luck tracing it with a logic
+analyser, and cites address `4930`. In this image `4930` sits inside a state
+machine beginning at `48E8` that switches on `RF.0` (compared against `0x94`,
+`0x91`, and `SMI 0x80`), idles on `IDL` between checks, manipulates the
+`8034`/`8035` port shadows, and exits either to `5F67` or — via
+`4981: LBDF 0x4AF6` — to the **main idle loop**. Reconciling the blog's
+`4930` with this routine is still open; it may refer to a different build or
+to a file offset.
 
 ## 13. Next steps
 

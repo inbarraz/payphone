@@ -15,3 +15,10 @@ The repo includes the ROMs, the Ghidra CPU definition and (soon) the Ghidra proj
 - [`card-reader/BSK31-firmware.md`](card-reader/BSK31-firmware.md) — reverse
   engineering notes for the Landis & Gyr BSK31-202 optical phonecard reader
   (CDP1802) used by the payphone, including its wire protocol.
+
+## Background
+
+The hardware phase of this project is written up (in Hebrew) at
+[מסתבר שגם טלפון ציבורי הוא טלפון חכם](https://www.retro.unarmedsecurity.net/post/%D7%9E%D7%A1%D7%AA%D7%91%D7%A8-%D7%A9%D7%92%D7%9D-%D7%98%D7%9C%D7%A4%D7%95%D7%9F-%D7%A6%D7%99%D7%91%D7%95%D7%A8%D7%99-%D7%94%D7%95%D7%90-%D7%98%D7%9C%D7%A4%D7%95%D7%9F-%D7%97%D7%9B%D7%9D):
+acquiring the phone, dumping the Atmel AT29C256, and building the Ghidra
+processor module.
