@@ -752,9 +752,13 @@ top two bits do not come back set. A failure there is fatal.
 - **UART pin 4 (CS2)** — the remaining enable. If it is tied low the UART
   answers ports 6/7 unconditionally; if it is driven, something can gate the
   UART off the bus entirely.
-- **Whether N0–N2 branch anywhere else.** Ports 1, 3 and 4 are still
-  unidentified (`INP 1/2/3`, `OUT 4`), and cannot be the UART, so another
-  device must decode them.
+- **Whether N0–N2 branch anywhere else.** Ports 1 and 4 are still
+  unidentified and cannot be the UART, so another device must decode them.
+
+**Port 3 is an input port**, and **bit 6 is the hardware-strap sense line** —
+see §10k. `read_hardware_straps` (`6173`) drives five lines through the low
+bits of `M(8033)` and reads them back one at a time on `INP 3`, assembling a
+5-bit hardware version in `M(8074)`.
 
 ## 6a. One UART, two owners
 
@@ -2491,6 +2495,61 @@ as a Latin word does — and `tools/dump_strings.py` was only matching
 letter-initial runs. Uncorrected it would also have shown version 4.30 as
 `03.4`. Fixed; the regex now matches `[A-Za-z0-9]+(?:[.'&/:-][A-Za-z0-9]+)*`.
 
+## 10k. `read_hardware_straps` (`0x6173`) — and port 3
+
+The hardware version is **sensed at run time**, not stored in the ROM.
+`show_version_and_comm` calls this just before rendering `M(8074)` under the
+label מהד' חמרה: (*hardware edition*).
+
+```
+6173  M(8074) = 0            clear the result
+617A  RC = 8033              the drive field
+617E  R6 = 8185              where INP 3 lands
+6182  LDI 0x10               walking mask, bit 4 first
+6184  STR R2                 keep the mask on the stack
+
+      five passes, masks 10 08 04 02 01:
+6185  LDN RC / ANI 0xE0 / STR RC   clear the LOW 5 BITS, keep the top three
+6189  IDL                          settle
+618A  LDN RC / OR / STR RC         set just this one bit
+618D  IDL                          settle
+618E  SEX R6
+618F  INP 3                        D = port 3, and M(8185) = D
+6190  ANI 0x40                     sense line is BIT 6
+6196  SEX RD / LDN R2 / OR / STR RD    M(8074) |= mask
+619B  LDX / SHR / LBNF 6184        carry out of 0x01 ends the loop
+61A0  LDN RC / ANI 0xE0 / STR RC   release the drive lines
+```
+
+### Port 3 is an input port
+
+Bit 6 carries the strap sense line. This is the first identification of one
+of the three unknown ports (§6). The `INP 3` is verified against the raw
+bytes (`6b` at `618F`) and `X` is `R6`, not `P`, so it is a true `INP` and
+not an inline operand — worth checking explicitly, given how often that
+distinction has mattered in this image.
+
+The top three bits of `M(8033)` survive every `ANI 0xE0`, so bits 7–5 are
+unrelated flags, consistent with `setFlags_8033_and_8036` and the `ANI 0xC0`
+at `2B22`.
+
+### The drive side is not established
+
+`M(8033)` is **not** flushed to any port by the shadow-flush idiom. The only
+such site in the whole image is `399D`:
+
+```
+399D  RLDI RB,8034
+39A5  SEX RB
+39A6  OUT 5        <- M(8034)
+39A9  OUT 2        <- M(8035)
+```
+
+which relies on `OUT` auto-incrementing `X` and therefore covers `8034` and
+`8035` only. The two `IDL`s in the scan loop suggest an interrupt handler
+acts on the low bits of `8033` between the write and the read, but that
+handler has not been found. **Do not assume `8033` is a port latch.**
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -2529,7 +2588,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 **`InitBuffer8119`**; `FUN_2c81` → **`LoadBuffer8119`**; `FUN_2c6e` →
 **`WaitForBuffer8119`** (§10g); `FUN_5df9` →
 **`GuardOrAbortCaller`** (§10h); `FUN_609c` →
-**`show_version_and_comm`** (§10j).
+**`show_version_and_comm`** (§10j); `FUN_6173` →
+**`read_hardware_straps`** (§10k).
 
 Data named: `8037` → `LCD_verify_errcount`; `8038` → `LCD_next_descriptor`;
 `803A` → `LCD_dwell_countdown`; `803B` → `LCD_last_command`.
