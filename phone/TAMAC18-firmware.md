@@ -1536,15 +1536,25 @@ freezes on the last message until something rewrites `8038`.
 
 ### The persistent state block
 
-`RD` is loaded with `803A` at entry and walked down, so the structure sits
-either side of it:
+`RD` is loaded with `803A` at entry and walked, so the structure straddles it:
 
 | Address | Size | Contents |
 |---|---|---|
-| `0x8036` | byte | `R6` from the last render — the verify error count |
+| `0x8037` | byte | `R6` from the last render — the verify error count |
 | `0x8038` | word | pointer to the **next** descriptor, big-endian |
 | `0x803A` | byte | countdown; the renderer returns immediately until it reaches 0 |
 | `0x803B` | byte | the last LCD command emitted (copy of `+5`) |
+
+**These offsets must be traced by hand — Ghidra's references for the tail are
+wrong.** It attributes the stores at `2808` and `280B` to `803A`, because it
+cannot follow the X-indexed walk. `STXD` at `2807` leaves `RD` at `8039`, the
+`RSXD RC` at `2808` writes `M(8039)` then `M(8038)` and decrements twice more,
+so the `STXD` at `280B` lands on **`8037`** and `RD` finishes at `8036`.
+
+The producer/consumer split is visible in the cross-references to `803A`:
+`LoadStringForDisplay` (`6E6B`) writes it at `6E75`, and `3199`/`319F` writes
+it too. Those seed the state block; `LCD_RenderNextDescriptor` consumes it —
+that is the layering of the display stack.
 
 A trap in reading the tail: the existing comment at `2802` reads "Load and
 ignore `strdesc.unkByte3`", and the `LDXA` does look like a discard — but
@@ -1625,7 +1635,7 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 `FUN_365c` → **`send_reader_command`**; `proc_279a` →
 **`LCD_RenderNextDescriptor`** (§10b).
 
-Data named: `8036` → `LCD_verify_errcount`; `8038` → `LCD_next_descriptor`;
+Data named: `8037` → `LCD_verify_errcount`; `8038` → `LCD_next_descriptor`;
 `803A` → `LCD_dwell_countdown`; `803B` → `LCD_last_command`.
 
 Commented: `6E03` (the P switch), `28D8` (vector, prologue, epilogue),
