@@ -2403,6 +2403,94 @@ code. **Reaching the threshold is what raises the fault** — the firmware
 counts occurrences before logging, which is why a transient glitch does not
 produce a fault entry.
 
+## 10j. `show_version_and_comm` (`0x609C`) — the technician identity page
+
+Sits immediately after the fault-number BCD table at `6069`–`609B`, so the
+listing here only makes sense once that table is marked as data.
+
+### Screen 1 — model and software version
+
+```
+609D  SCAL 6E6B, desc 662A
+        6A01 = "    טמ"כ  18    "   TAMAC-18
+        6A12 = "מהד' תכנה:    . "   software edition:
+60A6  SCAL 4FDF (NumToString), inline args 804C, 7BFA, 0001
+60B0  M(804E) = '.'
+60B8  SCAL 4FDF, inline args 804F, 7BFB, 0001
+60C2  M(8051) = 0                 terminator
+60C9  if M(804C) == '0' then ' '  blank a leading zero
+60D7  SCAL 6E6B, desc 679B        679B draws LINE 2 from RAM at 804C
+```
+
+The version string is composed into `804C` as `XX.YY` from the two bytes
+**`7BFA` and `7BFB`**, then drawn over the left of line 2 while the Hebrew
+label already occupies the right. This is the display path behind the **4.30
+software version**, and it independently confirms that `7BFA`/`7BFB` are
+version bytes — the reading that replaced the earlier mistaken "money amount"
+guess (§12).
+
+### The unlock sequence
+
+`5EEB` is `get_key_with_timeout` (inline arg `05`). Keys are dispatched at
+`60EE`–`6109`:
+
+| Key | Effect |
+|---|---|
+| `0x0C` | advance to screen 2 |
+| `0x01` | `INC RD` — count presses |
+| `0x03` | if `RD == 1`, take the reset path; else reset `RD` |
+
+So **"1" then "3"** is an unlock:
+
+```
+610F  SEX R4
+6110  DIS 0x24      X == P, so the 0x24 at 6111 is the OPERAND
+6112  M(845D) = 0
+6119  LBR 29D8      REBOOT
+```
+
+Another instance of the §9 idiom — Ghidra shows a phantom `DEC R4` at `6111`.
+
+### Screen 2 — hardware version
+
+```
+611D  SCAL 6E6B, desc 663C
+        6A23 = "מהד' חמרה:      "   hardware edition:
+6125  SCAL 6173
+6134  LDN RA from 8074
+613B  SMI 0x0A / LBDF 613A          count tens into R6
+6140  ADI 0x3A / STR R5             units digit, ASCII, at 803D
+6144  GLO R6 / LSZ / ADI 0x10 / ADI 0x20 / STR R5   tens at 803C, or a space
+614C  SCAL 6E6B, desc 6765          6765 draws LINE 1 from RAM at 803C
+```
+
+So **`M(8074)` is the hardware version**, rendered as two decimal digits.
+`803C` is shared display scratch — `FormatCardDigitsToAscii` is called with
+that same destination at `6246` (§10g neighbourhood).
+
+### Then communicate
+
+```
+6153  wait for key 0x0C again
+6161  SCAL 2F65     DLC_Comm, the operator-initiated DLC session
+6169  SCAL 415E
+616D  LBZ 77EF, else LBR 77F4
+```
+
+So the page ends by handing off to the DLC link — identity, versions, then
+report.
+
+**Not established:** what `6173` and `415E` do, and what `M(845D)` holds that
+is worth clearing before a reboot.
+
+### A dumper bug this exposed
+
+`662A` first rendered as `טמ"כ 81`. Numbers run **left-to-right even inside
+RTL text**, so a digit run has to be restored after the line reversal exactly
+as a Latin word does — and `tools/dump_strings.py` was only matching
+letter-initial runs. Uncorrected it would also have shown version 4.30 as
+`03.4`. Fixed; the regex now matches `[A-Za-z0-9]+(?:[.'&/:-][A-Za-z0-9]+)*`.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -2440,7 +2528,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 `FUN_2aab` → **`FormatCardDigitsToAscii`**; `FUN_1a26` →
 **`InitBuffer8119`**; `FUN_2c81` → **`LoadBuffer8119`**; `FUN_2c6e` →
 **`WaitForBuffer8119`** (§10g); `FUN_5df9` →
-**`GuardOrAbortCaller`** (§10h).
+**`GuardOrAbortCaller`** (§10h); `FUN_609c` →
+**`show_version_and_comm`** (§10j).
 
 Data named: `8037` → `LCD_verify_errcount`; `8038` → `LCD_next_descriptor`;
 `803A` → `LCD_dwell_countdown`; `803B` → `LCD_last_command`.

@@ -78,7 +78,10 @@ def logical(text: str, raw: bytes) -> str:
     # mixed line the ROM holds each run in its own direction, so reversing
     # the whole string fixes the Hebrew and breaks the Latin.
     flipped = text[::-1]
-    return re.sub(r"[A-Za-z][A-Za-z0-9.\\'&/-]*",
+    # Latin words AND numbers run left-to-right even inside RTL text, so the
+    # line reversal has to be undone for them. Missing the digit case renders
+    # TAMAC-18 as "18" reversed to "81", and version 4.30 as "03.4".
+    return re.sub(r"[A-Za-z0-9]+(?:[.'&/:-][A-Za-z0-9]+)*",
                   lambda m: m.group()[::-1], flipped)
 
 
