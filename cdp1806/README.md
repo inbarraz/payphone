@@ -130,6 +130,34 @@ be determined along with the reason — which is what tells you where an overrid
 and why. The MessageLog is reserved for genuine problems: an unreadable override file, a
 malformed line, or markup that failed to apply.
 
+## Scripts
+
+`ghidra_scripts/` ships with the module, so anything in it appears in the Script Manager
+once the extension is installed — Ghidra searches a module's `ghidra_scripts` directory
+automatically.
+
+### RemoveScalRegisterRefs
+
+`SCAL` carries its link register as operand 0 and its call target as operand 1. The SLEIGH
+semantics assign `inst_next` to the link register, which is correct — `SRET` depends on it —
+but it also tells Ghidra's constant propagation that the register holds a code address. The
+reference analyzer then attaches a spurious `DATA` reference to operand 0 for every value it
+believes the register could hold, so the listing reads
+
+```
+SCAL R3=>LAB_4546,FUN_6fff
+```
+
+instead of `SCAL R3,FUN_6fff`. Sites reached from several callers collect several of them;
+`45bd` in the TAMAC-18 image has four.
+
+The script deletes operand-0 references on `SCAL` and leaves the call target alone. It runs
+in one transaction, so Undo reverts the lot, and it is idempotent — re-running auto-analysis
+recreates the references, because the cause is in the semantics rather than in stale data,
+so just run it again.
+
+Available from **Tools > CDP1806 > Remove SCAL Register References**.
+
 ## Building and installing
 
 ```sh
