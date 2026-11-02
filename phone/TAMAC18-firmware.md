@@ -299,15 +299,31 @@ build, not a different product.
 
 | Address | V2.8 | PH06 | B02 | Reading |
 |---|---|---|---|---|
-| `7BFA` | `0430` | `0430` | `0430` | fixed — model / hardware ID |
-| `7BFE` | `7AAE` | `7AAE` | `7AAE` | fixed |
+| `7BFA` | `0430` | `0430` | `0430` | **software version 4.30** — see below |
+| `7BFE` | `7AAE` | `7AAE` | `7AAE` | fixed, unidentified |
 | `7C00` | `031C` | `0320` | — | **a length**, +4 |
 | `7C02` | `009E` | `00A9` | `00A2` | **build identifier** |
 
-`7C02` matters: **`build_dlc_record` copies it twice into the record sent to
-DLC**, so it is the version the phone reports to the central system. The two
-constants that *don't* vary are fixed identifiers, not build numbers — which
-settles the open question in §8a about what those ROM constants are.
+**`7BFA` is a software version.** The formatter at `60A6` renders it as
+packed BCD with a decimal point — `NumToString` (`4FDF`) converts two digits
+per byte, `'.'` goes at `804E`, and a leading `'0'` is blanked — and the
+descriptor displayed alongside it chains `662A` → `6A01` **"טמ"כ 18"**
+(TAMAC 18) → `6633` → `6A12` **"מהד' תכנה:"** (*software edition*). So that
+screen reads **TAMAC 18 / software version 4.30**.
+
+Note **4.30 is not the EPROM's "V2.8" label** — two different versioning
+schemes, and the one reported to DLC is the internal edition number.
+
+`7C02` also matters: **`build_dlc_record` copies it twice into the record sent
+to DLC**, and it varies with every build, so it is a build identifier
+alongside the version. `7BFE` does not vary and remains unidentified.
+
+> **Superseded.** These notes first called `7BFA` and `7BFE` "fixed model or
+> hardware identifiers", and then, on seeing the decimal point and the
+> leading-zero blanking, read `7BFA` as a **money amount**. Both were wrong.
+> The decimal point is a version separator. Checking the label displayed
+> beside the number would have settled it immediately; inferring the meaning
+> of a number from its formatting alone did not.
 
 `7C06` is an 11-entry pointer table. Entries 0–2 are unchanged between V2.8
 and PH06 while entries 3–10 all shift by exactly **+4**, localising the
@@ -321,6 +337,40 @@ index; the other three are parameters. **A tariff or destination-code table
 is the natural reading** for a payphone whose builds differ only here — same
 program, different charging configuration. **Not confirmed:** nothing yet
 shows what consumes the table.
+
+### Where the card's credit actually lives
+
+The idle screen selector at `3A0B` shows a **credit screen** when
+`M(8144) != 0`: descriptor `6672` → `6A89` (`"CREDIT:"` / Hebrew `"יתרתך"`)
+chained to `679B` → the RAM buffer at **`0x804C`**.
+
+The descriptors chain: each is 9 bytes, `01 00 10 <text> 0c 01 <next>`, and
+**the second pointer is the next descriptor**, not a second string. `0000`
+ends the chain.
+
+But `804C` is a **display line**, not a value. The card's own credit takes a
+different route and never passes through the money-looking formatter:
+
+```
+reader sends "CO<digits>"
+  -> the UART ISR classifier at 510D converts digit characters to NUMERIC
+     VALUES as it stores them, so 8024/8025 hold values rather than ASCII
+  -> 36B0 packs the two into one byte at 8060
+  -> the CA/CB/CO handler at 33C5 calls popcnt (3886)
+     and stores 7 - popcount at 8062
+```
+
+So **`M(0x8062)` is the card's unit count** and `M(0x8060)` the raw packed
+byte from the message.
+
+That the firmware computes **7 minus the population count** rather than
+reading a number is itself the evidence: on a Landis & Gyr optical card units
+are physically burned away, so the bits still set *are* the remaining credit.
+
+Worth noting the ISR detail, since it is what makes `36B0`'s nibble-packing
+work at all: buffer positions 0–1 store `'A'`–`'Z'` raw (the message prefix),
+while positions 2 onward are **hex digits converted to their numeric value**
+(`'0'`–`'9'` and `'A'`–`'F'`), anything else rejected.
 
 ### The seven NOPs at 4B2D
 
