@@ -1358,6 +1358,46 @@ up — **worth confirming rather than assuming.**
 
 See §3. The decompiler will not show it.
 
+### `FormatCardDigitsToAscii` (`0x2AAB`) — the idiom at its worst
+
+The clearest example in the image of why the `DIS`/`RET` idiom matters, and
+one where **Ghidra's listing is wrong from the second instruction onward**.
+
+```
+2AAB  SEX R4
+2AAC  DIS 0x34        X = R3, P = R4, interrupts OFF
+2AAE  RLXA RC         RC = the inline argument, R3 advanced past it
+2AB0  RLDI RD,8024
+2AB4  RLDI R5,0003
+2AB8  LDA RD / ADI 0x30 / STR RC / INC RC
+2ABD  DBNZ R5,2AB8    three digits, each + '0'
+2AC1  LDI 0 / STR RC  NUL terminator
+2AC8  DEC RC x3       rewind
+2ACC  SCAL R3,2ADA    ReplaceLeadingZerosWithSpaces
+2AD0  SEX R4
+2AD1  RET 0x24        X = R2, P = R4, interrupts back ON
+2AD3  SRET R3
+```
+
+`P` is `R4` and `2AAB` is `SEX R4`, so `X == P` and the `DIS` takes its
+operand from the instruction stream — the `0x34` at `2AAD`. Ghidra decodes
+that byte as a `B1` branch instead, and **everything after it is phantom**
+(`INP4` at `2AAF` does not exist).
+
+The `DIS`/`RET` pair is doing **two** jobs, which is what makes it look odd:
+
+1. It brackets a **critical section**. `8024`–`8026` are written by the card
+   reader link (`proc_5032` at `5034`), so the three digits are snapshotted
+   with interrupts off and cannot tear.
+2. It switches `X` to `R3` and back to `R2`. After a `SCAL`, `R3` points at
+   the inline argument — so `X = R3` is exactly what `RLXA` needs, and
+   advancing `R3` past the argument is also what makes the `SRET` return to
+   the instruction *after* it.
+
+Callers pass a RAM buffer that a descriptor then points at, which is the
+compose / describe / render layering of §10b: `6228` → `803F`,
+`6246` → `803C`, `6256` → `804F`.
+
 ### `DIS` and `RET` change X too
 
 A trap when hand-tracing the `X == P` idiom below: **`DIS` and `RET` load
