@@ -279,6 +279,55 @@ control takes EF1, EF2 and TPA** as its possible clock sources. So the
 `SCM1`/`SCM2` ambiguity noted in §9a is not academic: it decides whether the
 second link counts **EF1 or EF2**, and tracing both resolves it from hardware.
 
+### What differs between builds
+
+Three distinct images exist in this project:
+
+| Image(s) | MD5 | |
+|---|---|---|
+| `TAMAC-18 V2.8 9513.bin` = `PH00.bin` | `17c5d297…` | the one these notes are written against |
+| `PH06.bin` = `B01.bin` = `DLC.bin` | `bb5e8284…` | |
+| `B02.bin` | `5ed46341…` | |
+
+**Every differing byte lies in `0x7C00`–`0x7F25`. Not one byte of code
+differs.** V2.8 vs PH06 is 496 bytes in 4 runs, all at or above `7C01`;
+PH06 vs B02 is just 4 bytes.
+
+So the three images are **the same program with different configuration
+data** — which is why `DLC.bin` being labelled `DLC` on its EPROM denotes a
+build, not a different product.
+
+| Address | V2.8 | PH06 | B02 | Reading |
+|---|---|---|---|---|
+| `7BFA` | `0430` | `0430` | `0430` | fixed — model / hardware ID |
+| `7BFE` | `7AAE` | `7AAE` | `7AAE` | fixed |
+| `7C00` | `031C` | `0320` | — | **a length**, +4 |
+| `7C02` | `009E` | `00A9` | `00A2` | **build identifier** |
+
+`7C02` matters: **`build_dlc_record` copies it twice into the record sent to
+DLC**, so it is the version the phone reports to the central system. The two
+constants that *don't* vary are fixed identifiers, not build numbers — which
+settles the open question in §8a about what those ROM constants are.
+
+`7C06` is an 11-entry pointer table. Entries 0–2 are unchanged between V2.8
+and PH06 while entries 3–10 all shift by exactly **+4**, localising the
+insertion to the third region at `7D07`. There, V2.8 reads
+`05 c0 01 0a / 06 c0 01 0a / …` and PH06 reads
+`04 10 01 0a / 05 c0 01 0a / …` — PH06 **inserts one extra 4-byte record**
+for code `04` and shifts the rest down, which is the whole `+4`.
+
+The first byte of each record runs in sequence and looks like a code or
+index; the other three are parameters. **A tariff or destination-code table
+is the natural reading** for a payphone whose builds differ only here — same
+program, different charging configuration. **Not confirmed:** nothing yet
+shows what consumes the table.
+
+### The seven NOPs at 4B2D
+
+Byte-identical in all three builds, so the removed instruction **cannot** be
+recovered by comparing them. Whatever was taken out was taken out before this
+firmware line diverged.
+
 ## 2. Memory map
 
 | Range | Contents |
