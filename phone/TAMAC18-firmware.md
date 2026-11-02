@@ -1905,6 +1905,45 @@ where two independent sites agree, are listed above.
 | `86`, `89`, `90`, `95`, `97` | abnormal, in neither predicate set | `4A51`, `7440`/`48A0`, `378A`, `35F5`, `2776` |
 | `91` | **special** — see below | **never `LDI`-written** |
 
+### `0x91` is a pending state, resolved through `RE`
+
+`7380` holds the only register-mediated write to `RF.0` in the image, and it
+is what produces `0x83`:
+
+```
+737A  LDI 0x88
+737C  LSKP              two-way entry, as at 7440 / 48A0 / 31D0
+737D  LDI 0x83
+737F  PLO RE            RE.0 = 0x88 or 0x83
+7380  GLO RF / XRI 0x91
+7383  LSNZ              skip unless the state IS 0x91
+7384  GLO RE / PLO RF   RF.0 = RE.0
+```
+
+So `0x91` is a **pending** state that resolves to `0x88` (show credit) or
+`0x83` (a transient that `clear_state_if_transient` then wipes). That is why
+`0x91` is tested six times but never written by an immediate, and why `LDI
+0x83 / PLO RF` appears nowhere.
+
+Every *other* `GLO Rn / PLO RF` a byte scan reports is the operand byte of an
+`LDI` read at the wrong alignment: `269B` "GLO R4" is the `0x84` of
+`LDI 0x84` at `269A`, `2777` "GHI R7" is the `0x97` of `LDI 0x97` at `2776`,
+and so on down the list.
+
+### Values that are tested but never produced
+
+`0x25`, `0x26`, `0x85` and `0x91` are equality-tested but have **no
+`LDI` anywhere in the image** — `LDI 0x85` in particular occurs zero times.
+`0x91` is explained above (it must be set by an interrupt handler or restored
+from battery-backed RAM). The others are either set the same way or are
+vestigial, and since all three builds differ only in configuration data
+(§1a), comparison cannot settle it.
+
+**`0xAA` is not a status code.** `LDI 0xAA` occurs 28 times and **every one is
+followed by `STR Rn`**, never `PLO RF`. It is a RAM sentinel — `M(807A)`,
+`M(816C)`, `M(8134)`, `M(807C)` — and easy to mistake for a state because it
+sits beside state handling everywhere.
+
 **`0x50` is probably not a state.** It appears only at `628D` as
 `GLO RF / SMI 0x50` — a magnitude comparison, not an equality test — so it
 reads more like a threshold than a member of the set.
