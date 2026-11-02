@@ -2089,9 +2089,9 @@ So the fault log occupies **`840A`–`8441`, 28 entries of 2 bytes**, with bit 7
 of the first byte a flag, the low 7 bits the fault code, and codes indexing a
 table at `6069` biased by `0x46`.
 
-**Partly resolved:** the `6069` table is decoded in §10f — packed BCD fault
-numbers for codes `0x46`–`0x78`. Still open: what the second byte of each log
-entry holds. The Hebrew technician strings nearby — `69D4` קוד טכנאי:
+**Resolved:** the `6069` table is decoded in §10f — packed BCD fault numbers
+for codes `0x46`–`0x78`. The second byte of each log entry is decoded in
+§10i — an occurrence counter with a threshold, incremented by `5E1B`. The Hebrew technician strings nearby — `69D4` קוד טכנאי:
 (*technician code*), `69DF` קוד מכלול (*module code*), `69F0` הכנס קודי הודעות
 — belong to this subsystem and are the obvious next thread.
 
@@ -2297,6 +2297,112 @@ is found.
 What *is* settled is that `M(811A)` is a pointer low byte: both `25D4` and
 `2652` combine it with a `0x81` page to form an address.
 
+## 10h. `GuardOrAbortCaller` (`0x5DF9`) — a non-local return
+
+The fault-reporting path has a guard that, when its condition fails, **does
+not return to its caller at all**. It makes the caller return `0xFF` to the
+caller's caller, skipping whatever remained. A decompiler renders it as an
+ordinary return, so this is one to recognise by hand.
+
+```
+5DF9  RLDI RC,807C
+5DFD  LDN RC / XRI 0xAA / LBZ 5E19     M(807C) == 0xAA -> normal return
+5E03  RLDI RC,8169
+5E07  LDN RC / XRI 0x55                D = M(8169) ^ 0x55
+5E0B  SCAL R3,0100                     samples EF3, the HOOK SWITCH
+5E0F  ADCI 0x00                        D = D + DF
+5E11  SHR                              DF = bit 0 of that
+5E12  LBDF 5E19                        set -> normal return
+5E15  RLDI R3,5DF4                     else PATCH THE RETURN ADDRESS
+5E19  SRET R3
+```
+
+### How the unwind works
+
+Under the `SCAL` convention `R3` holds the return address and the caller's
+old `R3` sits on the stack. `SRET` jumps to `R3` *and* pops the saved value.
+So `RLDI R3,5DF4 / SRET R3` lands at `5DF4` with `R3` now holding the
+**caller's** return address — and `5DF4` is the "return `0xFF`" tail of the
+routine immediately above:
+
+```
+5DF1  LDI 0x00 / LSKP     return 0
+5DF4  LDI 0xFF            return 0xFF   <- the redirect target
+5DF6  SEX R2 / SRET R3
+```
+
+Its `SRET` therefore returns `0xFF` one level further out. Two frames unwind,
+and a shared epilogue is reused as a "return failure" exit.
+
+### `0100` does not clobber D
+
+Worth stating because it looks as though it must. `SHR / B3 / ORI 0x80 /
+RSHL` restores `D` exactly and leaves `DF = NOT EF3` — a clean "sample the
+hook switch into `DF`, preserving `D`". That is why the `ADCI 0x00` at `5E0F`
+can still be operating on `M(8169) ^ 0x55`.
+
+### Context
+
+All three callers are inside `FUN_5BFD`, at `5C5B`, `5C60` and `5C91`,
+bracketing a call to `CopyCodeTo9733AndJump` (`026A`) at `5C6D`. `FUN_5BFD`
+is reached from `FUN_5B5B` and `FUN_5B65`, and `FUN_5B65` is what writes the
+fault log at `840A`. So this is the abort path of fault reporting.
+
+## 10i. `5E1B` — the fault-log counter, and what the second byte holds
+
+`5E1B` takes **three inline argument bytes**, signature `b,b,b`. The reads are
+scattered and conditional — `LDA R3` at `5E20`, `5E36`, `5E41` and `5E55`,
+plus bare `INC R3` skips at `5E28` and `5E5A` — but every path consumes
+exactly three:
+
+| Path | Reads | Total |
+|---|---|---|
+| `D == 0` | `5E20`, skip `5E28`, skip `5E5A` | 3 |
+| `D != 0`, `M(8167) & 0x20` | `5E20`, `5E36`, `5E55` | 3 |
+| `D != 0`, else, equal | `5E20`, `5E41`, `5E55` | 3 |
+| `D != 0`, else, less | `5E20`, `5E41`, `5E55` | 3 |
+| `D != 0`, else, greater | `5E20`, `5E41`, skip `5E5A` | 3 |
+
+So it is variable in *which* bytes it reads but uniform in how many, and one
+callee signature covers it. It is now declared in
+`cdp1806/data/inline_args.txt`.
+
+**Until it is declared, the argument bytes disassemble as code.** At `5C4F`
+they read as `DEC R7 / LDN R5 / OUT 1` — inventing a **port 1 access that
+does not exist**. Given that ports 1, 3 and 4 are still unidentified (§6),
+that is exactly the kind of false lead to guard against.
+
+### What it does
+
+```
+5E1B  PLO RC           selector passed in D
+5E1C  RLDI R8,8442
+5E20  LDA R3 / PLO R8  arg1 is a LOW BYTE, so R8 = 84:arg1
+...   increment M(R8), saturating; compare against arg2; on reaching the
+      threshold set M(97A6) = 6
+5E54  DEC R8 / LDA R3 / OR / STR R8    OR arg3 into the byte BELOW
+5E67  LDN R8 / ANI 0x80 / STR R8       otherwise keep only bit 7
+```
+
+### The call sites answer an open question
+
+| Site | Args | Target |
+|---|---|---|
+| `5C4F` | `27 05 61` | `8427` |
+| `5C89` | `13 01 51` | `8413` |
+| `5DDD` | `3b 03 75` | `843B` |
+| `5DEA` | `3d 02 76` | `843D` |
+
+All four are **odd** offsets from `840A`, so each addresses the *second* byte
+of a fault-log entry — the log being `840A`–`8441`, two bytes per entry,
+walked at `600D`–`604B` in `show_fault_log` (§10e).
+
+So the second byte, left open in §10e, is a **counter with a threshold**. The
+`DEC R8` / `OR` then writes a bit into the first byte, which is the fault
+code. **Reaching the threshold is what raises the fault** — the firmware
+counts occurrences before logging, which is why a transient glitch does not
+produce a fault entry.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -2333,7 +2439,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 `FUN_5f67` → **`show_fault_log`** (§10d–10e);
 `FUN_2aab` → **`FormatCardDigitsToAscii`**; `FUN_1a26` →
 **`InitBuffer8119`**; `FUN_2c81` → **`LoadBuffer8119`**; `FUN_2c6e` →
-**`WaitForBuffer8119`** (§10g).
+**`WaitForBuffer8119`** (§10g); `FUN_5df9` →
+**`GuardOrAbortCaller`** (§10h).
 
 Data named: `8037` → `LCD_verify_errcount`; `8038` → `LCD_next_descriptor`;
 `803A` → `LCD_dwell_countdown`; `803B` → `LCD_last_command`.

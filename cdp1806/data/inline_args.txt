@@ -49,6 +49,13 @@ program TAMAC-18
 # observed arguments are 1C7E, 1C91 and 1CA4, all of which point into RAM.
 1abe  p
 
+# 5e1b: a fault-log counter updater. The inline reads are scattered and
+# conditional - LDA R3 at 5e20, 5e36, 5e41 and 5e55, plus bare INC R3 skips at
+# 5e28 and 5e5a - but EVERY path consumes exactly three bytes, so one callee
+# signature covers it. Without this the argument bytes disassemble as code: at
+# 5c4f they read as DEC R7 / LDN R5 / OUT 1, inventing a port-1 access.
+5e1b  b,b,b
+
 # --- 038d: variadic, so its call sites are pinned individually -------------
 #
 # 038d reads a different number of inline bytes depending on D at entry:
