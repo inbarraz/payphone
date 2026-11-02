@@ -2089,10 +2089,111 @@ So the fault log occupies **`840A`–`8441`, 28 entries of 2 bytes**, with bit 7
 of the first byte a flag, the low 7 bits the fault code, and codes indexing a
 table at `6069` biased by `0x46`.
 
-**Open:** the contents of the `6069` table, and what the second byte of each
+**Partly resolved:** the `6069` table is decoded in §10f — packed BCD fault
+numbers for codes `0x46`–`0x78`. Still open: what the second byte of each log
 entry holds. The Hebrew technician strings nearby — `69D4` קוד טכנאי:
 (*technician code*), `69DF` קוד מכלול (*module code*), `69F0` הכנס קודי הודעות
 — belong to this subsystem and are the obvious next thread.
+
+## 10f. The keypad tables
+
+Three tables define one index space. The matrix table establishes it, and two
+parallel tables render an index either as ASCII or as an internal code.
+
+### `0x2400` — the 3×4 matrix, in column-major order
+
+Two halves of 12 bytes:
+
+```
+2400:  01  04  07  0B  | 02  05  08  0A | 03  06  09  0C    scan index
+240C: '1' '4' '7' '*'  |'2' '5' '8' '0' |'3' '6' '9'  01    matching ASCII
+```
+
+So the keypad is the usual layout, and the index space is:
+
+| Index | Key |
+|---|---|
+| `01`–`09` | digits 1–9 |
+| `0A` | `0` |
+| `0B` | `*` |
+| `0C` | `#` |
+
+`#` has no printable form in this character set and is carried as **`0x01`**
+in both ASCII tables (`2417` and `2699`).
+
+### `0x268D` — index → ASCII
+
+Thirteen bytes, loaded by `RLDI R5,268D` at `266D`:
+
+```
+268D: 00 '1' '2' '3' '4' '5' '6' '7' '8' '9' '0' '*' 01
+```
+
+Used where a key must be displayed or dialled.
+
+### `0x2D00` — index → internal key code
+
+Sixteen bytes, a **permutation of `0x10`–`0x1F`**:
+
+| idx | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | A | B | C | D | E | F |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| val | `1D` | `11` | `12` | `13` | `14` | `15` | `16` | `17` | `18` | `19` | `10` | `1E` | `1F` | `1A` | `1B` | `1C` |
+
+giving a uniform code space:
+
+| Code | Meaning |
+|---|---|
+| `0x10`–`0x19` | digits 0–9 (`0x10` is `0`, so code = `0x10 + digit`) |
+| `0x1A`–`0x1D` | the function keys — redial, card change and so on, per the strings at `6C18` לחצן חיוג חוזר, `6C07` לחצן החלפת כרטיס, `6BB2` חוגת לחיצים |
+| `0x1E` | `*` |
+| `0x1F` | `#` |
+
+**How it is indexed, and why nothing cross-references it.** The table starts
+at low byte `0x00` and has exactly 16 entries, so the index *is* the low
+address byte. The code builds the pointer arithmetically rather than loading
+it, which is why a search for a `2D00` pointer finds nothing:
+
+```
+2B4D  LDI 0x2D / PHI RE      page
+2B50  LDI 0x00 / ADD / PLO RE   index from M(X)
+2B5A  LDN RE                 table[index]
+```
+
+The result is stored into a record through `R7`, and the surrounding code
+`ORI 0x10`s neighbouring bytes (`2B57`, `2B75`) — the same `0x10` bias the
+codes carry.
+
+**Not established:** what record the block at `2B00`–`2B6F` is building. It
+ends in `LBR 73BC`, which is only `STR RA / SEX R2 / SRET R3` — a generic
+"store this byte through `RA`". The constants it writes (`0x2E`, `0x42`,
+`0x67`, `0x15`, `0x04`) are not fault-log codes: the log at `840A` is written
+at `3F83`, `3F8A` and `5BDE`, never through `73BC`.
+
+### `0x6069` — fault code → displayed fault number
+
+A bonus from the same sweep, closing the question left open in §10e. 51 bytes,
+`6069`–`609B`, **packed BCD**, indexed at `601B`–`6029` in `show_fault_log` as
+`RD = 6069 + (code - 0x46)`, so it covers codes `0x46`–`0x78`.
+
+Two checks confirm it: every byte has both nibbles `<= 9`, and the run ends
+exactly where code resumes at `609C` (`E2` = `SEX R2`). A zero entry means the
+code is unused.
+
+| Code | № | Code | № | Code | № | Code | № |
+|---|---|---|---|---|---|---|---|
+| `46` | 14 | `55` | 23 | `63` | 24 | `73` | 41 |
+| `48` | 43 | `57` | 12 | `64` | 40 | `74` | 41 |
+| `49` | 43 | `58` | 14 | `65` | 21 | `75` | 38 |
+| `50` | 14 | `59` | 20 | `66` | 13 | `76` | 39 |
+| `51` | 14 | `60` | 23 | `67` | 19 | `77` | 23 |
+| `52` | 33 | `61` | 35 | `68` | 36 | `78` | 42 |
+| `53` | 34 | `62` | 40 | `69` | 37 | | |
+| `54` | 23 | | | | | | |
+
+This is the number shown in תקלה מס':  -בדוק (*Fault no.: - check*). Several
+codes share a displayed number (14, 23, 40, 41, 43 each appear more than
+once), so the mapping is many-to-one — the displayed number identifies a
+**class** of fault, not the code.
 
 ## 10. Code executed from RAM
 
