@@ -1376,22 +1376,88 @@ the instruction stream and step over it. Those bytes are operands, not code.
 Confirmed at `51A8` (`OUT 6` ← `0x3E`) and `51B1` (`RET` ← `0x24`). The same
 idiom appears in the reader ROM at `0x1FF7`.
 
-### Hebrew strings are stored in display order
+### Hebrew is encoded at `0xA0`, not `0xE0`
 
-Hebrew text is stored **reversed relative to logical order**, because the
-display is written left-to-right while Hebrew reads right-to-left. Latin
-strings in the same ROM are stored forward (`INTL. CALLS ONLY`,
-`TEMPORARY  FAULT`, `Collect Card` all read normally), and mixed strings keep
-each run in its own order. To read a Hebrew string, reverse it.
+The Hebrew alphabet sits at **`0xA0`–`0xBA`**, which is ISO-8859-8 (or
+CP1255) **minus `0x40`**. That is where this LCD's character generator keeps
+Hebrew, so the firmware stores the codes the panel wants rather than a
+standard codepage. This is the "non-standard Hebrew encoding" noted in the
+author's blog post (§12a).
 
-This is **not** a general "everything is reversed" convention, and it is
-**not** evidence about the command templates at `0x3600` — those are reversed
-for a mechanical reason (fill down, send up), which is a different cause.
+| Letter | Byte | | Letter | Byte |
+|---|---|---|---|---|
+| א | `A0` | | ם | `AD` |
+| ב | `A1` | | מ | `AE` |
+| ג | `A2` | | ן | `AF` |
+| ד | `A3` | | נ | `B0` |
+| ה | `A4` | | ס | `B1` |
+| ו | `A5` | | ע | `B2` |
+| ז | `A6` | | ף | `B3` |
+| ח | `A7` | | פ | `B4` |
+| ט | `A8` | | ץ | `B5` |
+| י | `A9` | | צ | `B6` |
+| ך | `AA` | | ק | `B7` |
+| כ | `AB` | | ר | `B8` |
+| ל | `AC` | | ש | `B9` |
+| | | | ת | `BA` |
 
-One Latin string *is* stored backwards: `1AA9` holds `=LANIMRET`, i.e.
-`TERMINAL=`. It sits in the `PerformComm?` neighbourhood, so the plausible
-explanation is the same mechanism as the command templates — a buffer filled
-downward and sent upward — but that has not been verified.
+Space, digits, `'`, `.`, `:` and `-` are plain ASCII. **ASCII is not
+offset** — which is why `OUT  OF  SERVICE` reads directly out of the ROM
+while the Hebrew line beside it does not.
+
+To read a string: add `0x40` to every byte in `0xA0`–`0xBA`, decode as
+ISO-8859-8, then reverse (see below). Verified across **84 Hebrew runs** in
+the image, including `68AD` = הטלפון אינו שמיש paired with
+`OUT  OF  SERVICE`, `2FE9` = נא  הנח  השפופרת, and `6A12` =
+מהד' תכנה: (the software-edition label behind the 4.30 version string).
+
+### Byte order follows the consumer, not the language
+
+Most Hebrew is stored **reversed relative to logical order**, because the LCD
+is written left to right while Hebrew reads right to left, and
+`LCD_RenderNextDescriptor` (§10b) preserves order: it does `LDA RE` forward
+into `STR R7` forward. So a string on the direct LCD path must already be in
+display order. Latin strings on the same path are stored forward
+(`OUT  OF  SERVICE`, `INTL. CALLS ONLY`, `TEMPORARY  FAULT`, `Collect Card`
+all read normally), and mixed strings keep each run in its own order.
+
+**But the convention is not about the language — it is about the consumer.**
+A string is stored in whatever order the code that reads it will produce.
+`2AEB` holds לחצן  חיוג  חוזר in **logical** order, because its reader
+reverses it:
+
+```
+26C4  RLDI RD,2AEB      source
+26C8  LDA RD            read FORWARD
+26C9  STXD              write BACKWARD, decrementing
+26CA  DBNZ RC,26C8
+```
+
+`LDA` advances while `STXD` decrements, so the copy loop reverses the string
+as it fills the buffer. The identical phrase is stored **again** at `6C18`, in
+display order, for the direct LCD path — the same text held twice because two
+consumers need opposite orders.
+
+That is the same fill-down/read-up mechanism behind the command templates at
+`0x3600` and behind `1AA9` = `=LANIMRET` (`TERMINAL=`), which previously had
+only a plausible explanation. All three now have one cause.
+
+Measured over the image, using the fact that a final-form letter
+(ך ם ן ף ץ) can only **end** a word in logical order: of the runs where the
+test is decidable, **23 are display order and 1 is logical** (`2AEB`). The
+remaining 58 are ambiguous — no final forms, or final forms at both ends — and
+default to display order.
+
+`tools/dump_strings.py` implements this: it decodes the `0xA0` encoding,
+guesses order per string, and marks the calls it cannot make.
+
+```
+$ python3 tools/dump_strings.py "ROM/TAMAC-18 V2.8 9513.bin" --chain 6591
+6591  line 1 col  0 (cmd 80)  width 16  cmd 0C  dwell 01  next 659A
+        text 68AD: 'הטלפון אינו שמיש'
+659A  line 2 col  0 (cmd C0)  width  0  cmd 0C  dwell 01  next 0000
+        text 68BE: 'OUT  OF  SERVICE'
+```
 
 ### Strings are reached through descriptors
 
@@ -1603,6 +1669,126 @@ Numbers are composed into RAM buffers before a descriptor ever sees them:
 A descriptor then just points at the result. So the display path is three
 layers: compose into RAM → describe (position, width, dwell) → render.
 
+## 10c. Out of service: `RF.0` and the fault predicate
+
+`Print_Out_of_Service` (`0x48A9`) is the terminal fault display. Thirteen
+sites reach it, but **they are not thirteen independent health checks** —
+twelve of them call the same predicate, and the thirteenth inlines one case of
+it.
+
+### `RF.0` is the global state / fault register
+
+`is_out_of_service_state` (`0x744F`, was `FUN_744f`) tests `RF.0` against five
+values and returns `D == 0` (Z set) when it matches:
+
+```
+744F  GLO RF / XRI 0x99 / LBZ 746A
+7455  GLO RF / XRI 0x80 / LBZ 746A
+745B  GLO RF / XRI 0x84 / LBZ 746A
+7461  GLO RF / XRI 0x87 / LBZ 746A
+7467  GLO RF / XRI 0x94          falls through, D = RF.0 ^ 0x94
+746A  SEX R2 / SRET R3
+```
+
+So the out-of-service states are **`{ 0x80, 0x84, 0x87, 0x94, 0x99 }`**. Other
+`RF.0` codes are tested elsewhere — `0x91` at `4949` and `495F`, and `FUN_48E8`
+splits the range with `SMI 0x80` at `497F` — so `RF.0` is a general state byte
+of which these five are the fault subset.
+
+### The routine has multiple entry points
+
+This is easy to miss and will mislead an xref reading. Entering part way
+through tests only the remaining codes:
+
+| Entry | Codes tested |
+|---|---|
+| `SCAL 744F` | all five |
+| `SCAL 7461` | only `{ 0x87, 0x94 }` — used at `48DE`, inside `Print_Out_of_Service` itself |
+
+Any reference landing on `7455`, `745B`, `7461` or `7467` is a deliberately
+narrowed test. Check the entry address before assuming what a caller cares
+about.
+
+### The twelve paired sites
+
+Each is `SCAL R3,744F` followed by a branch to `48A9`:
+
+| Predicate call | Branch |
+|---|---|
+| `4606` | `460A` |
+| `4644` | `4648` |
+| `46A6` | `46AA` |
+| `46BB` | `46BF` |
+| `46D4` | `46D8` |
+| `471F` | `4723` |
+| `4752` | `4756` |
+| `480B` | `480F` |
+| `4820` | `4824` |
+| `4846` | `484A` |
+| `4953` | `4957` (in `FUN_48E8`) |
+| `6F86` | `6F91` |
+
+`6F91` is the odd one: it is `C0 48 A9` = **`LBR`**, with the polarity
+inverted — `6F8A: LBNZ 449E` escapes when the state is healthy and falls
+through to the display otherwise. Ghidra reports it as an unconditional
+*call* because `48A9` is a function entry; it is a branch.
+
+The thirteenth site, **`4930`**, does not call the predicate. It inlines a
+single case:
+
+```
+492D  GLO RF / XRI 0x94 / LBZ 48A9
+```
+
+Three further callers of `744F` consume the result without going out of
+service: `4B66` (in `FUN_4AF6`, the main idle loop), `276F` (in `FUN_2500`)
+and `7642` (in `proc_7640`).
+
+### What it displays
+
+| | |
+|---|---|
+| `48B2` | `SCAL R3,6E6B`, inline arg `6591` — the fault message |
+| `48D7` | `SCAL R3,6E6B`, inline arg `6451` — 16 spaces, blanking the display |
+
+Descriptor `6591` = `01 00 10 68 ad 0c 01 65 9a`, a two-link chain:
+
+| Desc | Cursor | Width | Text | Content |
+|---|---|---|---|---|
+| `6591` | `0x01` → DDRAM `0x00` (line 1) | 16 | `68AD` | הטלפון אינו שמיש |
+| `659A` | `0x41` → `0xC0` (**line 2**) | 0 | `68BE` | `OUT  OF  SERVICE` |
+
+Two refinements to the descriptor format (§10b) fall out of this:
+
+- the 1-based cursor byte runs through **DDRAM space**, so `0x01`–`0x40` is
+  line 1 and `0x41` upward is line 2. `0x41` emits exactly the `0xC0` that
+  `LCD_RenderNextDescriptor` writes for its own wrap.
+- **width 0 means do not wrap.** `DBNZ R5` would run 65536 times, so the NUL
+  terminator ends the string instead.
+
+### The rest of the routine
+
+```
+48A9  M(88C5) = 0
+48B0  REQ                 drops Q
+48B8  M(8036) &= 0xDF     clears bit 5
+48C1  SCAL R3,6FB3
+48C5  IDL loop: exit to 5F67 if M(8165) == 0, else spin while M(8129) != 0
+48DE  SCAL R3,7461        narrowed re-test of { 0x87, 0x94 }
+48E2  LBZ 4BD4, else LBR 4B65
+```
+
+The `M(8036) &= 0xDF` is worth noting: `8036` is a **flags byte in its own
+right**, not merely the address where `LCD_RenderNextDescriptor`'s `RD`
+pointer happens to stop (§10b).
+
+### If you instrument this
+
+The branches in are plain `LBZ`/`LBR`, so **no return address is left
+anywhere**. A patch at `48A9` cannot recover which of the thirteen sites
+failed without either recording it at the site or inferring it from `RF.0`
+and the surrounding state.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -1633,7 +1819,8 @@ with it.
 
 Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 `FUN_365c` → **`send_reader_command`**; `proc_279a` →
-**`LCD_RenderNextDescriptor`** (§10b).
+**`LCD_RenderNextDescriptor`** (§10b); `FUN_744f` →
+**`is_out_of_service_state`** (§10c).
 
 Data named: `8037` → `LCD_verify_errcount`; `8038` → `LCD_next_descriptor`;
 `803A` → `LCD_dwell_countdown`; `803B` → `LCD_last_command`.
