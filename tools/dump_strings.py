@@ -25,7 +25,7 @@ import sys
 
 HEB_LO, HEB_HI = 0xA0, 0xBA          # alef .. tav, ISO-8859-8 minus 0x40
 HEB_OFFSET = 0x40
-PUNCT = b" '.:,-/()*#+%?!0123456789"
+PUNCT = b" '.:,-/()*#+%?!=\"0123456789"
 
 
 def decode(raw: bytes) -> str:
@@ -70,7 +70,12 @@ def logical(text: str, raw: bytes) -> str:
     """Return the string in reading order, reversing display-order runs.
 
     Ambiguous Hebrew is treated as display order, which is the overwhelming
-    majority in this image (23 of 24 decidable runs).
+    majority in this image. (The 23-of-24 figure quoted in the notes comes
+    from a stricter one-off scan, not from this script's default charset.)
+
+    Known limitation: a run with no Hebrew at all is reported as-is, so a
+    reversed ASCII string such as "=LANIMRET" at 1AA9 prints backwards.
+    Nothing in the bytes distinguishes it from forward ASCII.
     """
     if guess_order(raw) == "logical":
         return text
@@ -81,7 +86,10 @@ def logical(text: str, raw: bytes) -> str:
     # Latin words AND numbers run left-to-right even inside RTL text, so the
     # line reversal has to be undone for them. Missing the digit case renders
     # TAMAC-18 as "18" reversed to "81", and version 4.30 as "03.4".
-    return re.sub(r"[A-Za-z0-9]+(?:[.'&/:-][A-Za-z0-9]+)*",
+    # The optional leading mark matters: a colon that trailed "CREDIT:" in
+    # the ROM is leading in the reversed line, and has to travel back with
+    # the word or it lands in front of it.
+    return re.sub(r"[:.]?[A-Za-z0-9]+(?:[.'&/:-][A-Za-z0-9]+)*",
                   lambda m: m.group()[::-1], flipped)
 
 
@@ -143,8 +151,6 @@ def main() -> int:
     ap.add_argument("image", help="firmware image, 32 KB")
     ap.add_argument("--minlen", type=int, default=4,
                     help="shortest run to report (default 4)")
-    ap.add_argument("--descriptors", action="store_true",
-                    help="also walk descriptor chains found by scanning")
     ap.add_argument("--chain", type=lambda v: int(v, 16), metavar="ADDR",
                     help="walk the descriptor chain at this hex address")
     args = ap.parse_args()

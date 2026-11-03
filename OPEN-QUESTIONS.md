@@ -81,6 +81,10 @@ an open question without a next action tends to stay open.
       `7 − popcount == 5` is unverified.
       *Settle by:* capturing the reader's reply with no card in the slot.
       **Needs hardware.**
+- [ ] **Where `RF.0 = 0x91` is set.** Previously marked settled on a
+      misread: `7383` is `LSZ` (`0xCE`), not `LSNZ`, so that site *skips*
+      when the state is already `0x91` rather than resolving it. `0x91` is
+      tested six times, has no `LDI`, and its origin is unknown (§10d).
 - [ ] **What `0x25` and `0x85` mean, and where they come from.** Both are
       equality-tested as `RF.0` states but have **no `LDI` anywhere** in the
       image (§10d). `0x25` is plausibly a reader `BR25` code (§10m); `0x85` is
@@ -151,6 +155,21 @@ an open question without a next action tends to stay open.
       `8149`, `8165`, `816C`, `845D`, `97A6`, `8191`, `8501`, `81B5`, `850D`,
       `8500`, `8513`–`8515`. Only `8513` has a known consumer
       (`M(813A) = M(8513) − 1` at `1A52`).
+- [ ] **Reconcile the four statements about `CA`, `CB`, `TG`, `MN`.** The
+      phone notes variously call them trunk-link candidates (§7), reader-link
+      codes on a one-writer argument (§9a), not attributable because the UART
+      is shared (§9a table), and no longer in doubt (§12). The retraction
+      stands — one writer is not one peer — but the text was never unified.
+- [ ] **`M(8144)` has two incompatible meanings in the notes** — §1a ties it
+      to the credit screen, §10t to "the dial pulse arrived". Neither is
+      argued from the cell itself; the §10t reading was taken from the module
+      title. The §1a citation also points at `3A0B`, which reads `813E` and
+      `8127`, not `8144`.
+- [ ] **Does anything actually gate the `845A`/`885D` increments on a
+      completed call?** §10s says they count calls, but the increments at
+      `4252`/`425A` run when bit 7 of `INP 3` is set and the previous sample
+      at `8078` was zero — the `ANI 0x96` on `card_permission_bits` is a mask
+      whose branches all rejoin, so it does not guard them.
 - [ ] **`KEY_*` may be off by one.** The enum puts `*` at `0x0C`, but the
       matrix table at `2400` gives index `0x0B` = `*` and `0x0C` = `#`
       (§10f). Worth settling — it changes how every `XRI 0x0C` reads.
@@ -206,8 +225,8 @@ Kept as a record of what the method looks like when it works.
 - [x] **The second byte of each fault-log entry** — an occurrence counter with
       a threshold, written by `5E1B`. *Settled by* noticing all four call
       sites target **odd** offsets from `840A` (§10i).
-- [x] **Where `0x91` comes from** — a pending state resolved to `0x88` or
-      `0x83` at `7384`, the only register-mediated write to `RF.0` (§10d).
+- [x] **Where `0x83` and `0x88` come from** — written through `RE` at
+      `7384`, the only register-mediated write to `RF.0` (§10d).
 - [x] **Whether `0xAA` is a status code** — no. `LDI 0xAA` occurs 28 times,
       every one followed by `STR` (§10d).
 - [x] **The Hebrew encoding** — ISO-8859-8 minus `0x40` (§9).

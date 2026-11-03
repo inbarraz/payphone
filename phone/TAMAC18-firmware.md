@@ -1503,9 +1503,15 @@ only a plausible explanation. All three now have one cause.
 
 Measured over the image, using the fact that a final-form letter
 (ך ם ן ף ץ) can only **end** a word in logical order: of the runs where the
-test is decidable, **23 are display order and 1 is logical** (`2AEB`). The
-remaining 58 are ambiguous — no final forms, or final forms at both ends — and
-default to display order.
+test is decidable, **23 are display order and 1 is logical** (`2AEB`), with
+58 ambiguous — no final forms, or final forms at both ends — defaulting to
+display order.
+
+Those figures come from a one-off scan with a stricter pattern (minimum
+length 6, at least 5 Hebrew bytes), **not** from `tools/dump_strings.py`,
+whose looser default charset reports different totals on the same image.
+They also sum to 82 rather than the 84 quoted above, which counted runs the
+stricter scan rejected. Treat all four numbers as indicative.
 
 `tools/dump_strings.py` implements this: it decodes the `0xA0` encoding,
 guesses order per string, and marks the calls it cannot make.
@@ -1964,25 +1970,29 @@ where two independent sites agree, are listed above.
 | `86`, `89`, `90`, `95`, `97` | abnormal, in neither predicate set | `4A51`, `7440`/`48A0`, `378A`, `35F5`, `2776` |
 | `91` | **special** — see below | **never `LDI`-written** |
 
-### `0x91` is a pending state, resolved through `RE`
-
-`7380` holds the only register-mediated write to `RF.0` in the image, and it
-is what produces `0x83`:
+### `0x83` and `0x88` are written through `RE` at `7384`
 
 ```
+7377  LBNZ 7389         skipped entirely when M(8144) is non-zero
 737A  LDI 0x88
 737C  LSKP              two-way entry, as at 7440 / 48A0 / 31D0
 737D  LDI 0x83
 737F  PLO RE            RE.0 = 0x88 or 0x83
 7380  GLO RF / XRI 0x91
-7383  LSNZ              skip unless the state IS 0x91
+7383  LSZ               0xCE - skip WHEN the state IS 0x91
 7384  GLO RE / PLO RF   RF.0 = RE.0
 ```
 
-So `0x91` is a **pending** state that resolves to `0x88` (show credit) or
-`0x83` (a transient that `clear_state_if_transient` then wipes). That is why
-`0x91` is tested six times but never written by an immediate, and why `LDI
-0x83 / PLO RF` appears nowhere.
+**Correction.** An earlier version of this section read `7383` as `LSNZ` and
+concluded that `0x91` is a pending state resolved *into* `0x88` or `0x83`.
+The byte is `0xCE`, which is **`LSZ`** (`0xC6` is `LSNZ`), so the sense is
+the opposite: when `RF.0` already is `0x91` the copy is **skipped**, and the
+write happens only when the state is something else. Ghidra's own listing
+says `LSZ`; the error was in reading it.
+
+So this site does not explain where `0x91` comes from. It explains where
+`0x83` and `0x88` come from, and `0x91` acts as a **guard** suppressing the
+overwrite. Where `0x91` itself is set is still open.
 
 Every *other* `GLO Rn / PLO RF` a byte scan reports is the operand byte of an
 `LDI` read at the wrong alignment: `269B` "GLO R4" is the `0x84` of
@@ -2418,6 +2428,11 @@ All four are **odd** offsets from `840A`, so each addresses the *second* byte
 of a fault-log entry — the log being `840A`–`8441`, two bytes per entry,
 walked at `600D`–`604B` in `show_fault_log` (§10e).
 
+**These four are not all of them.** A byte scan finds **30** `SCAL 5E1B`
+sites, sixteen of them in `5C0F`–`5DEA`. Every one of the 30 has an **odd**
+first argument, so the "second byte of a log entry" reading holds across all
+of them — but any statement resting on there being four sites does not.
+
 So the second byte, left open in §10e, is a **counter with a threshold**. The
 `DEC R8` / `OR` then writes a bit into the first byte, which is the fault
 code. **Reaching the threshold is what raises the fault** — the firmware
@@ -2756,9 +2771,9 @@ digits into **column 5, width 11**. The module name then fills line 2.
 | 29 | 41 | טרם בוצעה תקשורת |
 | 30 | 42 | תאורה    חיצונית |
 
-Eleven entries point at `68CF`, a message used elsewhere
-(בקשתך אושרה-חייג), which is simply filler for fault numbers that are never
-raised. Index 27 repeats index 25's string.
+**Twelve** entries point at `68CF`, a message used elsewhere
+(בקשתך אושרה-חייג) — indexes 3–6, 10 and 13–19 — simply filler for fault
+numbers that are never raised. Index 27 repeats index 25's string.
 
 ### Fault code → module, end to end
 
@@ -3246,9 +3261,10 @@ event**. (`FUN_420E` is never reached by `SCAL`; it is branched to.)
 
 ### The `97xx` counter records
 
-`1C5F` calls `increment_counter16` (`04F0`) on `97A6`, `97AA` and `97AE`.
-Those are the **`varC`** fields of the three `SupervisedOpDesc` channel
-records (§10z), and the cells this routine clears — `97A8`, `97AC`, `97B0`
+`1C5F` calls `increment_counter16` (`04F0`) **four** times — `1C60`→`97A6`,
+`1C67`→`97AA`, `1C6E`→`97AE` and `1C75`→`979F`. The first three are
+the **`varC`** fields of the three `SupervisedOpDesc` channel records
+(§10z); `979F` is a fourth counter outside that array, and the cells this routine clears — `97A8`, `97AC`, `97B0`
 — are their **`varB`** fields, the ones the engine range-checks against
 `limitB`. The record is 4 bytes: `varA`, a 16-bit `varC`, then `varB`.
 
@@ -3273,7 +3289,7 @@ Added to `cdp1806/data/inline_args.txt`:
 | Callee | Signature | Why |
 |---|---|---|
 | `04f0` | `p` | the counter pointer |
-| `290a` | `p,b,p` | memset — and **downward**, so the pointer is the *top* of the region (§10r) |
+| `290a` | `p,b,w` | memset — and **downward**, so the pointer is the *top* of the region (§10r) |
 | `75c6` | `b` | a stub that only steps over its byte; **auto-detection cannot infer this**, since the routine never loads it |
 
 ## 10t. `flush_nopulse_fault_counter` (`0x75F9`) — a fault counter end to end
@@ -3581,10 +3597,12 @@ never written down, and it **corrects the `97xx` layout given in §10s**.
 ### `proc_4bd7` is a thin driver
 
 ```
-4BD7  SCAL 1ABE ; inline 1C7E    channel 0
-4BDE  SCAL 1ABE ; inline 1C91    channel 1
-4BE5  SCAL 1ABE ; inline 1CA4    channel 2
+4BD8  SCAL 1ABE ; inline 1C7E    channel 0
+4BDF  SCAL 1ABE ; inline 1C91    channel 1
+4BE6  SCAL 1ABE ; inline 1CA4    channel 2
 ```
+
+(`4BD7`, `4BDE` and `4BE5` are the `SEX R2` before each call.)
 
 Three calls, nothing else. Each inline argument is a `0x13`-byte parameter
 block.
