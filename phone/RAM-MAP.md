@@ -328,11 +328,11 @@ dozen places has a dozen chances to give itself away.
 
 | Addr | Name | Sites | Signature |
 |---|---|---|---|
-| `8A01` | — | 3 — `023d` `0d8b` `14b8` | st=0 |
-| `8B0B` | — | 9 — `0241` `024f` `0615` `0784` `0a7d` `0ab0` +3 | st=2 imm=00 |
-| `8B0D` | — | 1 — `0aa9` | st=0 |
+| `8A01` | `dlc_rx_buffer` | 3 — `023d` `0d8b` `14b8` | st=0 |
+| `8B0B` | `dlc_rx_count` | 9 — `0241` `024f` `0615` `0784` `0a7d` `0ab0` +3 | st=2 imm=00 |
+| `8B0D` | `dlc_rx_base` | 1 — `0aa9` | st=0 |
 | `8B0E` | — | 1 — `0d8f` | st=0 |
-| `8B0F` | — | 1 — `0a76` | st=0 |
+| `8B0F` | `dlc_rx_base2` | 1 — `0a76` | st=0 |
 | `8B10` | — | 1 — `0d9a` | st=0 |
 | `8B11` | — | 1 — `0d96` | st=0 |
 | `8C1B` | — | 1 — `0db1` | st=1 |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **132 named**, 257 still unnamed.
+389 anchored cells, **136 named**, 253 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.

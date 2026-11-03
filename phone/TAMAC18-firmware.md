@@ -5311,6 +5311,92 @@ distinction means on the wire, or what tags other than `0x0A` and `0x0F` exist.
 `8DA7`/`8DA8` are written as zeros at `0772`, so the link address is either
 provisioned later or genuinely zero.
 
+## 10as. `rx_contains_pattern` (`0x023D`) — the DLC login script
+
+Searches the DLC receive buffer **backwards** for a NUL-terminated pattern at
+`R7`. Returns **0 if found, 1 if the buffer ran out** — note the polarity.
+
+```
+023D  R9 = 8A01
+0241  R9 = 8A01 + word@8B0B - 1     the LAST byte written
+024F  RA = word@8B0B, then +1        the loop count
+0257  SEX R9                         X = the buffer cursor
+0258  LDN R7 / LBZ 0267              pattern byte 0 -> matched it all -> 0
+025C  XOR                            M(R7) ^ M(R9)
+025D  LSNZ 0260                      mismatch: do NOT advance R7
+025E  INC R7                         match: advance the pattern
+0260  DEC R9                         always walk the buffer DOWNWARD
+0261  DBNZ RA,0258
+0265  LDI 0x01                       exhausted -> 1
+```
+
+### The patterns are stored reversed, and that is the tell
+
+`R9` starts at the end of the accumulated data and walks down, so a pattern has
+to be written back to front to read forwards:
+
+| Address | Bytes | Reads as |
+|---|---|---|
+| `1AA9` | `3D 4C 41 4E 49 4D 52 45 54 00` | **`TERMINAL=`** |
+| `1AB3` | `40 00` | **`@`** |
+
+Scanning from the newest byte is the right choice for a stream: a prompt that
+has just arrived is found immediately, with no rescan of everything before it.
+(The reversed-storage trick is the same one §8 found in the `3600` command
+templates and §10 in the `2AEB` string.)
+
+**A subtlety:** `R7` is not reset on a mismatch, it merely fails to advance. So
+this matches the pattern as a **subsequence** reading forwards, not as a
+contiguous substring — it tolerates junk interleaved with the prompt. For a
+stream that ends in `TERMINAL=` the match is contiguous anyway.
+
+### What this says the DLC link actually is
+
+The two call sites are two entry points sharing a tail — the same idiom as the
+flag samplers at `0100` (§10aq):
+
+```
+0C44  set_feature_flag(0x0E); R7 = 1AA9; SCAL 023D; LBR 0C67   await "TERMINAL="
+0C57  set_feature_flag(0x0E); R7 = 1AB3; SCAL 023D             await "@"
+0C67  LBZ 0C6D                found
+0C6A  LDI 0x05 / LSKP         not found
+0C6D  LDI 0x0D                found
+0C70  set_feature_flag(that)
+0C74  LBR 1A7C
+```
+
+Each step marks `0x0E` on entry and `0x0D` or `0x05` on the way out, in the flag
+array at `8DAC`, then returns to the shared `1A7C` — **the same shape as the
+transmit step at `2372`** (§10ar), which marks `0x0E`, then `0x0D` or `0x09`,
+and also ends `LBR 1A7C`.
+
+So `1A7C` is the DLC **session script driver**, and the steps are script
+elements. `TERMINAL=` followed by `@` is a terminal-server or X.25 PAD login, so
+the picture is: dial a data centre, wait for each prompt in turn, then send the
+70-byte record. That makes the flag array at `8DAC` the script's state, which is
+the first solid account of what it is for.
+
+### Cells named
+
+| Address | Name |
+|---|---|
+| `8A01` | `dlc_rx_buffer` |
+| `8B0B` | `dlc_rx_count` — 16-bit byte count |
+| `8B0D` | `dlc_rx_base` — `0D8B` writes `8A01` here |
+| `8B0F` | `dlc_rx_base2` — a second base, role unknown |
+| `1AA9` | `pat_TERMINAL_reversed` |
+| `1AB3` | `pat_at_sign` |
+
+`0A7D` and `0AB0` compute *base + count* to get the write cursor, and `0784`
+zeroes both the count and `dlc_link_address`, so it is the link reset.
+
+**No function boundary exists at `0C44` or `0C57`**, so the decompiler cannot
+render either step. Creating them would help; suggested names
+`await_TERMINAL_prompt` and `await_at_prompt`.
+
+**Not established:** what `1A7C` does with the result codes, how the script is
+sequenced, or what `8B0F` is a base for.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -5410,7 +5496,8 @@ Renamed from an earlier, inaccurate name:
 **`test_EF4_inverted`**; `proc_010d` → **`test_and_clear_XI`**; `proc_0113` →
 **`test_and_clear_CI`** (all §10aq).
 
-`proc_038d` → **`build_dlc_frame`**; `proc_01fb` →
+`proc_023d` → **`rx_contains_pattern`** (§10as). `proc_038d` →
+**`build_dlc_frame`**; `proc_01fb` →
 **`send_dlc_nothing_to_report`**; `proc_020a` →
 **`send_dlc_pending_record`**; `proc_02cf` →
 **`store_frame_length_or_error`**; `proc_0331` → **`set_feature_flag`**
@@ -5509,6 +5596,10 @@ tally at the foot of the map if the two ever disagree.
 | `8DA7` | `dlc_link_address` | 10ar |
 | `8DAB` | `dlc_record_len` | 10ar |
 | `8E6D` | `dlc_frame_checksum` | 10ar |
+| `8A01` | `dlc_rx_buffer` | 10as |
+| `8B0B` | `dlc_rx_count` | 10as |
+| `8B0D` | `dlc_rx_base` | 10as |
+| `8B0F` | `dlc_rx_base2` | 10as |
 | `8117`–`8119` | `dial_digit_3`, `dial_digit_2`, `dial_digit_1` | 10ao |
 | `813B` | `dial_digit_count` | 10ao |
 | `00DF` | `secret_prefix_digits` | 10ao |

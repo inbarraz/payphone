@@ -169,7 +169,7 @@ an open question without a next action tends to stay open.
 
 ## Naming and tooling
 
-- [ ] **257 RAM cells are still unnamed**, out of the 399 the firmware points a
+- [ ] **253 RAM cells are still unnamed**, out of the 399 the firmware points a
       register at, after dropping the cells a bad `SCAL`-pointer heuristic had
       invented. [`phone/RAM-MAP.md`](phone/RAM-MAP.md) has all of them with
       the signature the ROM shows — stores, immediates, `ANI` masks, comparison
@@ -344,6 +344,14 @@ Collected separately because they are not worth static effort:
       is a tag — `0x0A` for "nothing to report", `0x0F` for a two-value report
       (§10ar). The other four wrappers' tags, and whatever the receive side
       expects, are unread.
+- [ ] **Read `1A7C`, the DLC session script driver.** Both the transmit step at
+      `2372` and the two login steps at `0C44`/`0C57` set state `0x0E` on
+      entry, a result code on the way out, and end `LBR 1A7C` (§10ar, §10as).
+      So `1A7C` sequences the script and consumes those codes, and it is now
+      the single most informative unread routine on the DLC side.
+- [ ] **Create function boundaries at `0C44` and `0C57`.** Neither login step
+      has one, so the decompiler cannot render them (§10as). Same problem as
+      `5071`/`514B`/`5FB1` on the reader link.
 - [ ] **Scope port 1 bit 3.** Three consecutive high ticks raise `M(8067)`
       bit 0 (`4AB9`), which is what lets the `?CC` flush run. It is the third
       sense line found on port 1 and the only one with no candidate meaning

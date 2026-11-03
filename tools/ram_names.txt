@@ -144,6 +144,10 @@
 88c4 ram_sentinel_88c4|NOLABEL
 89fa stack_top|NOLABEL
 8a00 ram_sentinel_8a00|NOLABEL
+8a01 dlc_rx_buffer
+8b0b dlc_rx_count
+8b0d dlc_rx_base
+8b0f dlc_rx_base2
 8c27 dlc_tx_frame
 8d26 dlc_record
 8da6 dlc_tx_frame_len
