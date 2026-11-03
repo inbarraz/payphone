@@ -2718,8 +2718,47 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 **`read_hardware_straps`** (§10k); `FUN_36b0` → **`PackCardNibbles`**
 (§10m).
 
-Data named: `8037` → `LCD_verify_errcount`; `8038` → `LCD_next_descriptor`;
-`803A` → `LCD_dwell_countdown`; `803B` → `LCD_last_command`.
+### Data named
+
+| Address | Name | § |
+|---|---|---|
+| `7BFA` | `sw_version_major` | 10j |
+| `7BFB` | `sw_version_minor` | 10j |
+| `8024` | `reader_digit0` | 10m |
+| `8025` | `reader_digit1` | 10m |
+| `8026` | `reader_digit2` | 10m |
+| `8033` | `strap_drive_and_flags` | 10k |
+| `8037` | `LCD_verify_errcount` | 10b |
+| `8038` | `LCD_next_descriptor` | 10b |
+| `803A` | `LCD_dwell_countdown` | 10b |
+| `803B` | `LCD_last_command` | 10b |
+| `803C` | `display_scratch_803c` | 10j |
+| `804C` | `display_scratch_804c` | 10j |
+| `8060` | `card_packed_byte` | 10l |
+| `8062` | `card_value_7_minus_popcount` | 10l |
+| `8069` | `card_session_status` | 10l |
+| `8074` | `hardware_version` | 10k |
+| `811A` | `buf8119_ptr` | 10g |
+| `811B` | `buf8119_end` | 10g |
+| `8185` | `port3_readback` | 10k |
+| `840A` | `fault_log` | 10e, 10i |
+
+Names reflect what the code **does** with a cell, not an assumed purpose:
+`card_value_7_minus_popcount` records the computation at `33D4` rather than
+claiming the byte is a credit balance, and `strap_drive_and_flags` avoids
+calling `8033` a port latch, which §10k shows is unproven.
+
+**Still unnamed, meaning not established:** `8030` (the mode byte tested
+against `0x10` at `45CD`), the timers and flags `812F`, `8131`, `8139`,
+`8149`, `8165`, `816C` (§10e), `845D` (cleared before the reset shortcut,
+§10j), `97A6` (set when a fault counter hits its threshold, §10i), and the
+three flags the idle selector reads at `8191`, `8501` and `81B5` (§10l).
+
+A caveat on the MCP: `rename_data` always answers "Rename data attempted",
+which says nothing. Verify by decompiling a function that references the cell
+and checking the symbol appears — `read_hardware_straps` shows
+`hardware_version`, `strap_drive_and_flags` and `port3_readback`, and
+`LoadStringForDisplay` shows `LCD_next_descriptor`.
 
 Commented: `6E03` (the P switch), `28D8` (vector, prologue, epilogue),
 `5071` (ISR body and flag map), `50DD` (character classifier), `514B`
