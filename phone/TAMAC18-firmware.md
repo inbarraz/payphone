@@ -4106,6 +4106,64 @@ Sole caller: `5C57`, in `FUN_5BFD`, immediately before the first
 `GuardOrAbortCaller` call at `5C5B` (§10h). So the fault-reporting sequence
 waits for the machine to go quiet and clears the screen before starting.
 
+## 10ah. `increment_decimal_counter` (`0x3806`) and the totalizer bank
+
+Adds 1 to a multi-digit **decimal** counter at `RD`, propagating the 9→0
+carry. The digit count is a 1-byte inline argument; the base comes in `RD`.
+
+```
+3806  LDN R3 / PLO RC / PHI RC   both halves of RC = the digit count
+3809  LDN RD / SMI 0x09          current digit == 9 ?
+380C  LBNZ 3829                  no  -> M(RD) += 1, done
+380F  GLO RC / LBZ 381D          out of digits -> the wrap path
+3813  DEC RC / LDI 0 / STR RD / INC RD / LBR 3809
+                                 yes -> zero it, carry upward
+382D  INC R3                     step over the inline byte
+```
+
+**Digits are stored least significant first** — the carry walks *upward*
+with `INC RD`, so the lowest address holds the units. The values are digit
+*values*, not ASCII: the comparison is against `9`, not `'9'`. Same
+convention as `digits_to_binary16` (§10af) and `parse_digits_into`
+(§10ab).
+
+### Four counters, contiguous
+
+| Base | Digits | Bumped at |
+|---|---|---|
+| `8516` | 4 | `429D` |
+| `851A` | 6 | `4233` |
+| `8520` | 6 | `2D24` |
+| `8526` | 6 | `36CE` |
+
+`8516`+4 = `851A`, +6 = `8520`, +6 = `8526`, +6 = `852C`. So
+**`8516`–`852B` is one 22-digit bank of totalizers**, sitting immediately
+after the provisioning block at `850D`–`8515` (§10q). That tightens the
+`85xx` map considerably:
+
+```
+8500         from M(0D00)
+850D..8515   provisioning: accept list, divisors
+8516..852B   four decimal totalizers
+852C..       a buffer the technician menu edits (4E35 onward)
+```
+
+### Who bumps what
+
+| Site | Context |
+|---|---|
+| `2D24` | `FUN_2D10`, the per-tick update |
+| `36CE` | `FUN_36C2`, which also sets `M(88BD) = 0xAA`; called from the reader dispatch handlers at `342B`, `344C`, `3460`, `3496` |
+| `4233`, `429D` | both inside `FUN_420E` — the same routine that increments `845A` and `885D`, the counters `periodic_report_check` tests against 45 (§10s) |
+
+So these are **event totalizers**, and the `420E` pair in particular move
+on the same event as the every-45 counters.
+
+**Not established:** what each one counts. Their widths and their position
+next to the provisioning block suggest meters a technician or the DLC link
+would read out, but nothing here says which is which — another reason to
+dump `8500`–`852B` from a live unit.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -4168,7 +4226,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 **`classify_into_range`**; `FUN_3270` → **`next_state_from_table`** (§10ae);
 `proc_5000` → **`digits_to_binary16`**; `FUN_3876` →
 **`shift_rc_left16`** (§10af); `FUN_3831` →
-**`wait_idle_then_blank_display`** (§10ag).
+**`wait_idle_then_blank_display`** (§10ag); `proc_3806` →
+**`increment_decimal_counter`** (§10ah).
 
 Renamed from an earlier, inaccurate name:
 `LoadEmptyLine_AND_8036_with_0xBF` → **`BlankDisplayAndClear8036Bit6`**

@@ -224,6 +224,9 @@ Collected separately because they are not worth static effort:
       provisioned card values (§10q). The ROM only gives the defaults, `0x0F`
       and `0x78`.
 - [ ] **Dump `840A`–`8441`** for that unit's fault history (§10e).
+- [ ] **Dump `8516`–`852B`**, the four decimal totalizers (§10ah) — 4, 6, 6
+      and 6 digits. Their readings on a unit with known history would say
+      what each one counts, which the ROM does not.
 - [ ] **Read the hardware straps** — five drive lines and a sense on port 3
       bit 6 (§10k) — to learn what revision a given board reports.
 - [ ] **Capture the reader's reply with no card**, settling `M(8062) == 5`.
