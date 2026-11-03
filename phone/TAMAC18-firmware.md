@@ -2786,6 +2786,37 @@ Several codes share a module, which is expected: four distinct codes
 (`54`, `55`, `60`, `77`) at קורא אופטי (*optical reader*). The code
 identifies the test; the module identifies the part.
 
+### The priority fault at `29E7`
+
+Not every fault comes from the log. `show_fault_log` calls `proc_29e7` at
+`6006` — after the `670B` label is drawn and **before** the log walk at
+`600D` — and that routine hard-codes one:
+
+```
+29E9  RLDI R5,88BB
+29ED  LDN R5 / LBZ 2A05      nothing wrong -> skip
+29F1  LDI 0x23               BCD 23
+29F3  SCAL R3,5E8B           show_fault_entry
+29F7  SCAL R3,5EEB, arg 05   wait for key 0x0C
+```
+
+`0x23` is a packed-BCD **number**, so 23 decimal, giving index
+`23 - 12 = 11` — entry 11 is `6BE5`:
+
+| | |
+|---|---|
+| line 1 | תקלה מס': 23 -בדוק |
+| line 2 | **קורא אופטי** — *the optical reader* |
+
+So the optical reader is reported ahead of everything in the `840A` log,
+which fits it being the critical peripheral.
+
+`M(88BB)` is the gate, and it has **no write cross-reference** — it is set
+through a pointer register rather than a direct `RLDI`, like the `8119`
+pointers in §10g. `standby_reboot_or_halt` reads it at `23A6` with the same
+`LDN` / `LBZ` shape. Finding its writer would say exactly which reader
+failure raises fault 23.
+
 ### An apparent off-by-one
 
 Codes **`0x48` and `0x49` map to fault number 43**, giving index 31 — one
