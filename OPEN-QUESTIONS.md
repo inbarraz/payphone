@@ -74,6 +74,33 @@ an open question without a next action tends to stay open.
 
 ## The card reader link
 
+- [ ] **What loads the card's credit into `805C`/`805D`?** This is the one
+      missing link in the charging chain (§10ak). Every write to either cell
+      that exists in the image is a decrement, a zero, or the `?CC` move that
+      only shuffles between them — so with a cold battery the first metering
+      pulse borrows at `2D88` and returns `RF.0 = 0x82`, "no credit", and the
+      phone can never bill anything. Something must load them.
+      *Already ruled out:* every `RLDI Rn,805C`/`805D`/`805E` in the ROM;
+      `805C` and `805D` as `SCAL` inline pointer arguments; `746D`, which is a
+      block clear; and both RAM-resident payloads (`040D` → `9733`,
+      `3011` → `9771`), which touch only `F000` and the checksum cells.
+      *Settle by:* reading `290A` (called with `805B` as a pointer at `538D`,
+      `57BB`, `5872`) and the `8054`–`805F` field area that
+      `render_credit_indicator` indexes at `2E98`/`2EB1` — the loader is most
+      likely a field copy out of a reader reply rather than a named store.
+- [ ] **What does the reader do with `F` (`0CD9`) and `EF` (`10E6`)?** The
+      phone's side is settled — `?F` for one unit, `?EF0NN` for N, with N taken
+      straight from `M(8064)` (§10ak) — and the reader's TE menu ties the
+      letter `F` to erasure power. Reading the two handlers would turn that
+      from strong inference into proof.
+      *Settle by:* adding the BSK31 ROM to the repo; it is not here.
+- [ ] **What does `CC` (`139F`) do?** The phone sends `?CC` once, from the
+      low-credit flush at `3924`, after collapsing the whole remaining balance
+      into the drain pool (§10ak). The pre-burn reading fits but is not proven.
+- [ ] **Why `?CD007` and `?CD012`, and what is the `007`?** `?CD007` goes out
+      on card insertion and `?CD012` (selector `0x50`) is never sent at all.
+      `?CE007` has no branch in the reader's parser. The card read computes
+      `7 − popcount`, which makes `007` suggestive, but nothing connects them.
 - [ ] **What writes `M(88BB)`**, the flag that raises fault 23 "optical
       reader" ahead of the log (§10n). It has **no write cross-reference**, so
       it is set through a pointer register.
@@ -223,11 +250,17 @@ Collected separately because they are not worth static effort:
       and `0x78`.
 - [ ] **Dump `840A`–`8441`** for that unit's fault history (§10e).
 - [ ] **Dump `8516`–`852B`**, the four decimal totalizers (§10ah) — 4, 6, 6
-      and 6 digits. Their readings on a unit with known history would say
-      what each one counts, which the ROM does not.
+      and 6 digits. Three now have a reading from the ROM (`851A` minutes,
+      `8520` charged periods, `8526` card units burned, §10ah/§10ak); `8516`
+      does not, and none of the four has known *units*. Readings from a unit
+      with known history would settle both.
 - [ ] **Read the hardware straps** — five drive lines and a sense on port 3
       bit 6 (§10k) — to learn what revision a given board reports.
 - [ ] **Capture the reader's reply with no card**, settling `M(8062) == 5`.
+- [ ] **Scope port 1 bit 3.** Three consecutive high ticks raise `M(8067)`
+      bit 0 (`4AB9`), which is what lets the `?CC` flush run. It is the third
+      sense line found on port 1 and the only one with no candidate meaning
+      (§10ak).
 
 ---
 
@@ -259,3 +292,24 @@ Kept as a record of what the method looks like when it works.
       ÷ 12 gives a 50 Hz base tick, and the `40F4` prescaler ÷ 50 gives 1 Hz.
       So `M(811D) = 60` is one minute and `851A` is a minute meter (§10aj).
 - [x] **What bit 6 of `M(8036)` means** — "the timer set is running" (§10y).
+- [x] **Whether the card is debited during the call or only on eject** —
+      **during the call**, within one tick of each charge. The debit at `2D88`
+      sets `M(8064)`, and `service_card_reader_link` at `3103` sends `?F` for
+      one unit or `?EF0NN` for N on the next tick; the `?EF` digits are built
+      from `M(8064)` itself at `3686`–`36A9` (§10ak).
+- [x] **What triggers a charge** — the **exchange's metering pulse** on port 3
+      bit 0, not any timer. `detect_metering_pulse` accepts a high of 80–480 ms
+      confirmed by 40 ms of release; `M(8143)`/`M(8145)` are written from
+      nowhere else, and the 60-second `851A` meter is a duration statistic
+      (§10ak).
+- [x] **What `8526` counts** — card units burned.
+      `account_one_unit_spent` (`36C2`) is its only bump, and `MO`'s
+      once-per-unit-of-difference call pattern proves the argument is units,
+      not stepper steps as §7 first guessed (§10ak).
+- [x] **What `M(8031)` is** — the link layer's **resume-address low byte**.
+      `3989`/`398D`/`3100` fall through only for `0xFF`, the resting state;
+      anything else is jumped to by `PLO R4` at `3102` inside page `31`. The
+      whole reader link is a coroutine (§10ak).
+- [x] **What `746D` does** — a **block clear**, not a copy: `7483`–`7487`
+      fills downward with zero. All three call sites only clear, which is why
+      none of them is the missing credit loader (§10ak).

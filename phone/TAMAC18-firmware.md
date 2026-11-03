@@ -1013,9 +1013,13 @@ credit**. A compare loop over `850E` checks the parsed value against a small
 table, and the outcome writes `0xAA` (accepted) or `0x69` (rejected) to the
 session state at `8069`.
 
-`36C2` is almost certainly the **stepper single-step pulse**: `MO` calls it
-once per unit of difference between a target and the position shadow at
-`806A`, `MZ` exactly twice, `X` and `Y` once each.
+`36C2` is **`account_one_unit_spent`**: it sets `M(88BD) = 0xAA` and bumps the
+six-digit totalizer at `8526`, so that counter is the cumulative tally of card
+units burned. `MO` calls it once per unit of difference between the value the
+reader reports and the shadow at `806A`, `MZ` exactly twice, `X` and `Y` once
+each. An earlier reading here guessed a **stepper single-step pulse**; that was
+wrong — the stepper is in the reader's own ROM, on its own CPU — and §10ak lays
+out the call pattern that makes it a unit count.
 
 ## 8. Transmitting: the command set
 
@@ -4161,13 +4165,16 @@ after the provisioning block at `850D`–`8515` (§10q). That tightens the
 So these are **event totalizers**, and the `420E` pair in particular move
 on the same event as the every-45 counters.
 
-**Not established:** what each one counts. Their widths and their position
-next to the provisioning block suggest meters a technician or the DLC link
-would read out, but nothing here says which is which — another reason to
-dump `8500`–`852B` from a live unit. §10ai does settle `851A`: the `4233`
-site fires once per 60 ticks of off-hook time with a valid card, so it is a
-**duration** meter, and §10aj makes the tick exactly one second, which makes
-`851A` a six-digit minute meter.
+**Two of the four are now identified.** `851A` is a **minute meter**: §10ai
+shows the `4233` site fires once per 60 ticks of off-hook time with a valid
+card, and §10aj makes the tick exactly one second. `8526` counts **card units
+burned** — §10ak works out the call pattern of `account_one_unit_spent`, the
+only caller of `increment_decimal_counter` for that base.
+
+`8520` is bumped at `2D24`, the first thing `apply_charge_and_refresh_display`
+does when a metering pulse arrives, so it counts **charged periods** — one per
+pulse, before any exemption test. `8516` remains unidentified. Dumping
+`8500`–`852B` from a live unit would still settle the units each one is kept in.
 
 None of the four can be renamed over the MCP — see the caveat in §11.
 
@@ -4263,13 +4270,15 @@ alternatives do not land anywhere sensible: EF1 at mains 50 Hz would make
 
 | Cell | Value | Meaning |
 |---|---|---|
-| `811D` | 60 | **60 seconds** — the per-minute charge interval (§10ai) |
+| `811D` | 60 | **60 seconds** — the `851A` duration meter's interval (§10ai). *Not* the charge interval: §10ak shows charging is driven by the exchange's metering pulse, not by this timer |
 | `8131` | 30 | 30 s |
 | `8134` | 90 | 90 s, the `arm_timer_set` lifetime (§10y) |
 
 Israeli calls were charged by the minute, and `meter_and_drive_line` bumps
 the 6-digit counter at `851A` once per `M(811D)` expiry. **So `851A` is a
-minute meter.**
+minute meter** — a *statistic*, though, not the billing mechanism. §10ak shows
+the money comes off the card on the exchange's metering pulse; nothing in the
+charging path reads a timer.
 
 ### The same crystal sets the baud rate
 
@@ -4287,6 +4296,240 @@ crystal fixes the input. The inference is that the only divider making all
 three stages exact is a power of two, and 4096 is the one that lands on
 1 Hz. Confirming it means finding the divider chip on the board and
 checking EF1 with a scope.
+
+## 10ak. How the card gets debited — and when it is actually burned
+
+**The card is written during the call, within one tick of each charge, not at
+hangup.** And the charge clock is not in the phone: it is the exchange's
+metering pulse.
+
+### The chain, end to end
+
+| Step | Where | What happens |
+|---|---|---|
+| 1 | `detect_metering_pulse` (`3733`) | a pulse on **port 3 bit 0** sets `charge_event_pending` (`M(8143)`) |
+| 2 | `apply_charge_and_refresh_display` (`2D10`) stage 1 | `debit_pending` (`M(8145)`) `+=` the divisor |
+| 3 | stage 2 | spend `credit_drain_pool` (`M(805D)`) first; when it is dry, `credit_bulk_pool` (`M(805C)`) `-=` N and `burn_units_pending` (`M(8064)`) `= N` |
+| 4 | `service_card_reader_link` at `3103` | N = 1 → **`?F`**; N > 1 → **`?EF0NN`** |
+| 5 | reply handlers `X` (`3420`) / `Y` (`343C`) | clear `M(8064)`, call `account_one_unit_spent` → totalizer `8526` |
+
+Step 4 is the burn, and it goes out on the **next tick after the debit**. There
+is no "remember it and settle on eject" anywhere in that path.
+
+### 1. The charge comes from the line, not from a timer
+
+`detect_metering_pulse` is called from `meter_and_drive_line` at `42AA`, which
+is on the **50 Hz base tick** — the `1 Hz` slow tick is only the prescaler at
+`40F4`, and the chain runs on past it to `LBR 420E` at `415B`. So every count
+in this routine is a 20 ms sample.
+
+```
+3741  INP3 / ANI 0x01          port 3 bit 0
+3744  clear -> 32DB            the release path
+374F  M(816B) == 0x55 -> ret   three inhibits
+3759  M(8DC5) == 1   -> ret
+3763  M(8180) != 0   -> ret
+376C  M(8070)++                while the input is high
+3773  M(8070) >= 0x19 -> 32D5  RF.0 = 0x81, temporary fault
+
+32DB  M(8071)++                while it is low
+32E5  M(8071) < 2 -> ret       2 quiet samples = 40 ms confirms release
+32E9  M(8070) < 4  -> discard  under 80 ms is noise
+32EF  M(8070) >= 0x19 -> fault
+32F4  -> 377B                  A VALID PULSE
+377B  M(8143) = 1
+```
+
+So **a high of 4–24 samples — 80 to 480 ms — bracketed by 40 ms of release is
+one charge event.** That is an exchange metering pulse, and the window is about
+right for the European 100–200 ms convention. Anything held past ~500 ms is
+rejected as a stuck line.
+
+**Nothing in the charging path consults a clock.** `M(8145)` is written only by
+`2D54`, inside stage 1; `M(8143)` is set only at `37A0`. The 60-second timer
+`minute_meter_timer` and the counter it drives (`851A`, §10ai, §10aj) are a
+**duration meter** — they never touch either cell. Per-minute billing in Israel
+therefore came from the exchange sending one pulse a minute; the phone needs no
+tariff clock, which is also why nothing here reads `8122`/`8124` (§10aa).
+
+`377B` does one more thing worth noting: at `37A1`–`37AA` it **swaps the two
+rate words** at `8122`/`8124` (`RLXA RD` / `IRX` / `RSXD RD`). Whatever that
+pair is, it alternates on every charge event.
+
+### 2. Two pools, and only one of them costs a card write
+
+`credit_value` (`M(805E)`) is **the sum of two bytes**, computed at `2DB1`:
+
+```
+2DB1  LDA R5        D = M(805C), R5 -> 805D
+2DB2  SEX R5        X = 805D
+2DB3  ADD           D = M(805C) + M(805D)
+2DB4  INC R5 / STR R5   M(805E) = the sum
+```
+
+(The decompiler renders this as `M(805C) * 2`; it mismodels the `SEX`. The
+disassembly is unambiguous.)
+
+Stage 2 spends them differently:
+
+| Pool | How it is spent | Card traffic |
+|---|---|---|
+| `credit_drain_pool` (`805D`) | one unit per charge event, in the loop at `2D73` | **none** |
+| `credit_bulk_pool` (`805C`) | `M(805C) -= M(8145)` at `2D88`, then N units owed | one `?F`/`?EF` per debit |
+
+A borrow on that subtraction — not enough credit — yields `RF.0 = 0x82`.
+
+So `805D` reads as **credit already committed to the card**, and `805C` as
+credit still sitting on it. The names chosen are deliberately mechanical; see
+the open question below.
+
+### 3. The burn command
+
+The link machine's **resting state is `M(8031) = 0xFF`**, installed by `31EE`
+after every completed exchange. `3989` reads the state, `398D` adds one, and the
+`LSZ` at `3100` falls through to `3103` only for `0xFF`; every other value is a
+**resume-address low byte**, jumped to by `PLO R4` at `3102` (`M(8031)` is now
+named `link_resume_point`). The whole link layer is a coroutine in page `31`.
+
+```
+3104  D = M(8064)
+3105  == 0 -> 3129
+3108  SHR
+3109  == 1 -> 3114     send ?F      (selector 0x28)
+310C                   send ?EF0NN  (selector 0x48)
+3119  wait for the reply
+3122  M(8064) still set -> state 0x1D, dispatch again next tick
+3126  cleared          -> state 0xFF
+```
+
+`send_reader_command` builds the `?EF` digits **from `M(8064)` itself** — `3686`
+does `DEC R7 / LDA R7` on the `8065` pointer to reach it, and `3689`–`36A9`
+converts it to three ASCII digits over the template's `"000"` (§8). That closes
+the loop: the number on the wire *is* the number of units just taken off the
+balance.
+
+**Why `F` and `EF` are the burn.** The reader's own TE menu names it: *TE8 —
+Adjustment of erasure power ( **P1/F** )*, and TE9–13 are *Adjustment of
+erasure/reading* (`../card-reader/BSK31-firmware.md` §10). Optical cards are
+decremented by burning spots, `F` is the erasure letter, `EF` carries a count,
+and the phone picks `?F` for exactly one unit and `?EF` for more. The reader-side
+handlers (`0CD9` for `F`, `10E6` for `EF`) have **not** been read — the BSK31
+ROM is not in this repo — so that is the one confirming step left.
+
+### 4. The watchdog
+
+While `M(8064)` is non-zero, stage 3 runs instead of stage 2:
+
+```
+2D9C  M(806C)++; < 50 -> out      50 base ticks = exactly one second
+2DA5  M(806C) = 0; M(8063)--
+2DA9  M(8063) == 0 -> RF.0 = 0x93
+```
+
+`burn_watchdog_units` starts equal to the unit count, so the reader gets **one
+second per unit** to acknowledge. The `50` here is independent confirmation that
+this chain is the 50 Hz one (§10aj).
+
+### 5. `?CC` — the one bulk settlement, and it is not at hangup
+
+`service_card_reader_link` has a second path, `3924`–`3958`, gated on four
+things: `M(8067)` bit 0 set, no burn in flight, **`M(814A) != 0` — the low-credit
+warning is up** (§10ad) — and `M(805C) != 0`. Miss any and `3981` clears the
+request.
+
+```
+3932  M(8065) = M(805D)            save
+3935  M(805D) = M(805E)            = M(805C) + M(805D), the whole balance
+3941  RE.0 = M(805C); M(805C) = 0  collapse bulk into drain
+3945  M(8031) = 0                  stop the link machine
+394B  account_one_unit_spent x M(805C)
+3954  send ?CC
+```
+
+Total credit is **preserved** — it moves, it is not spent — and afterwards every
+charge comes out of `805D`, the path that writes nothing to the card. So `?CC`
+reads as *"commit the remaining units now"*: a pre-burn of the tail of the card
+once it is nearly empty, which is exactly when yanking power would otherwise be
+worth trying.
+
+`M(8067)` bit 0 is raised by `FUN_4A12` at `4AB9`, after **port 1 bit 3** reads
+high for three consecutive ticks — a shift register seeded with `0x20` at
+`4AAD`, shifted left each pass, with bit 0 ORed in once the `0x80` falls out.
+That is **a third sense line on port 1**, alongside bit 0 (→ `M(8191)`) and
+bit 6 (§10af). What it is has not been identified.
+
+**Not established:** what `CC` does inside the reader (handler `139F`).
+
+### 6. `36C2` is a unit counter, not a stepper pulse
+
+§7 guessed `36C2` was the stepper single-step pulse. It is not — the stepper is
+in the reader's own ROM, on its own CPU. `account_one_unit_spent` sets
+`M(88BD) = 0xAA` and bumps the six-digit totalizer at `8526`, and the call
+pattern is a *count*:
+
+| Caller | Calls | Reading |
+|---|---|---|
+| `X` reply (`3428`) | once, after `M(8064) = 0` | one unit acknowledged |
+| `Y` reply (`3449`) | once, same | same, degraded (`M(818D)++` instead of `= 0`) |
+| `MZ` reply (`3460`) | exactly twice (`DBNZ RE`, `RE = 2`) | |
+| `MO` reply (`3496`) | once per unit of difference between the value the reader reports and `card_units_shadow` (`M(806A)`), then `M(806A) =` that value | **reconciliation** |
+| `?CC` flush (`394B`) | once per unit moved out of `805C` | |
+
+`MO` settles it: the reader states the card's remaining units and the phone
+accounts for the gap. That only makes sense if the argument is units. **So
+`8526` is the cumulative count of card units burned** — one of the four
+totalizers §10ah could not identify.
+
+### 7. Who starts the link machine
+
+Also settled here, because it was needed to prove `0xFF` is reachable. The `RY`
+("ready") reply handler at `3389` does it:
+
+```
+3389  D = M(805C); == 0 -> 3391
+338D  M(8065) = M(805C); M(805C) = 0
+3391  M(8031) = 0x36                 -> resume at 3136
+3395  clear_block(8022, 0x26)
+```
+
+`3136` sets `M(8069) = 0x55` ("command outstanding", §10l) and sends `?CD007`
+or, if `M(802A)` is set, `?CE007`; the exchange then walks `3152` → `3178` →
+`318C` (`?MD`) → `31AB` and finally reaches `31BA` → `31EE`, which installs
+`0xFF`. From then on the link is idle-but-ready and the burn check at `3103`
+runs every tick.
+
+The three external writes of `M(8031)` are all `0xD8` (`47B4`, `4C1A`, `728C`),
+which resumes at `31D8` — clear the state, clear `805C`, **send `?EJ`**. Status
+`0x81` (temporary fault) takes that route, from `4C14`.
+
+### The open question this leaves
+
+**Nothing in the ROM ever loads a positive value into `805C` or `805D`.** Every
+write found is a decrement, a zero, or the `?CC` move that only shuffles between
+them:
+
+| Site | Write |
+|---|---|
+| `2D77` / `2D8C` | decrement |
+| `3935` / `3941` | the `?CC` move, net zero |
+| `31E1`, `3390`, `3944`, `47A3`, `47AD`, `4C26`, `4C9D`, `5FCB` | `= 0` |
+
+Searched and ruled out: every `RLDI Rn,805C`/`805D`/`805E` in the image; `805C`
+and `805D` as `SCAL` inline pointer arguments; `746D`, which turns out to be a
+**block clear**, not a copy (`7483`–`7487` fills downward with zero) so all three
+of its call sites only clear; and both RAM-resident payloads (`040D` → `9733`,
+`3011` → `9771`), which touch only `F000` and the checksum cells.
+
+With both pools at zero the first charge event borrows at `2D88` and returns
+`RF.0 = 0x82`, so an unloaded phone simply reports "no credit" — self-consistent,
+but it means **the step that reads a card's value and turns it into spendable
+credit has not been found.** The card's raw read *is* understood —
+`card_value_7_minus_popcount` (`M(8062)`) from the `CA`/`CB`/`CO` handler, and
+`card_units_shadow` (`M(806A)`) from `MO` — but neither feeds `805C`. Candidates
+to check next: the `8054`–`805F` region looks like a parsed-reply field area
+(`render_credit_indicator` indexes it at `2E98`/`2EB1`, and `290A` is called with
+`805B` as a pointer at `538D`, `57BB` and `5872`), so the loader may be a field
+copy out of a reply rather than a named store.
 
 ## 10. Code executed from RAM
 
@@ -4362,6 +4605,11 @@ Renamed from an earlier, inaccurate name:
 
 `proc_70ce` → **`arm_timer_set`** (§10y).
 
+`FUN_3733` → **`detect_metering_pulse`**; `FUN_2D10` →
+**`apply_charge_and_refresh_display`**; `FUN_36C2` →
+**`account_one_unit_spent`**; `FUN_2E71` → **`render_credit_indicator`**
+(all §10ak).
+
 ### Data named
 
 | Address | Name | § |
@@ -4411,6 +4659,18 @@ Renamed from an earlier, inaccurate name:
 | `886A` | `sm_input_value` | 10ae |
 | `886B` | `sm_bracket` | 10ae |
 | `886C` | `sm_state` | 10ae |
+| `8031` | `link_resume_point` | 10ak |
+| `805C` | `credit_bulk_pool` | 10ak |
+| `805D` | `credit_drain_pool` | 10ak |
+| `8063` | `burn_watchdog_units` | 10ak |
+| `8064` | `burn_units_pending` | 10ak |
+| `806A` | `card_units_shadow` | 10ak |
+| `806C` | `burn_watchdog_ticks` | 10ak |
+| `8070` | `metering_high_count` | 10ak |
+| `8071` | `metering_low_count` | 10ak |
+| `8138` | `charge_step` | 10ak |
+| `8143` | `charge_event_pending` | 10ak |
+| `8145` | `debit_pending` | 10ak |
 
 Names reflect what the code **does** with a cell, not an assumed purpose:
 `card_value_7_minus_popcount` records the computation at `33D4` rather than
