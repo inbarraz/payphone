@@ -453,7 +453,7 @@ Signatures established so far (`W` = word, `B` = byte):
 
 | Addr | Name | Signature |
 |---|---|---|
-| `0100` | `setDF_to_EF3_inverted` | `NONE` |
+| `0100` | `test_EF3_inverted` | `NONE` |
 | `290A` | `memset` | `W,B,W` |
 | `2919` | `hexpack` | — |
 | `3658` | — | `B` |
@@ -1196,7 +1196,7 @@ equipment behind it, is still unknown.
 > **Correction.** An earlier version of this file listed EF3 as a data or
 > carrier line sampled a bit at a time. **It is the hook switch.**
 > `DLC_Comm` displays *"Please replace the handset"* and then loops on
-> `setDF_to_EF3_inverted` until EF3 goes high, so **EF3 high = handset on
+> `test_EF3_inverted` until EF3 goes high, so **EF3 high = handset on
 > hook**. The second-link ISR calls it at `05F4` and files the result in the
 > `8DAC` flag array — that is hook *status*, not received data. A session
 > requires the handset down, which makes sense: the subscriber must not be
@@ -5148,12 +5148,18 @@ elsewhere.
 
 ### The polarity is not uniform
 
-| Entry | Returns | Why |
-|---|---|---|
-| `0100` | `DF = NOT EF3` | `B3` skips the `ORI` when EF3 is **set** |
-| `0108` | `DF = NOT EF4` | same shape |
-| `010D` | `DF = XI` | `BXI` takes the `ORI` arm when XI is **set** |
-| `0113` | `DF = CI` | same shape |
+| Entry | Name | Returns | Why |
+|---|---|---|---|
+| `0100` | `test_EF3_inverted` | `DF = NOT EF3` | `B3` skips the `ORI` when EF3 is **set** |
+| `0108` | `test_EF4_inverted` | `DF = NOT EF4` | same shape |
+| `010D` | `test_and_clear_XI` | `DF = XI` | `BXI` takes the `ORI` arm when XI is **set** |
+| `0113` | `test_and_clear_CI` | `DF = CI` | same shape |
+
+All four are named `test_…` so they group together, and each name carries the
+one thing that will catch a reader out: **`_inverted`** for the EF pair, whose
+`DF` is the complement of the line, and **`_and_clear`** for the interrupt pair,
+which consume the flag they report. `0100` was `setDF_to_EF3_inverted` before
+this; the information is the same, the prefix now matches its three siblings.
 
 So `LBNF` after `0100` means "EF3 high", while `LBNF` after `0113` means "no
 interrupt". `4076` and `4A17` are both `LBNF` and mean opposite things — worth
@@ -5297,8 +5303,9 @@ Renamed from an earlier, inaccurate name:
 `FUN_58c4` → **`validate_number_field`**; `FUN_5751` → **`number_field_dialog`**
 (both §10ap).
 
-`proc_0108` → **`setDF_to_EF4_inverted`**; `proc_010d` →
-**`test_and_clear_XI`**; `proc_0113` → **`test_and_clear_CI`** (all §10aq).
+`setDF_to_EF3_inverted` → **`test_EF3_inverted`**; `proc_0108` →
+**`test_EF4_inverted`**; `proc_010d` → **`test_and_clear_XI`**; `proc_0113` →
+**`test_and_clear_CI`** (all §10aq).
 
 **The full RAM inventory is in [`RAM-MAP.md`](RAM-MAP.md)** — all 399 cells the
 firmware points a register at, 122 named and 267 not, each with the signature
