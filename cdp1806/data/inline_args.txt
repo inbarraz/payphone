@@ -52,6 +52,10 @@ program TAMAC-18
 # 04f0: increments a saturating 16-bit counter at an inline pointer.
 04f0  p
 
+# 5227: step_state_machine - a 2-byte pointer to a two-word descriptor
+# {range table, state table}. SEX R3 / RLXA RE at 5227-5228.
+5227  p
+
 # 54b5: parse_digits_into - takes a 2-byte destination pointer, read by
 # SEX R3 / RLXA R8 at 54b5. Without this the argument bytes disassemble as
 # code; at 54ae they render as GLO R5 / LDN R1. The tell is the call at

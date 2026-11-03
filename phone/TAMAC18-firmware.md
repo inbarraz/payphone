@@ -3954,6 +3954,75 @@ re-issuing it.
 arrived". Nothing here settles it; this routine only needs it non-zero with
 bit 7 set.
 
+## 10ae. `step_state_machine` (`0x5227`) — a table-driven transition engine
+
+Advances a state machine, but only when its input has changed. Returns
+`0xFF` if it stepped, `0` otherwise. Takes a **2-byte inline pointer** to a
+descriptor.
+
+```
+5227  SEX R3 / RLXA RE        RE = the descriptor pointer, inline
+522E  LDN RC / SEX RC / IRX / XOR     M(8866) ^ M(8867)
+5232  LBZ 524A                nothing changed -> return 0
+5235  LDX / DEC RC / STR RC   M(8866) = M(8867), update the shadow
+5238  LDN RC with RC = 886A   the input value
+523E  SCAL classify_into_range
+5243  SCAL next_state_from_table
+5247  LDI 0xFF
+```
+
+### The descriptor is two words
+
+Both callees do `SEX RE / RLXA`, which **advances `RE`**, so they consume
+one word each:
+
+| | |
+|---|---|
+| `desc[0]` | range table — read by `classify_into_range` (`328E`) |
+| `desc[1]` | state table — read by `next_state_from_table` (`3270`) |
+
+The call at `54FA` passes `3220`, where those words are `32CD` and `325C`.
+**`3218` is an array of such descriptors** — `32C5`/`323C`, `32BF`/`3224`,
+`32CD`/`325C` — so the routine is generic and `3220` is one entry.
+
+### The two halves
+
+**`classify_into_range`** walks the range table in **pairs** — two `LDA RC`
+per iteration, a lower and an upper bound — counting into `RD` until a zero
+entry ends the table, and stores the index in `M(886B)`. It answers "which
+bracket does `M(886A)` fall into".
+
+**`next_state_from_table`** computes `M(886B) + 4 * M(886C)`, indexes the
+state table with it, and writes the result back to `M(886C)`. Four columns,
+indexed by *(current state, input bracket)* — a transition table.
+
+| Cell | Role |
+|---|---|
+| `8866` | previous value — the change-detection shadow |
+| `8867` | current value |
+| `886A` | the input the bracket is computed from |
+| `886B` | bracket index |
+| `886C` | **the state** |
+
+### What the caller does with it
+
+```
+5500  LBZ 39E5              did not step
+5503  M(886C) != 4 -> 39E5  only state 4 proceeds
+550D  SCAL 0100             sample EF3, the hook switch
+5514  INP 1 / ANI 0x40      port 1, bit 6
+```
+
+State 4 is the trigger, gated further on the hook and on port 1 bit 6.
+
+**That is a second input use of port 1** — `45E1` reads its bit 0 into
+`M(8191)` — so port 1 carries at least two sense lines, alongside being
+driven as an output by `flush_output_latches` (§10u).
+
+**Not established:** what `M(886A)` measures, so neither the brackets nor
+the states have meanings yet. The neighbourhood is tariff and credit code,
+so a duration or pulse count would fit, but nothing here shows it.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -4011,7 +4080,9 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 **`compare_words16`** (§10aa); `FUN_5426` →
 **`parse_config_record`**; `FUN_54b5` → **`parse_digits_into`** (§10ab);
 `proc_5370` → **`test_dial_and_reader`** (§10ac);
-`FUN_524f` → **`update_low_credit_warning`** (§10ad).
+`FUN_524f` → **`update_low_credit_warning`** (§10ad);
+`FUN_5227` → **`step_state_machine`**; `FUN_328e` →
+**`classify_into_range`**; `FUN_3270` → **`next_state_from_table`** (§10ae).
 
 Renamed from an earlier, inaccurate name:
 `LoadEmptyLine_AND_8036_with_0xBF` → **`BlankDisplayAndClear8036Bit6`**
