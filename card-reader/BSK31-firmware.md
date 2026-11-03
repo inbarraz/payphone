@@ -10,6 +10,16 @@ Last updated: 2026-10-29.
 
 ## 1. Hardware identification
 
+> **Addresses here are the reader's.** The phone is a separate CPU with its
+> own 32 KB space, and both put working state at `80xx`, so the same number
+> means different things in the two documents — `8034` is the **stepper
+> phase index** here and `PORT5_shadow` in
+> [`phone/TAMAC18-firmware.md`](../phone/TAMAC18-firmware.md); `8035` is the
+> **live phase pattern** here and `PORT2_shadow` there. Never carry a bare
+> address between the two.
+
+
+
 From the physical labels and photographs of the unit:
 
 | Field | Value |
@@ -359,6 +369,60 @@ So the fault space is **`BR01`–`BR49` plus `BR100`/`BR101`**.
 (the phone is listening) and latched by flag `0x8102`. This is the reader's
 power-up announcement; everything after it is request/response.
 
+### Command parser — `0x0EC0`, fourteen commands
+
+The reader's side of the request direction. `R8` points at the received
+command; the parser reads character 0, compares it, and on a match does
+`INC R8` and compares character 1. A single-letter command dispatches on the
+first comparison alone.
+
+| Cmd | Handler | Note |
+|---|---|---|
+| `F` | `0CD9` | single letter |
+| `EF` | `10E6` | |
+| `EJ` | `22DC` | |
+| `EB` | `171E` | |
+| `ER` | `22DC` | shares the `EJ` handler |
+| `CC` | `139F` | |
+| `CD` | `070B` | |
+| `MD` | `223A` | |
+| `AV` | `20A8` | |
+| `RE` | `2050` | |
+| `PD` | `2354` | |
+| `TE` | `0D9E` | falls into the TE menu dispatcher at `0DC4` |
+| `DR` | `1F07` | |
+| `S` | `0F6E` | single letter; clears two page-`0x81` flags, `LBR 0C01` |
+
+Anything else falls through to `0F79`, which calls
+`print_msg_and_restart(0x11B9)`.
+
+`TE → 0D9E` sits immediately before the TE menu dispatcher at `0x0DC4`, which
+indexes by `M(0x8023)`, so a `TE` command with a step number is the documented
+route into the factory adjustment mode described in §10.
+
+**Commands are a separate namespace from replies.** None of these fourteen
+mnemonics appears in the reply vocabulary table at `0x02FF`, and none of the
+thirteen reply prefixes appears here.
+
+The parser is reached with `R8` holding the command buffer pointer, set up at
+`0x0EC3`–`0x0EC9` (`R8.lo = 0xAB`, so the buffer sits just below the composed
+output line at `0x80B0`).
+
+**Note the parser compares characters one at a time**, so the mnemonics do
+**not** appear as contiguous ASCII anywhere in the ROM. A string search for
+`"CD"` or `"EJ"` finds nothing; only an opcode-level search for the immediate
+compares reveals them.
+
+### The phone's side
+
+The TAMAC-18 payphone sends these as `?` + mnemonic + optional decimal digits,
+built from a template table at `0x3600` in its own ROM. Ten of its eleven
+templates match a branch above; `?CE007` does not. See
+[`../phone/TAMAC18-firmware.md`](../phone/TAMAC18-firmware.md) §8.
+
+The link-level handshake is visible from this side too: the serial ISR compares
+`0x3E` (`'>'`) at `082D` and `0x3F` (`'?'`) at `083C`.
+
 ### No public documentation
 
 Searches across the model name, the wire codes, the fault codes and the
@@ -593,6 +657,41 @@ this problem — see §7.
 `SEP Rn` jumps to a routine which returns with `SEP R0`, resuming after the
 `SEP Rn`. Consecutive `SEP RB / SEP RD` are therefore two **calls**, not a jump
 followed by dead code.
+
+**`SEP RD` also takes an inline argument byte.** `178E` opens with
+`LDA R0 / PHI RE` — reading from the caller's instruction stream, because
+`R0` is the PC, and parking it in `RE.1`, the same convention SCRT uses. So
+in `1620` the `01` at `1647` and the `00` at `165F` are **data**, which
+Ghidra renders as `LDN R1` and `IDL`.
+
+That makes **a second inline-argument convention in this firmware, separate
+from SCRT**. The analyzer models `SEP R4` only, so every `SEP RD` site has
+to be read by eye. It is the same shape the analyzer's options already take
+— a register plus a byte count — so it could be supported if the sites turn
+out to be numerous.
+
+### The stepper motor driver
+
+| Address | What it is |
+|---|---|
+| `0x2428`–`0x242B` | Phase table `00 10 30 20` — upper nibble `0,1,3,2`, i.e. **2-bit Gray code** |
+| `0x8034` | current phase index (`RA.0`, walked as a ring `2B→2A→29→28→2B`) |
+| `0x8035` | live phase pattern, rotated one bit per step |
+| `0x8111` | direction — rotate left or right |
+| `21DA` (`RB`) | rotate `0x8035` one bit in the direction `0x8111` says — **one motor step** |
+| `178E` (`RD`) | step the phase pointer round the ring; **takes an inline byte** |
+
+Gray code is the giveaway: one bit changes per step, which is exactly what a
+two-phase winding needs, and it reads as valid Gray in both directions.
+
+`1436` and `23F7` are the **step-up and step-down primitives**, used by
+`seek_to_position` (`20FB`) to converge on `M(0x8031)` and by
+`read_card_bit` (`1E1C`) to advance one position per bit sampled. So
+position tracking, stepping and phase generation are all accounted for.
+
+**The phase table is data wedged between two routines** — immediately after
+`clear_byte_at_0x81xx` and immediately before `port7_release` — so Ghidra
+will disassemble it as code unless it is marked.
 
 ### Shared `SRET`
 

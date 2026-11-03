@@ -49,6 +49,43 @@ program TAMAC-18
 # observed arguments are 1C7E, 1C91 and 1CA4, all of which point into RAM.
 1abe  p
 
+# 04f0: increments a saturating 16-bit counter at an inline pointer.
+04f0  p
+
+# 290a: memset, but DOWNWARD - its loop is STXD/DBNZ, so the pointer is the
+# TOP of the region filled. Args are dest pointer, fill byte, count word.
+#
+# The count is written b,b rather than w on purpose. It is a NUMBER, and
+# neither existing word kind keeps it free of references: 'p' references any
+# mapped target, and 'w' references any target in INITIALIZED memory
+# (InlineArgsAnalyzer.wantsReference returns `kind == POINTER ||
+# block.isInitialized()`). Every count at the five call sites - 0028 at 2cb6,
+# 0010 at 5389/57b7/586e, 00ff at 6e1c - lies in ROM, so 'w' would
+# manufacture data references to those low addresses. BYTE never references,
+# so b,b models the two halves and leaves the listing clean. Same dodge the
+# 038d notes below use for a little-endian word.
+290a  p,b,b,b
+
+# 75c6: a stub - INC R3 / SEX R2 / SRET R3. It does nothing but SKIP one
+# inline byte, so a call to it is disabled functionality whose argument still
+# sits in the ROM. Auto-detection cannot infer this: the routine never loads
+# the byte, it only steps over it.
+75c6  b
+
+# 36b0: packs the two card-data nibbles at 8024/8025 into one byte at the
+# destination given as a 2-byte inline pointer. SEX R3 / RLXA R8 at 36b0-36b1
+# is the canonical inline-arg read. Without this the argument bytes decode as
+# instructions: at 33a1 they read as GLO R0 / IDL, and an IDL inside a card
+# reader message handler would hang the dispatcher - which is the tell.
+36b0  p
+
+# 5e1b: a fault-log counter updater. The inline reads are scattered and
+# conditional - LDA R3 at 5e20, 5e36, 5e41 and 5e55, plus bare INC R3 skips at
+# 5e28 and 5e5a - but EVERY path consumes exactly three bytes, so one callee
+# signature covers it. Without this the argument bytes disassemble as code: at
+# 5c4f they read as DEC R7 / LDN R5 / OUT 1, inventing a port-1 access.
+5e1b  b,b,b
+
 # --- 038d: variadic, so its call sites are pinned individually -------------
 #
 # 038d reads a different number of inline bytes depending on D at entry:
