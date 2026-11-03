@@ -3688,6 +3688,58 @@ That reconciles both observations: `increment_counter16` (§10s) bumps
 engine range-checks against `limitB`. `97A4`, just below the array, is
 `1ABE`'s retry counter.
 
+## 10aa. `get_scaled_credit` (`0x533E`) and the credit divisor
+
+Returns `M(805E)` divided by the divisor configured in `M(8514)`.
+
+```
+533E  R8 = 805E, R7 = 8515
+5346  M(8515) == 1    -> 536C, return M(805E) UNSCALED
+534D  M(8514) == 1    -> 536C, return M(805E)
+5353  M(8514) == 2    -> 5369, return M(805E) >> 1
+5358  M(8514) == 4    -> 5366, return M(805E) >> 2
+535D  otherwise       -> SCAL 38E3 with D = M(805E)
+```
+
+The divisor is **1, 2, 3 or 4**, and the "otherwise" arm is the 3 case — the
+only one that is not a power of two, which is exactly why it needs a
+routine. `M(8515) == 1` bypasses scaling entirely.
+
+### A shared byte in the shift arms
+
+`5368` is `NBR`, a never-taken short branch, so it steps over the byte at
+`5369`. Entering at `5366` runs `LDN R8 / SHR`, skips `5369`, and falls into
+the `SHR` at `536A` — **two** shifts, a divide by 4. Entering at `5369` runs
+`LDN R8` then that same `SHR` once. The byte at `5369` is doing double duty
+as `NBR`'s operand and as an instruction.
+
+### `38E3` → `divide_by_3`
+
+```
+38E8  SMI 0x18 / INC RC / LBDF    count v div 24
+38EF  ADI 0x18                    restore the remainder
+38F1  SMI 0x03 / INC RD / LBDF    count (v mod 24) div 3
+38F7  GLO RC / SHL x3             quotient * 8
+38FC  GLO RD / ADD                plus the remainder's quotient
+```
+
+`8*(v div 24) + ((v mod 24) div 3)` **is** `v div 3`. Splitting it that way
+caps the loop at about 18 iterations instead of 85.
+
+### What `M(805E)` holds
+
+`FUN_3A0B`, the credit display, reads it at `3A7B`; the per-tick update
+writes it at `2DB5`; `show_fault_log` clears it together with `805C` and
+`805D` as a three-byte group. Its only caller, `FUN_524F`, compares this
+routine's result against **100** (`5268`) and **20** (`5272`) and then sets
+flags at `8184`, `814A` and `806B` — which reads as low-credit thresholds.
+
+So "credit scaled by a configured divisor" is well supported. **The
+divisor's units are not**: whether `M(8514)` converts card units to money,
+to seconds, or to something else is not shown by this code. The ROM default
+is 1 (§10q), so an unprovisioned phone does no scaling at all — another
+reason to read `850D`–`8515` out of a live unit.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -3739,7 +3791,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 `proc_7572` → **`flush_output_latches`** (§10u);
 `FUN_74a7` → **`init_comm_session`** (§10v);
 `proc_728a` → **`service_tick`**; `FUN_3900` →
-**`service_card_reader_link`** (§10w).
+**`service_card_reader_link`** (§10w); `FUN_533e` →
+**`get_scaled_credit`**; `FUN_38e3` → **`divide_by_3`** (§10aa).
 
 Renamed from an earlier, inaccurate name:
 `LoadEmptyLine_AND_8036_with_0xBF` → **`BlankDisplayAndClear8036Bit6`**
@@ -3768,6 +3821,7 @@ Renamed from an earlier, inaccurate name:
 | `8069` | `card_session_status` | 10l |
 | `8074` | `hardware_version` | 10k |
 | `8139` | `card_permission_bits` | 10p |
+| `8514` | `credit_divisor` | 10aa |
 | `811A` | `buf8119_ptr` | 10g |
 | `811B` | `buf8119_end` | 10g |
 | `8185` | `port3_readback` | 10k |
