@@ -169,7 +169,7 @@ an open question without a next action tends to stay open.
 
 ## Naming and tooling
 
-- [ ] **267 RAM cells are still unnamed**, out of the 399 the firmware points a
+- [ ] **257 RAM cells are still unnamed**, out of the 399 the firmware points a
       register at, after dropping the cells a bad `SCAL`-pointer heuristic had
       invented. [`phone/RAM-MAP.md`](phone/RAM-MAP.md) has all of them with
       the signature the ROM shows — stores, immediates, `ANI` masks, comparison
@@ -336,6 +336,14 @@ Collected separately because they are not worth static effort:
       than acting on it (§10aq). EF1 is the timebase and EF3 the hook; EF2 is
       unaccounted for too.
       *Settle by:* tracing EF4 on the board, or following `RF.1`'s consumers.
+- [ ] **What checksum does `0837` compute?** Called over `8C29`… with the
+      two-byte result left at `8E6D`, and it is the last unread piece of the
+      DLC frame (§10ar). Knowing it would make frames forgeable for testing.
+- [ ] **What do the DLC payload tags mean, and type 0 vs type 1?**
+      `build_dlc_frame` accepts only types 0 and 1 and the first payload byte
+      is a tag — `0x0A` for "nothing to report", `0x0F` for a two-value report
+      (§10ar). The other four wrappers' tags, and whatever the receive side
+      expects, are unread.
 - [ ] **Scope port 1 bit 3.** Three consecutive high ticks raise `M(8067)`
       bit 0 (`4AB9`), which is what lets the `?CC` flush run. It is the third
       sense line found on port 1 and the only one with no candidate meaning

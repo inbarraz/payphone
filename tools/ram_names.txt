@@ -144,8 +144,14 @@
 88c4 ram_sentinel_88c4|NOLABEL
 89fa stack_top|NOLABEL
 8a00 ram_sentinel_8a00|NOLABEL
+8c27 dlc_tx_frame
+8d26 dlc_record
+8da6 dlc_tx_frame_len
+8da7 dlc_link_address
+8dab dlc_record_len
 8dac feature_flags_8dac
 8e0a code_shadow_mode
 8e10 CTRL_F000_shadow
+8e6d dlc_frame_checksum
 8efb ram_sentinel_8efb|NOLABEL
 97a1 code_shadow_job_state

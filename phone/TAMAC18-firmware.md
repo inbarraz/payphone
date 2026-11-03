@@ -1299,7 +1299,9 @@ starts inside the block and **runs 29 bytes past its end** at `9779`.
 
 ### `build_dlc_record` (RAM `910B`, ROM `1CC2`)
 
-Composes a ~70-byte record at **`0x8D26`**. `SEX RB / RNX R9` sets the output
+Composes a record at **`0x8D26`** — **exactly 70 bytes**, pinned by the
+wrapper at `0891`, which sends `0x46` of them immediately after calling this
+(§10ar). `SEX RB / RNX R9` sets the output
 pointer. Fields in order:
 
 | Off | Size | Source | Content |
@@ -5208,6 +5210,107 @@ before EF3, so it is a second contact or sense line read alongside the hook
 switch, and `4A13` carries the result in `RF.1` rather than acting on it
 locally.
 
+## 10ar. `01FB` and `020A` — the DLC transmit path
+
+Two of six thin wrappers around **`build_dlc_frame` (`038D`)**, which is the
+routine that puts a framed message together. Chasing them opened up the whole
+send side of the DLC link.
+
+### `build_dlc_frame` (`0x038D`)
+
+Variadic in its inline arguments — which is why `inline_args.txt` pins each call
+site separately instead of giving one signature. `D` at entry picks the form:
+
+```
+038E  LBZ 0398                     D == 0 -> the pointer form
+0391  LDXA/PLO RA, LDXA/PHI RA     D != 0: two inline bytes, little-endian
+                                   RA.0 = type, RA.1 = payload length
+0398  LDXA/PLO RA                  D == 0: one inline byte = type
+039A  RLXA R7 / LDN R7 / PHI RA    then an inline POINTER whose target holds
+                                   the payload LENGTH
+```
+
+Then it lays the frame down at `8C27`, `RB` walking upward:
+
+| Offset | Content |
+|---|---|
+| `+0` | `0xCC` — start of frame |
+| `+1` | `0x00` |
+| `+2` | payload length + 7 |
+| `+3`, `+4` | `M(8DA7)`, `M(8DA8)` — the link address |
+| `+5` | type; **must be 0 or 1**, else return `0xFF` (`03BD`) |
+| `+6` | 1 if type == 0 and length != 0, else 0 |
+| `+7`… | the payload, copied from `M(R9)` with `SEX R9` at `03DD`–`03E1` |
+| … | two checksum bytes, from `SCAL 0837` over `8C29`…, result at `8E6D` |
+| … | `0x84` — end of frame |
+
+It returns **payload length + 10**, the whole frame length, or `0xFF`.
+`store_frame_length_or_error` (`02CF`) takes that: `0xFF` propagates, anything
+else is stored at `M(8DA6)` and the caller gets 0.
+
+`R9` is the payload source and `build_dlc_frame` never sets it. Each wrapper
+either fills the buffer itself or points `R9` at one already composed.
+
+### The six wrappers
+
+All end in `LBR store_frame_length_or_error`.
+
+| Site | Type | Payload |
+|---|---|---|
+| `01FB` | 0 | 1 byte — the constant tag `0x0A` |
+| `020A` | 0 | `M(8DAB)` bytes from `8D26`, the pending record |
+| `02C9` | 0 | 8 bytes |
+| `02F6` | 0 | 3 bytes — `02E3` takes **two inline pointers** and builds `{ 0x0F, M(p1), M(p2) }` |
+| `0880` | 1 | 0 bytes — a bare type-1 frame |
+| `0891` | 0 | `0x46` = **70** bytes, immediately after `SCAL 910B` |
+
+**The first payload byte is a message tag** — `0x0A` for the stub, `0x0F` for
+the two-value report. And `0891` pins §8a's "~70-byte record" at exactly 70,
+since it sends `0x46` bytes right after `build_dlc_record` composes them.
+
+### What picks between `01FB` and `020A`
+
+Their only callers are `2388` and `2390`, four instructions apart:
+
+```
+2372  set_feature_flag(0x0E)
+2376  RLDI R8,8DAB / LDN R8 / SMI 0x02
+237D  LBDF 238F                 M(8DAB) >= 2 -> send_dlc_pending_record
+2380  clear_feature_flag(5)
+2388  SCAL send_dlc_nothing_to_report
+2394  set_feature_flag(0x0D) on success, 0x09 on error
+23A3  LBR 1A7C
+```
+
+`M(8DAB)` is the length of the record pending at `8D26`, so **fewer than two
+bytes means there is nothing worth sending** and the one-byte stub goes out
+instead — with feature flag 5 cleared on that path only.
+
+### `set_feature_flag` (`0x0331`) completes the trio
+
+`0331` is the setter for the 30-entry array at `8DAC`: same `SMI 0x1E` /
+`LBDF 0A5C` bound check as its siblings, then `M(8DAC + i) = 1`. So the array
+has a full set of accessors — `set_feature_flag`, `test_feature_flag` (`021B`,
+§10an) and `clear_feature_flag` (`034B`) — and the codes `0x0E`, `0x0D` and
+`0x09` above are **DLC progress states written into it**, which is what the
+array is for.
+
+### Cells named
+
+| Address | Name |
+|---|---|
+| `8C27` | `dlc_tx_frame` — the frame buffer |
+| `8DA6` | `dlc_tx_frame_len` — how many bytes to transmit |
+| `8DA7`/`8DA8` | `dlc_link_address` — the two header address bytes |
+| `8D26` | `dlc_record` — the 70-byte record payload |
+| `8DAB` | `dlc_record_len` — the pending record's length |
+| `8E6D` | `dlc_frame_checksum` — where `0837` leaves its two bytes |
+
+**Not established:** the checksum algorithm in `0837`, what the type-0/type-1
+distinction means on the wire, or what tags other than `0x0A` and `0x0F` exist.
+`8DA7`/`8DA8` are written as zeros at `0772`, so the link address is either
+provisioned later or genuinely zero.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -5307,6 +5410,12 @@ Renamed from an earlier, inaccurate name:
 **`test_EF4_inverted`**; `proc_010d` → **`test_and_clear_XI`**; `proc_0113` →
 **`test_and_clear_CI`** (all §10aq).
 
+`proc_038d` → **`build_dlc_frame`**; `proc_01fb` →
+**`send_dlc_nothing_to_report`**; `proc_020a` →
+**`send_dlc_pending_record`**; `proc_02cf` →
+**`store_frame_length_or_error`**; `proc_0331` → **`set_feature_flag`**
+(all §10ar).
+
 **The full RAM inventory is in [`RAM-MAP.md`](RAM-MAP.md)** — all 399 cells the
 firmware points a register at, 122 named and 267 not, each with the signature
 the ROM shows for it. The counts in this file are generated, so prefer the
@@ -5394,6 +5503,12 @@ tally at the foot of the map if the two ever disagree.
 | `88BD` | `units_spent_marker` | 10ak |
 | `8501`–`850C` | `own_phone_number`, `byte[12]` | 10ap |
 | `844E`–`8459` | `ysm_number`, `byte[12]` | 10ap |
+| `8C27` | `dlc_tx_frame` | 10ar |
+| `8D26` | `dlc_record` | 10ar |
+| `8DA6` | `dlc_tx_frame_len` | 10ar |
+| `8DA7` | `dlc_link_address` | 10ar |
+| `8DAB` | `dlc_record_len` | 10ar |
+| `8E6D` | `dlc_frame_checksum` | 10ar |
 | `8117`–`8119` | `dial_digit_3`, `dial_digit_2`, `dial_digit_1` | 10ao |
 | `813B` | `dial_digit_count` | 10ao |
 | `00DF` | `secret_prefix_digits` | 10ao |

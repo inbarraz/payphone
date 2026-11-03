@@ -344,7 +344,7 @@ dozen places has a dozen chances to give itself away.
 | `8C23` | — | 4 — `0afb` `0bd5` `0c27` `0b0f` | st=2 imm=00 |
 | `8C25` | — | 2 — `0e2e` `0f2a` | st=0 |
 | `8C26` | — | 1 — `0949` | st=0 |
-| `8C27` | — | 3 — `039e` `03e9` `0bec` | st=1 imm=cc |
+| `8C27` | `dlc_tx_frame` | 3 — `039e` `03e9` `0bec` | st=1 imm=cc |
 | `8C28` | — | 1 — `0be1` | st=0 |
 | `8C37` | — | 1 — `77dd` | st=0 |
 | `8C59` | — | 1 — `1674` | st=0 cmp=02 |
@@ -353,12 +353,12 @@ dozen places has a dozen chances to give itself away.
 
 | Addr | Name | Sites | Signature |
 |---|---|---|---|
-| `8D26` | — | 3 — `020a` `180d` `1cc2` | st=0 |
-| `8DA6` | — | 2 — `02d6` `0bcd` | st=1 cmp=01 |
-| `8DA7` | — | 5 — `03af` `0772` `0953` `0e2a` `0f26` | st=3 imm=00 |
+| `8D26` | `dlc_record` | 3 — `020a` `180d` `1cc2` | st=0 |
+| `8DA6` | `dlc_tx_frame_len` | 2 — `02d6` `0bcd` | st=1 cmp=01 |
+| `8DA7` | `dlc_link_address` | 5 — `03af` `0772` `0953` `0e2a` `0f26` | st=3 imm=00 |
 | `8DA9` | — | 2 — `1dfb` `1e56` | st=0 |
 | `8DAA` | — | 1 — `1809` | st=0 |
-| `8DAB` | — | 7 — `0798` `0e6b` `1817` `1ddf` `1e46` `1e74` +1 | st=4 imm=00,01 cmp=02 |
+| `8DAB` | `dlc_record_len` | 7 — `0798` `0e6b` `1817` `1ddf` `1e46` `1e74` +1 | st=4 imm=00,01 cmp=02 |
 | `8DAC` | `feature_flags_8dac` | 7 — `0222` `0278` `0338` `0352` `05fb` `072e` +1 | st=2 imm=00,01 |
 | `8DAD` | — | 2 — `04c8` `04da` | st=2 imm=01 |
 | `8DAE` | — | 1 — `060a` | st=1 imm=01 |
@@ -425,7 +425,7 @@ dozen places has a dozen chances to give itself away.
 | `8E38` | — | 1 — `08d1` | st=1 |
 | `8E68` | — | 1 — `0306` | st=0 |
 | `8E6B` | — | 1 — `0317` | st=0 |
-| `8E6D` | — | 1 — `03f7` | st=0 |
+| `8E6D` | `dlc_frame_checksum` | 1 — `03f7` | st=0 |
 | `8E76` | — | 1 — `21f7` | st=0 |
 | `8E77` | — | 1 — `2176` | st=0 |
 | `8E79` | — | 7 — `20f4` `210a` `2120` `2136` `214d` `219c` +1 | st=5 imm=00,01 cmp=00 |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **126 named**, 263 still unnamed.
+389 anchored cells, **132 named**, 257 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.
