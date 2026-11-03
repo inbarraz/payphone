@@ -330,6 +330,12 @@ Collected separately because they are not worth static effort:
       that one feeds the report builder at `55A7` (§10ap). So what the
       technician screen actually shows for a nine-digit number is still open,
       including whether it carries the same trailing `'A'` pad.
+- [ ] **What is EF4?** Only two sites sample it, `23B8` and `4A13`, and both do
+      so immediately before EF3 — so it is a second contact or sense line read
+      alongside the hook switch, and `4A13` carries the result in `RF.1` rather
+      than acting on it (§10aq). EF1 is the timebase and EF3 the hook; EF2 is
+      unaccounted for too.
+      *Settle by:* tracing EF4 on the board, or following `RF.1`'s consumers.
 - [ ] **Scope port 1 bit 3.** Three consecutive high ticks raise `M(8067)`
       bit 0 (`4AB9`), which is what lets the `?CC` flush run. It is the third
       sense line found on port 1 and the only one with no candidate meaning

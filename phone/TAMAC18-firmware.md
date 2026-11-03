@@ -5123,6 +5123,85 @@ writes it. Given `844E` sits in the battery-backed block beside the fault log
 and is sent nowhere this file has traced, a site or terminal identifier would
 fit, but nothing shows it.
 
+## 10aq. `0100`, `0108`, `010D`, `0113` — the software interrupt poller
+
+Four entry points sharing one tail, in the first 32 bytes of the ROM. Each
+**returns the flag it tests in `DF` while leaving `D` untouched**, which is what
+the `SHR`/`RSHL` sandwich is for.
+
+```
+0100  SHR / B3  0105              EF3
+0103  ORI 0x80                    the "flag says yes" arm
+0105  RSHL / SRET R3              the shared tail
+0108  SHR / B4  0105 / BR 0103    EF4
+010D  SHR / BXI 0103 / BR 0105    external-interrupt flip-flop
+0113  SHR / BCI 0103 / BR 0105    counter-interrupt flip-flop
+```
+
+### How `D` survives
+
+Entry `D` is `b7…b0`. `SHR` leaves `0,b7…b1` with `DF = b0`. The `0103` arm sets
+bit 7. `RSHL` then shifts left, putting `DF` back into bit 0 and pushing bit 7
+out into `DF` — so `D` comes back exactly as it went in, and `DF` is 1 only if
+the `0103` arm ran. Entry `DF` is destroyed. A tidy idiom worth recognising
+elsewhere.
+
+### The polarity is not uniform
+
+| Entry | Returns | Why |
+|---|---|---|
+| `0100` | `DF = NOT EF3` | `B3` skips the `ORI` when EF3 is **set** |
+| `0108` | `DF = NOT EF4` | same shape |
+| `010D` | `DF = XI` | `BXI` takes the `ORI` arm when XI is **set** |
+| `0113` | `DF = CI` | same shape |
+
+So `LBNF` after `0100` means "EF3 high", while `LBNF` after `0113` means "no
+interrupt". `4076` and `4A17` are both `LBNF` and mean opposite things — worth
+knowing before reading any call site.
+
+**`BCI` and `BXI` are test-and-clear.** The 1805/1806 resets the flip-flop when
+the branch is taken, which `cdp1806.slaspec` models at lines 285–296 (`CI = 0`,
+`XI = 0`). So calling `010D` or `0113` **consumes** the flag, and two callers
+cannot both observe it.
+
+### What they are for
+
+Reset executes `DIS`, and instead of taking vectored interrupts the firmware
+**polls** these four.
+
+| Entry | Callers | Line |
+|---|---|---|
+| `0100` | **37** | EF3, the hook switch — by far the hottest routine in the ROM |
+| `0108` | `23B8`, `4A13` | EF4, sampled immediately before EF3 at both sites; `4A13` latches it into `RF.1` |
+| `010D` | `05B9`, `50A8` | XI — the standby loop and the serial ISR |
+| `0113` | `05C6`, `4072` | CI — the standby loop and the base tick |
+
+`05B9`/`05C6` sit together in the standby loop, polling XI then CI in sequence:
+a hand-rolled interrupt dispatcher. The loop's halt arm is the `LBR 05B5` at
+`05B5`, a branch to itself.
+
+### `4072` closes a gap in §10aj
+
+```
+4072  SCAL test_and_clear_CI
+4076  LBNF 28B7        no counter interrupt yet: go do other work
+4079  STPC             stop the counter
+407B  LDI 0x0C / LDC   reload it with 12
+407F  SCM1             restart in counter mode 1, clocked from EF1
+4082  RET 0x24
+```
+
+§10aj identified the ÷12 stage from the `STPC`/`LDC`/`SCM1` triple but not how
+it was driven. It is **polled, not interrupt-driven**: EF1 at 600 Hz clocks the
+1806 counter, `CI` comes up at 50 Hz, and this site consumes it and reloads.
+Because `BCI` clears the flag, each tick is consumed exactly once — which is
+what makes the base tick a true 50 Hz rather than a best-effort poll.
+
+**Not established:** what EF4 is. Both of its callers sample it immediately
+before EF3, so it is a second contact or sense line read alongside the hook
+switch, and `4A13` carries the result in `RF.1` rather than acting on it
+locally.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -5217,6 +5296,9 @@ Renamed from an earlier, inaccurate name:
 
 `FUN_58c4` → **`validate_number_field`**; `FUN_5751` → **`number_field_dialog`**
 (both §10ap).
+
+`proc_0108` → **`setDF_to_EF4_inverted`**; `proc_010d` →
+**`test_and_clear_XI`**; `proc_0113` → **`test_and_clear_CI`** (all §10aq).
 
 **The full RAM inventory is in [`RAM-MAP.md`](RAM-MAP.md)** — all 399 cells the
 firmware points a register at, 122 named and 267 not, each with the signature
