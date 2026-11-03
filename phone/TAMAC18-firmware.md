@@ -756,8 +756,10 @@ top two bits do not come back set. A failure there is fatal.
 - **UART pin 4 (CS2)** — the remaining enable. If it is tied low the UART
   answers ports 6/7 unconditionally; if it is driven, something can gate the
   UART off the bus entirely.
-- **Whether N0–N2 branch anywhere else.** Ports 1 and 4 are still
-  unidentified and cannot be the UART, so another device must decode them.
+- **Whether N0–N2 branch anywhere else.** `flush_output_latches` (§10u)
+  shows ports **1, 3 and 4 driven as outputs** from the shadows at
+  `8034`–`8037`, so the remaining question is which devices they reach, not
+  whether they are decoded.
 
 **Port 3 is an input port**, and **bit 6 is the hardware-strap sense line** —
 see §10k. `read_hardware_straps` (`6173`) drives five lines through the low
@@ -3318,6 +3320,68 @@ That is the whole life cycle of one fault: armed on a hook event, counted to
 a threshold, written into the log as a code, and finally rendered by
 `show_fault_entry` as a number plus the part to check.
 
+## 10u. `flush_output_latches` (`0x7572`) — ports 1, 3 and 4 are outputs
+
+The widest view of the output ports in the image, and the routine that
+settles two of the three unidentified ports.
+
+### No `OUT` here takes an inline operand
+
+Worth stating plainly, because it is the natural suspicion. `OUT` consumes a
+byte from the instruction stream only when **X == P**, and the `DIS` at
+`7589` sets **X = R5**, so `X != P` for the whole body. Every `C4` is a
+genuine `NOP` — an inter-write delay for the latches — and every byte in
+`758B`–`75B5` is code.
+
+**Two bytes *are* misread, but they are not `OUT` operands:**
+
+| Address | Shown as | Actually |
+|---|---|---|
+| `758A` | `STR R4` | the **`DIS` operand** `0x54` → X=R5, P=R4, IE=0 |
+| `75B8` | `DEC R4` | the **`RET` operand** `0x24` → X=R2, P=R4, IE=1 |
+
+Neither breaks alignment, which is why the rest of the listing is correct.
+
+### The write sequence
+
+`R5` walks up from `8033`; each `OUT` outputs `M(R5)` then increments it, so
+the `DEC`s are what re-aim it.
+
+```
+OUT5 M(8033)   NOP NOP   OUT1 M(8034)
+OUT5 M(8034)   NOP NOP   OUT2 M(8035)
+M(8034) &= ~0x40
+OUT5 M(8034)   NOP NOP   OUT2 M(8035)      <- repeat, bit 6 now low
+OUT5 M(8035)   NOP NOP   OUT3 M(8036)
+OUT5 M(8036)   NOP NOP   OUT4 M(8037)
+M(8036) &= ~0x12
+OUT5 M(8036)   NOP NOP   OUT4 M(8037)      <- repeat, bits 1 and 4 now low
+```
+
+Each read-modify-write precedes a **repeat of the same port write**, so they
+are **strobe pulses**: present a bit, write the data, drop the bit, write
+again. Bit 6 of `M(8034)` strobes around the port 2 write; bits 1 and 4 of
+`M(8036)` around the port 4 write.
+
+### Ports 1, 3 and 4 are outputs
+
+That closes most of the gap left in §6. **Port 3 is both** —
+`read_hardware_straps` (`6173`) does `INP 3` for the strap sense, and the
+1802 uses the same N code for input and output with direction set by `MRD`,
+so one N value can serve two devices.
+
+### What port 5 receives is still unresolved
+
+Taking each pair literally gives `port n <- M(8033+n)`, with port 5 carrying
+the byte one below. But the only other flush in the image, at `399D`, is
+`SEX RB(8034) / OUT 5 / NOP NOP / OUT 2`, making `port 5 <- M(8034)` and
+`port 2 <- M(8035)`.
+
+The two agree on `port 2 <- M(8035)` and disagree on port 5. Either `OUT 5`
+is a latch-enable whose data the hardware ignores, or the two routines drive
+different devices. **`8033` should not be called "the port 5 shadow" on this
+evidence** — which is why it stays named `strap_drive_and_flags` (§10k).
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -3365,7 +3429,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 **`build_report_template`** (§10r); `FUN_2cf0` →
 **`register_cleaning_event`** (§10o); `FUN_769c` →
 **`periodic_report_check`**; `FUN_04f0` → **`increment_counter16`**
-(§10s); `proc_75f9` → **`flush_nopulse_fault_counter`** (§10t).
+(§10s); `proc_75f9` → **`flush_nopulse_fault_counter`** (§10t);
+`proc_7572` → **`flush_output_latches`** (§10u).
 
 ### Data named
 
