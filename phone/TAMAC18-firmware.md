@@ -2892,6 +2892,92 @@ barred from international calls. That is the same cell the idle selector
 reads for card presence (§10l), so one byte carries both "is there a card"
 and "what kind".
 
+## 10p. Card kinds and card rights
+
+The firmware separates **what kind of card it is** from **what the card is
+allowed to do**. Two different bytes carry those.
+
+### `M(8060)` — the card kind
+
+The packed nibble pair from `PackCardNibbles` (§10m). Only **three** sites
+touch it at all, and only two compare it:
+
+| Value | Meaning | Site |
+|---|---|---|
+| `0x30` | **cleaning card** — with three further conditions, logs the maintenance event (§10o) | `2A1D` |
+| `0x78` | **barred from international calls** — with bit 3 of `M(8139)`, sets `RF.0 = 0x75` | `4700` |
+
+The third site is `33CA`, where `33C5` writes it. So the ROM hard-codes
+exactly two card kinds.
+
+### `M(8139)` — the card's rights, as a bitmask
+
+Not a type code: **every bit 0–7 is used** somewhere, and compound masks
+(`0x15`, `0x30`, `0x41`, `0x51`, `0x82`) appear too.
+
+| Bit | Seen at | What it gates |
+|---|---|---|
+| 0 | `2723`, `377B`, `42CE` (via `SHR`) | — |
+| 1 `0x02` | `2814`, `3A63` | — |
+| 2 `0x04` | `41D7`, `5F88` | — |
+| 3 `0x08` | `2723`, `4706`, `7305` | **international calls**, with `M(8060) == 0x78` |
+| 4 `0x10` | `0095`, `2559`, `3A3D`, `477E`, `47E9` | routes to `47F7`, clearing `RF.0` |
+| 5 `0x20` | `486A`, `740E` | — |
+| 7 `0x80` | `35D4` (`0x82`), `486A` | — |
+
+### The class selector (`47E1`)
+
+```
+47E1  RLDI R6,8139
+47E5  LDN R6 / LBZ 47F1      rights == 0 -> 47F1
+47E9  ANI 0x10 / LBNZ 47F7
+47EE  LBR 4807               -> main idle loop
+47F1  LBQ 480A               Q set -> CREDIT CARD ONLY  (desc 657F @4813)
+47F4  LBR 481F               else  -> FREE CALLS ONLY   (desc 64F8 @4828)
+```
+
+With no rights bits at all, the **Q flag** picks between the two.
+
+### The reachable class messages
+
+| Desc | Shown at | Text |
+|---|---|---|
+| `650A` | `46C3`, chained from `669F` | כרטיס טלכרט בלבד / `TELECARD    ONLY` |
+| `657F` | `4813` | שיחות אשראי בלבד / `CREDIT CARD ONLY` |
+| `64F8` | `4828` | חיוג חופשי  בלבד / `FREE CALLS  ONLY` |
+| `66A8` | `4BF6` | כרטיס זה אינו מאפשר חיוג לחו"ל — the `RF.0 = 0x75` handler |
+| `66F9` | `3A6E` | השירות בתשלום / `A PAY  SERVICE` |
+
+### Two dead messages
+
+Present in the ROM, **never loaded and never chained**:
+
+- `6475` → שיחות בינל' בלבד (*international calls only*) — a card class the
+  firmware can name but never displays
+- `63FF` → a duplicate of the telecard-only descriptor
+
+Since no byte of code differs between the three builds (§1a), both are dead
+in all of them. `6475` is the interesting one: it implies an
+international-only card class that this firmware revision dropped, or that
+was configured out.
+
+### Up to four more kinds, defined in RAM not ROM
+
+`33C5` holds a **configurable accept-list** in battery-backed RAM:
+
+```
+33F0  RLDI RC,850E
+33F4  LDA RC / SMI 1 / ANI 3 / ADI 1     count = 1..4
+33FD  LDA RC / XOR / LBZ 3415            compare against the card value
+3402  DBNZ RD,33FD
+```
+
+A match sets card status `0xAA`. So **up to four further card values are
+accepted by configuration**, and their identities are not in the ROM at all —
+they live in the battery-backed SRAM of a given unit. A dump of `850E`
+onward from a live phone would reveal which cards that unit was provisioned
+to take.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -2957,6 +3043,7 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 | `8062` | `card_value_7_minus_popcount` | 10l |
 | `8069` | `card_session_status` | 10l |
 | `8074` | `hardware_version` | 10k |
+| `8139` | `card_permission_bits` | 10p |
 | `811A` | `buf8119_ptr` | 10g |
 | `811B` | `buf8119_end` | 10g |
 | `8185` | `port3_readback` | 10k |
