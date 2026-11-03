@@ -5371,7 +5371,8 @@ transmit step at `2372`** (§10ar), which marks `0x0E`, then `0x0D` or `0x09`,
 and also ends `LBR 1A7C`.
 
 So the steps are elements of one session script, the flag array at `8DAC` is its
-state, and `TERMINAL=` followed by `@` is a terminal-server or X.25 PAD login.
+state, and `TERMINAL=` followed by `@` is an **X.25 PAD login** — §10at pins the
+network as Isranet.
 
 **`1A7C` is not the driver, though** — §10at reads it, and it turns out to be an
 `IDL` park loop. Each step records its result and *sleeps*; the serial ISR is
@@ -5465,11 +5466,11 @@ Note the `DEC RD` before the `OUT`: `OUT` sends `M(R(X))` *then* increments, so
 the byte sent is `M(RD − 1)` and the pointers in the callers are one past the
 string's first byte. The strings:
 
-| Address | Bytes | Reads as |
-|---|---|---|
-| `1A86` | `0D 2E 0D` | `"\r.\r"` — an X.25 PAD attention sequence |
-| `1A89` | `44 31 0D` | `"D1\r"` — a PAD command |
-| `1A8C` | `33 34 30 31 31 35 30 33 0D` | `"34011503\r"` — the address to call |
+| Address | Bytes | Reads as | Role |
+|---|---|---|---|
+| `1A86` | `0D 2E 0D` | `"\r.\r"` | wakes the PAD — the classic CR-dot-CR autobaud/attention sequence |
+| `1A89` | `44 31 0D` | `"D1\r"` | the **terminal type**, answering `TERMINAL=` |
+| `1A8C` | `33 34 30 31 31 35 30 33 0D` | `"34011503\r"` | the **NUA** to call, given at the `@` prompt |
 
 Only the first byte leaves here; `uart_tx_ptr`, `uart_tx_count` and
 `uart_tx_index` are the ISR's working set for the remainder — the same
@@ -5477,9 +5478,31 @@ shadow-pointer-and-count arrangement the reader link uses at `801A` (§8).
 
 **3. Send the record.** `0891` builds it and ships 70 bytes (§10ar).
 
-So the DLC side reads: **dial `131`, wait for `TERMINAL=`, send `D1`, wait for
-`@`, send the address `34011503`, then send the 70-byte record** — a payphone
-calling a data centre over an X.25 PAD.
+### `131` is Isranet
+
+**`131` was the dial-up number for Isranet, the Israeli X.25 gateway.** That is
+confirmed from outside the ROM, and it turns every piece of the dialogue from a
+guess into a textbook PAD login:
+
+| Step | Why it is what it is |
+|---|---|
+| dial `131` | reach the Isranet PAD |
+| send `"\r.\r"` | CR-dot-CR is how a PAD of that era was woken and its line speed detected |
+| wait `TERMINAL=` | the PAD asking for the terminal type |
+| send `"D1"` | the answer to that prompt |
+| wait `"@"` | the PAD's command prompt |
+| send `"34011503"` | at `@` you give the address to connect to, so this is an **Isranet NUA** |
+| send 70 bytes | the record, once the virtual circuit is up |
+
+The prompt order is in the ROM — `0C44` waits for `TERMINAL=` and `0C57` for
+`@` — and the prompts' own meanings are what assign each string its job. Note
+that the main thread has no sequencer (the park loop above), so the *order the
+steps actually run in* is the ISR's business and is not visible here; it is the
+PAD protocol that makes the assignment unambiguous.
+
+So the DLC side reads end to end: **dial Isranet, log in to the PAD as terminal
+type `D1`, call NUA `34011503`, and upload a 70-byte record** — a payphone
+phoning home over the national X.25 network.
 
 ### Cells named
 

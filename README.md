@@ -10,8 +10,9 @@ The repo includes the ROMs, the Ghidra CPU definition and (soon) the Ghidra proj
   inline-argument and SCRT call analyzers.
 - [`phone/TAMAC18-firmware.md`](phone/TAMAC18-firmware.md) — reverse
   engineering notes for the TAMAC-18 payphone firmware (CDP1806ACE): the
-  `P = R4` convention, the interrupt system, and the card reader link
-  protocol from the phone's side.
+  `P = R4` convention, the interrupt system, the card reader link protocol from
+  the phone's side, how the card is debited, and the dial-up session that
+  uploads call records to **Isranet**, the Israeli X.25 gateway.
 - [`card-reader/BSK31-firmware.md`](card-reader/BSK31-firmware.md) — reverse
   engineering notes for the Landis & Gyr BSK31-202 optical phonecard reader
   (CDP1802) used by the payphone, including its wire protocol.

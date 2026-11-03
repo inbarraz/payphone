@@ -349,9 +349,11 @@ Collected separately because they are not worth static effort:
       thread: the ISR is what advances the DLC session, and it also holds the
       answer to how `uart_tx_count` maps to the strings it sends. It still has
       no function boundary, which is why it has never been decompiled.
-- [ ] **What is `131`, and what is `34011503`?** The phone dials `131` and then
-      sends `34011503` to an X.25 PAD (§10at). Both are questions about the
-      Israeli network of the period rather than the ROM.
+- [ ] **Whose host was Isranet NUA `34011503`?** `131` is settled — it was the
+      dial-up number for **Isranet**, the Israeli X.25 gateway — so the phone
+      logs in to the PAD as terminal type `D1` and calls that NUA to upload its
+      record (§10at). Presumably Bezeq's payphone management system, but that is
+      not answerable from the ROM.
 - [ ] **Create function boundaries at `0C44` and `0C57`.** Neither login step
       has one, so the decompiler cannot render them (§10as). Same problem as
       `5071`/`514B`/`5FB1` on the reader link.
@@ -396,6 +398,10 @@ Kept as a record of what the method looks like when it works.
       credit × ticks-per-unit, an estimate of remaining talk time, and takes
       the larger interval as the conservative one (§10aa, §10ak).
 - [x] **What bit 6 of `M(8036)` means** — "the timer set is running" (§10y).
+- [x] **What the DLC link connects to** — **Isranet**, the Israeli X.25
+      gateway, dialled on `131`. The phone wakes the PAD with `\r.\r`, answers
+      `TERMINAL=` with the terminal type `D1`, and at the `@` prompt calls NUA
+      `34011503` before uploading its 70-byte record (§10at, §10ar).
 - [x] **Whether the card is debited during the call or only on eject** —
       **during the call**, within one tick of each charge. The debit at `2D88`
       sets `M(8064)`, and `service_card_reader_link` at `3103` sends `?F` for
