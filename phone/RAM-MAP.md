@@ -167,8 +167,8 @@ dozen places has a dozen chances to give itself away.
 | `814D` | `measurement_step_bits` | 5 — `34ec` `61ca` `620b` `626e` `62ac` | st=2 mask=40,80 |
 | `8155` | — | 1 — `76dd` | st=0 |
 | `8164` | — | 1 — `2612` | st=0 |
-| `8165` | — | 11 — `44d4` `4509` `4660` `4716` `483d` `4895` +5 | st=2 imm=05 |
-| `8166` | — | 1 — `5c01` | st=0 |
+| `8165` | `port1_bit5_debounce` | 11 — `44d4` `4509` `4660` `4716` `483d` `4895` +5 | st=2 imm=05 |
+| `8166` | `port2_bit0_counter` | 1 — `5c01` | st=0 |
 | `8167` | `mode_flags_8167` | 26 — `1ace` `1af2` `1b19` `1b3d` `1b67` `1bb4` +20 | st=12 imm=00,0e,20,2c,80,c0 mask=20,80,fa,fd cmp=20 |
 | `8168` | — | 2 — `475f` `47bb` | st=1 imm=aa cmp=aa |
 | `8169` | — | 9 — `4b6d` `4b8c` `4bb0` `4cac` `4d07` `5951` +3 | st=2 imm=55 cmp=55 |
@@ -362,15 +362,15 @@ dozen places has a dozen chances to give itself away.
 | `8DAC` | `feature_flags_8dac` | 7 — `0222` `0278` `0338` `0352` `05fb` `072e` +1 | st=2 imm=00,01 |
 | `8DAD` | — | 2 — `04c8` `04da` | st=2 imm=01 |
 | `8DAE` | — | 1 — `060a` | st=1 imm=01 |
-| `8DB3` | — | 1 — `0b1c` | st=1 imm=01 |
+| `8DB3` | `dlc_tx_complete` | 1 — `0b1c` | st=1 imm=01 |
 | `8DB4` | — | 1 — `0f8e` | st=1 imm=01 |
 | `8DB8` | — | 2 — `0f75` `0f87` | st=1 imm=00 |
 | `8DBB` | — | 10 — `0a69` `0d84` `0dcd` `0df7` `0e0f` `0e19` +4 | st=9 imm=00,01 |
 | `8DBC` | — | 3 — `04c0` `04d2` `0d5f` | st=1 imm=01 |
-| `8DBD` | — | 2 — `0b14` `0b23` | st=1 imm=00 |
+| `8DBD` | `dlc_tx_notify_arm` | 2 — `0b14` `0b23` | st=1 imm=00 |
 | `8DC2` | — | 1 — `1daf` | st=0 |
 | `8DC3` | — | 3 — `0e23` `0f3d` `0f58` | st=3 imm=00 |
-| `8DC5` | — | 4 — `0c83` `0cb9` `3759` `6f10` | st=3 imm=00,01 cmp=01 |
+| `8DC5` | `dlc_session_active` | 4 — `0c83` `0cb9` `3759` `6f10` | st=3 imm=00,01 cmp=01 |
 | `8DCC` | — | 2 — `17cf` `202e` | st=0 |
 | `8DCD` | — | 3 — `14e1` `2050` `2071` | st=2 |
 | `8DCE` | — | 2 — `193b` `2036` | st=0 |
@@ -432,7 +432,7 @@ dozen places has a dozen chances to give itself away.
 | `8E7A` | — | 2 — `21c4` `220d` | st=0 cmp=01 |
 | `8E7B` | — | 7 — `20a1` `20bb` `20ec` `221d` `2233` `2268` +1 | st=1 |
 | `8EBC` | — | 1 — `5c72` | st=1 |
-| `8EC8` | — | 1 — `14c1` | st=1 |
+| `8EC8` | `dlc_rx_count_saved` | 1 — `14c1` | st=1 |
 | `8EC9` | — | 1 — `14da` | st=0 cmp=08 |
 | `8ECC` | — | 1 — `0ba8` | st=1 |
 | `8ECD` | — | 1 — `0bad` | st=1 imm=00 |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **139 named**, 250 still unnamed.
+389 anchored cells, **145 named**, 244 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.

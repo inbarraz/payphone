@@ -169,7 +169,7 @@ an open question without a next action tends to stay open.
 
 ## Naming and tooling
 
-- [ ] **250 RAM cells are still unnamed**, out of the 399 the firmware points a
+- [ ] **242 RAM cells are still unnamed**, out of the 399 the firmware points a
       register at, after dropping the cells a bad `SCAL`-pointer heuristic had
       invented. [`phone/RAM-MAP.md`](phone/RAM-MAP.md) has all of them with
       the signature the ROM shows — stores, immediates, `ANI` masks, comparison
@@ -336,9 +336,7 @@ Collected separately because they are not worth static effort:
       than acting on it (§10aq). EF1 is the timebase and EF3 the hook; EF2 is
       unaccounted for too.
       *Settle by:* tracing EF4 on the board, or following `RF.1`'s consumers.
-- [ ] **What checksum does `0837` compute?** Called over `8C29`… with the
-      two-byte result left at `8E6D`, and it is the last unread piece of the
-      DLC frame (§10ar). Knowing it would make frames forgeable for testing.
+
 - [ ] **What do the DLC payload tags mean, and type 0 vs type 1?**
       `build_dlc_frame` accepts only types 0 and 1 and the first payload byte
       is a tag — `0x0A` for "nothing to report", `0x0F` for a two-value report
@@ -416,6 +414,15 @@ Kept as a record of what the method looks like when it works.
       each accepted pulse. So `credit_times_interval_ge_1000` computes
       credit × ticks-per-unit, an estimate of remaining talk time, and takes
       the larger interval as the conservative one (§10aa, §10ak).
+- [x] **What checksum the DLC frame carries** — **CRC-16/Modbus**: init
+      `0xFFFF`, reflected polynomial `0xA001`, eight bit iterations, computed
+      from the frame's own length field at `8C29` with that byte as the count
+      and the result left at `dlc_frame_checksum` (§10au). The routine was
+      already named `crc16-modbus`; §10au shows the bytes that bear it out.
+- [x] **Why metering stops during a data call** — `M(8DC5)` is
+      `dlc_session_active`, set at `0C83` and cleared at `0CB9`, and it is one
+      of `detect_metering_pulse`'s three inhibits. The only visible interlock
+      between the data side and the charging side (§10au).
 - [x] **What bit 6 of `M(8036)` means** — "the timer set is running" (§10y).
 - [x] **What the DLC link connects to** — **Isranet**, the Israeli X.25
       gateway, dialled on `131`. The phone wakes the PAD with `\r.\r`, answers

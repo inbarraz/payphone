@@ -4381,7 +4381,8 @@ in this routine is a 20 ms sample.
 3741  INP3 / ANI 0x01          port 3 bit 0
 3744  clear -> 32DB            the release path
 374F  M(816B) == 0x55 -> ret   three inhibits
-3759  M(8DC5) == 1   -> ret
+3759  M(8DC5) == 1   -> ret   dlc_session_active: no metering during a
+                              data call (§10au)
 3763  M(8180) != 0   -> ret
 376C  M(8070)++                while the input is high
 3773  M(8070) >= 0x19 -> 32D5  RF.0 = 0x81, temporary fault
@@ -5596,6 +5597,84 @@ Two of three close exactly. The NUA step over-runs its string by two bytes and
 sends `1A95`/`1A96`, which are `FF FF`. Either the firmware really does trail two
 filler bytes after the CR — harmless to a PAD — or there is something about that
 step's count still unaccounted for. Flagged rather than explained away.
+
+## 10au. The UART transmit engine, the frame CRC, and what gates metering
+
+The loose ends from §10ar–§10at, closed.
+
+### The transmit engine — `0AD6`–`0B2A`
+
+One byte per interrupt, driven by the three cells the `0C20` tail sets up:
+
+```
+0AD6  R5 = 8C21 / LDA R5 / LSNZ / LDN R5     load the 16-bit uart_tx_count
+0ADE  LBZ 0B14                               zero -> done
+0AEE  RLXA R5 / DEC R5 / RSXD R5             decrement it and write it back
+0AF4  RA = word@8C1F                         uart_tx_ptr
+0AFB  RA += word@8C23                        + uart_tx_index
+0B09  SEX RA / OUT 6                         send that byte
+0B0B  SCAL 04F0, arg 8C23                    bump the index
+0B14  M(8DBD) == 0 -> 0B2A                   the done path
+0B1C  M(8DB3) = 1                            transmit complete
+0B23  M(8DBD) = 0                            disarm
+```
+
+So `uart_tx_count` **is** a plain byte count, counted down, and the primed byte
+at `0C37` sits outside it. That is what makes the arithmetic in §10at checkable —
+and what makes the NUA step's two-byte over-run a real anomaly rather than a
+misreading.
+
+`0BF1` is a fourth transmit site and the one that ships the **binary frame**:
+`RLDI R5,8C27 / SEX R5 / OUT 6`, then `set_feature_flag(0x11)` and park. Same
+shape as the string sends, different source.
+
+### The frame checksum is CRC-16/Modbus
+
+`0837` was already named `crc16-modbus`, and the bytes bear it out:
+
+| Evidence | Meaning |
+|---|---|
+| `084D` `LDI FF`, `084F` `STXD`, `0850` `STR R7` | init `0xFFFF` |
+| `0857` `XOR` | `crc.lo ^= data byte` |
+| `0851` `RLDI R6,0009` + `DBNZ` | eight bit iterations |
+| `0873` `XRI A0` and `086F` `XRI 01` | reflected polynomial `0xA001` |
+| `0841` `SDI A0` / `LBNF` | rejects a length above `0xA0` = 160 |
+
+It takes **two inline pointers**, and `03EE` passes `8C29` and `8E6D`. `8C29` is
+`dlc_tx_frame + 2` — the frame's own **length field** — so the CRC is computed
+over the frame from its length byte onward, using that byte as the count, and
+the two result bytes land at `dlc_frame_checksum`. That closes the open question
+on `0837`.
+
+### `M(8DC5)` is why metering stops during a data call
+
+§10ak listed `M(8DC5) == 1` as one of three inhibits in
+`detect_metering_pulse` (`3759`) without saying what it was. It is
+**`dlc_session_active`**: set to 1 at `0C83` inside the DLC block and cleared at
+`0CB9`. `6F10` is the fourth site.
+
+So while the phone is dialled in to Isranet it **refuses to accept metering
+pulses** — which is right, because the line is carrying data, not a call, and a
+pulse arriving then would be charged to whatever card happened to be in the
+reader. A small thing, but it is the only place the data side and the charging
+side are visibly interlocked.
+
+### Cells named
+
+| Address | Name |
+|---|---|
+| `8C29` | `dlc_tx_len_field` — the frame length byte the CRC counts from |
+| `8DA8` | `dlc_link_address_lo` |
+| `8DB3` | `dlc_tx_complete` |
+| `8DBD` | `dlc_tx_notify_arm` |
+| `8DC5` | `dlc_session_active` |
+| `8EC8` | `dlc_rx_count_saved` — `14C1` copies `dlc_rx_count` here |
+| `8165` | `port1_bit5_debounce` — `4A12` reloads it with 5 when port 1 bit 5 reads low and decrements it when high |
+| `8166` | `port2_bit0_counter` — `4A12` counts it to `0x19`, gated on port 2 bit 0 and port 3 bit 2 |
+
+`8165` and `8166` came out of reading `FUN_4A12` while verifying the flag-sampler
+renames (§10aq); both were on the RAM map's "attack first" list, and both are
+now at least characterised, if not explained.
 
 ## 10. Code executed from RAM
 
