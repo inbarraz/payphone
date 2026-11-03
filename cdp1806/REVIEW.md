@@ -217,6 +217,12 @@ fall-through, which suits an idiom used at isolated sites.
 
 Same mechanism ARM uses for `TMode` and MIPS for its 16-bit mode.
 
+**Built and verified.** `support/sleigh cdp1806.slaspec` against Ghidra 12.2
+compiles clean — still 19 NOP constructors, unchanged, so the three new
+constructors have real bodies — and the compiled `cdp1806.sla` (magic `sla\x04`,
+zlib from offset 4) contains both `contextreg` and `XP`. Extension zip:
+`dist/ghidra_12.2_PUBLIC_20261103_cdp1806.zip`.
+
 **What is still missing** is the automatic part: nothing *infers* `XP`. `SEP`,
 `SEX` and `DIS` would have to `globalset` it onto the following addresses for
 auto-analysis to get it right unaided, and `SEP` also still has `# TODO: Set P`

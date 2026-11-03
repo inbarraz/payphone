@@ -158,12 +158,54 @@ so just run it again.
 
 Available from **Tools > CDP1806 > Remove SCAL Register References**.
 
+## The `XP` context switch
+
+When `X == P` on a CDP1800, `R(X)` *is* the program counter, so any instruction
+that increments `R(X)` — `OUT`, `RET`, `DIS`, `LDXA`, `IRX` — swallows a byte
+from the instruction stream and is two bytes long rather than one. Nothing can
+infer that while disassembling, because `P` and `X` are data registers with no
+value at analysis time.
+
+The `XP` field in `contextreg` is the manual switch. On an address that uses the
+idiom:
+
+1. clear the bytes (`C`)
+2. right-click → **Set Register Values…**, set `XP = 1` over that address alone
+3. disassemble (`D`)
+
+`XP` is `noflow`, so it stays on the one instruction. Known sites in the
+TAMAC-18 image: `0000` (`DIS` + `00`), the `6DD5` reset block, `51A8`
+(`OUT 6` + `'>'`) and `51B1` (`RET` + `0x24`). See `REVIEW.md` gaps G1 and G2.
+
 ## Building and installing
 
 ```sh
 export GHIDRA_INSTALL_DIR=/path/to/ghidra
 cd cdp1806
 gradle
+```
+
+On a Homebrew install the path is the **`libexec`** directory, not the Cellar
+root — the formula puts the Ghidra tree one level down:
+
+```sh
+export GHIDRA_INSTALL_DIR=/opt/homebrew/Cellar/ghidra/12.2/libexec
+```
+
+To check just the processor spec without a full build, which is much quicker:
+
+```sh
+cd cdp1806/data/languages
+$GHIDRA_INSTALL_DIR/support/sleigh cdp1806.slaspec
+```
+
+A clean run reports only the `19 NOP constructors` warning. The compiled
+`cdp1806.sla` is zlib behind a four-byte `sla\x04` header, so to confirm a
+change actually landed in it:
+
+```sh
+python3 -c "import zlib; d=open('cdp1806.sla','rb').read(); \
+  print(zlib.decompress(d[4:]).count(b'XP'))"
 ```
 
 That writes `dist/ghidra_<version>_<date>_cdp1806.zip`. Install it with
