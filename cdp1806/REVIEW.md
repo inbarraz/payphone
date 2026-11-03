@@ -7,9 +7,17 @@ Line numbers refer to `cdp1806.slaspec` as of commit `c8a5479`.
 
 ## Status, 2026-11-03
 
-Fifteen of the sixteen mistakes are **fixed**: M1–M9 and M11–M16. The slaspec
+Fourteen of the sixteen mistakes are **fixed**: M1–M8 and M11–M16. The slaspec
 compiles clean against the Ghidra 12.2 SLEIGH compiler (19 NOP constructors,
 up from 17 because M11 emptied `STPC` and `ETQ`).
+
+**M9 is only half applied.** `RET` and `DIS` now assign
+`P = byte[0,4]` (lines 477 and 494), but `P` is an ordinary data register in
+this spec, not SLEIGH's program counter, so that assignment does not move
+disassembly. `SEP` — the instruction whose whole job is to set `P` — is still
+`# TODO: Set P` with a bare `goto [reg16]`. Finishing M9 needs the same context
+register for `P` that gap **G2** calls for, so M9 and M10 stand or fall
+together.
 
 **M10 is deliberately not applied.** Adding a `return` to `RET` (`0x70`) is
 correct in the abstract, but `RET` loads `(X,P)` from its operand, and this
@@ -19,6 +27,11 @@ there would stop the following code disassembling. The fix needs a context
 register for `P` first; see gap **G2**. The gaps G1–G10 are untouched.
 
 ## How this was verified
+
+**This section describes the module as it was reviewed, before the fixes.** The
+status block above supersedes it on the compiler version and the NOP count; the
+symptoms at the foot belong to gap **G1**, which is untouched, so they are still
+what a stock disassembly shows.
 
 - The slaspec compiles cleanly with the Ghidra 12.1.3 SLEIGH compiler (only the usual
   "17 NOP constructors" warning).

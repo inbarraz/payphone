@@ -169,7 +169,7 @@ an open question without a next action tends to stay open.
 
 ## Naming and tooling
 
-- [ ] **280 RAM cells are still unnamed**, out of the 399 the firmware points a
+- [ ] **277 RAM cells are still unnamed**, out of the 399 the firmware points a
       register at. [`phone/RAM-MAP.md`](phone/RAM-MAP.md) has all of them with
       the signature the ROM shows — stores, immediates, `ANI` masks, comparison
       values — which is what is actually known about each. Naming them would
@@ -269,14 +269,23 @@ Collected separately because they are not worth static effort:
       variant, or reached some way the search missed?
       *Settle by:* diffing another TAMAC-18 ROM version, if one can be found.
 - [ ] **Is there a second 32 KB RAM over `0000`–`7FFF`?** §10an argues `F000`
-      bit 0 maps a writable shadow there in place of the AT29C256, and that the
-      phone normally *runs from that shadow* — `0x03` is what the initialiser
-      writes, `rewrite_code_space` clears bit 0 to read the real ROM and copies
-      all 32 KB into the shadow, and every other site that clears bit 0 is in
-      code relocated to RAM at `9100` first. The reasoning is internal to the
-      firmware; the chip is the proof.
+      bit 0 maps a writable shadow there in place of the AT29C256: every site
+      that *sets* bit 0 lives in code relocated to RAM at `9100`, and
+      `rewrite_code_space` runs from ROM with bit 0 clear while rewriting all
+      32 KB. The reasoning is internal to the firmware; the chip is the proof.
       *Settle by:* looking at the board. **Needs hardware** — but only a glance
       at the part numbers.
+- [ ] **What is the code shadow actually for?** Reset writes `F000 = 0x00`, and
+      nothing in the image reaches the `0x03` entry point at `000F`, so the
+      phone boots and runs from the **ROM**, not the shadow (§10an — this
+      corrects an earlier claim). The shadow is filled on request and switched
+      in only transiently by RAM-resident code. Runtime patching is the obvious
+      guess and no more than that.
+- [ ] **Where do inbound reader digits get converted from ASCII?** The wire
+      carries ASCII and the dispatcher compares `8022`/`8023` against ASCII
+      prefixes, but `digits_to_binary16` adds `8024`–`8026` as raw values with
+      no `0x30` subtracted (§10al). Something between the two converts them;
+      the link ISR at `5071`/`514B` is the candidate.
 - [ ] **What does `F000` bit 1 do?** Set in `0x03` and `0x02`, cleared in
       `0x01`, `0x00`, and by a failed integrity check (§10a, §10am, §10an).
 - [ ] **What does the relocated `1CB7`–`2330` block do?** 1658 bytes copied to

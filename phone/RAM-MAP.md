@@ -12,6 +12,16 @@ neighbour, and the handler register map at `5FB1` keeps five of them in
 registers across the whole reader link, so a cell with one site may be touched
 from a dozen places.
 
+Cells whose only site is a `SCAL` inline pointer have a BLANK signature: the
+signature scan in `tools/ram_classify.py` walks `RLDI` anchors only, so it
+never sees them. That accounts for every empty Signature cell that still has
+a non-zero site count.
+
+The scan is a heuristic, and its limits are listed at the top of
+`tools/ram_classify.py`: it follows the fall-through path only, stops as soon
+as the anchored register moves, and does not model `X`. Read a signature as
+"at least this much is true of the cell", never as a complete account.
+
 **`Signature`** is what the walk sees being done to the cell at those sites:
 `st` = number of stores, `imm` = the immediates stored, `mask` = the `ANI`
 masks applied, `cmp` = the values it is compared against. A cell written only
@@ -49,7 +59,7 @@ dozen places has a dozen chances to give itself away.
 | `8001` | — | 1 — `25d0` | — |
 | `8019` | `dialed_digits_end` *(no Ghidra label)* | 3 — `25b6` `2643` `264e` | st=0 |
 | `801A` | `reader_tx_queue` | 1 — `514b` | st=0 |
-| `801D` | `reader_tx_digit0` | 1 — `3682` | st=1 imm=01 |
+| `801D` | `reader_tx_digit0` | 1 — `3682` | st=1 |
 | `8021` | `reader_tx_queue_top` | 1 — `366b` | st=0 |
 | `8022` | `reader_msg_prefix0` | 3 — `334b` `3399` `340b` | st=0 |
 | `8024` | `reader_digit0` | 4 — `2ab0` `36b3` `5034` `6231` | st=0 |
@@ -60,24 +70,24 @@ dozen places has a dozen chances to give itself away.
 | `802B` | `reader_ok_latch` | 4 — `3375` `4561` `462b` `5c43` | st=1 imm=ff |
 | `802C` | `card_measure_802c` | 3 — `466b` `468b` `5c3b` | st=2 imm=00 |
 | `802D` | `card_measure_802d` | 1 — `2810` | st=1 imm=00 |
-| `802E` | `card_measure_802e` | 1 — `6f4a` | st=1 imm=00 cmp=04 |
+| `802E` | `card_measure_802e` | 1 — `6f4a` | st=1 imm=00 |
 | `802F` | `card_measure_802f` | 5 — `43ef` `4615` `5c2b` `7352` `7572` | st=0 |
-| `8030` | `mode_select_8030` | 3 — `451c` `45c8` `6f1d` | st=2 cmp=10 |
+| `8030` | `mode_select_8030` | 3 — `451c` `45c8` `6f1d` | st=3 cmp=10 |
 | `8031` | `link_resume_point` | 7 — `3900` `4726` `47ae` `4c14` `5f42` `5fb9` +1 | st=4 imm=00,d8 |
 | `8032` | `call_in_progress` | 4 — `3790` `42b6` `4b1e` `703c` | st=2 cmp=aa |
-| `8033` | `strap_drive_and_flags` | 16 — `0c9d` `19c3` `1a01` `2b1e` `2b78` `2b94` +10 | st=16 imm=01,10,20 mask=c0,e0 |
-| `8034` | `PORT5_shadow` | 26 — `0707` `19f9` `1a14` `2824` `284e` `2c10` +20 | st=27 mask=01,02,7f,ce cmp=01,40 |
+| `8033` | `strap_drive_and_flags` | 16 — `0c9d` `19c3` `1a01` `2b1e` `2b78` `2b94` +10 | st=17 imm=01,20 mask=c0,e0 |
+| `8034` | `PORT5_shadow` | 26 — `0707` `19f9` `1a14` `2824` `284e` `2c10` +20 | st=26 mask=01,02,7f,ce cmp=01,40 |
 | `8035` | `PORT2_shadow` | 16 — `0cc0` `19d1` `241d` `2950` `295e` `2c57` +10 | st=15 mask=02,ef,f7,fd |
-| `8036` | `timer_and_display_flags` | 23 — `01e4` `01f1` `28ac` `4132` `43f3` `4532` +17 | st=19 mask=40,7f,bf,df cmp=42 |
+| `8036` | `timer_and_display_flags` | 23 — `01e4` `01f1` `28ac` `4132` `43f3` `4532` +17 | st=22 mask=40,7f,bf,df |
 | `8038` | `LCD_next_descriptor` | 1 — `0721` | st=1 imm=00 |
 | `803A` | `LCD_dwell_countdown` | 3 — `279a` `3199` `6e6e` | st=1 imm=00 |
-| `803C` | `display_scratch_803c` | 5 — `2616` `71ec` `7201` `7679` `624a` | st=5 imm=00,20 |
+| `803C` | `display_scratch_803c` | 5 — `2616` `71ec` `7201` `7679` `624a` | st=4 imm=00,20 |
 | `803E` | `bufDisplayString_803E` | 5 — `4e46` `4e58` `4e75` `4ea1` `612c` | st=5 imm=00 |
 | `803F` | `bufDisplayString_803F` | 1 — `622c` | — |
 | `8040` | `bufDisplayString_8040` | 5 — `712c` `7133` `7157` `71a4` `71be` | st=6 imm=30,31 cmp=3a |
 | `8041` | `bufDisplayString_8041` | 1 — `5e8e` | st=1 |
 | `804B` | `bufDisplayString_804B` | 1 — `76e1` | st=0 |
-| `804C` | `display_scratch_804c` | 7 — `57ed` `5842` `5882` `5ed2` `60c9` `57cd` +1 | st=3 imm=20 cmp=30 |
+| `804C` | `display_scratch_804c` | 7 — `57ed` `5842` `5882` `5ed2` `60c9` `57cd` +1 | st=4 imm=20 cmp=30 |
 | `804E` | `bufDisplayString_804E` | 1 — `60b0` | st=1 imm=2e |
 | `804F` | — | 2 — `60bc` `625a` | — |
 | `8051` | `bufDisplayString_8051` | 1 — `60c2` | st=1 imm=00 |
@@ -90,7 +100,7 @@ dozen places has a dozen chances to give itself away.
 | `805F` | `reader_ne_value` | 1 — `3977` | st=0 |
 | `8060` | `card_packed_byte` | 3 — `2a1d` `46fc` `33ca` | st=0 cmp=30,78 |
 | `8061` | `card_accepted_flag` | 2 — `3161` `33d0` | st=0 |
-| `8062` | `card_value_7_minus_popcount` | 4 — `2e17` `33d6` `61ce` `72dd` | st=2 cmp=04,05 |
+| `8062` | `card_value_7_minus_popcount` | 4 — `2e17` `33d6` `61ce` `72dd` | st=1 cmp=04,05 |
 | `8064` | `burn_units_pending` | 2 — `2d62` `393a` | st=0 |
 | `8065` | `credit_dirty_flag` | 5 — `3908` `458d` `47fa` `524f` `5f4e` | st=2 imm=00 |
 | `8066` | `settle_resume_point` | 1 — `3966` | st=1 imm=59 |
@@ -100,7 +110,7 @@ dozen places has a dozen chances to give itself away.
 | `806B` | `settle_done_flag` | 3 — `395a` `5277` `528b` | st=2 imm=00,aa cmp=aa |
 | `806C` | `burn_watchdog_ticks` | 1 — `2d5e` | st=0 |
 | `8070` | `metering_high_count` | 1 — `373c` | st=0 |
-| `8074` | `hardware_version` | 12 — `26a3` `3470` `3c00` `4558` `4583` `5370` +6 | st=9 imm=00,aa,dd,ff cmp=aa,dd |
+| `8074` | `hardware_version` | 12 — `26a3` `3470` `3c00` `4558` `4583` `5370` +6 | st=10 imm=00,aa,dd,ff cmp=aa,dd |
 | `8077` | — | 2 — `4624` `5c33` | st=1 imm=aa |
 | `8078` | `pulse_prev_sample` | 1 — `423c` | st=1 |
 | `8079` | — | 2 — `7316` `7690` | st=0 cmp=aa |
@@ -115,22 +125,22 @@ dozen places has a dozen chances to give itself away.
 |---|---|---|---|
 | `8117` | `dial_digit_3` | 1 — `2563` | st=0 |
 | `8118` | `dial_digit_2` | 1 — `2759` | st=0 |
-| `8119` | `dial_digit_1` | 10 — `00b9` `1a26` `25d8` `2c81` `2dfd` `3191` +4 | st=2 imm=15,80 |
+| `8119` | `dial_digit_1` | 10 — `00b9` `1a26` `25d8` `2c81` `2dfd` `3191` +4 | st=0 |
 | `811A` | `dial_buf_ptr` | 7 — `25d4` `2652` `2c74` `2c8f` `35b7` `3b5f` +1 | st=3 imm=15 cmp=01 |
-| `811B` | `dial_buf_end` | 6 — `1a5f` `2c23` `3b1a` `45f1` `7054` `72aa` | st=4 imm=19 cmp=17,18 |
+| `811B` | `dial_buf_end` | 6 — `1a5f` `2c23` `3b1a` `45f1` `7054` `72aa` | st=4 imm=19 cmp=17 |
 | `811D` | `minute_meter_timer` | 1 — `4223` | st=1 imm=3c |
-| `811F` | — | 1 — `4290` | st=0 |
+| `811F` | — | 1 — `4290` | st=1 imm=01 |
 | `8122` | `rate_word_a` | 4 — `37a1` `530a` `4159` `52fc` | st=0 |
 | `8124` | `rate_word_b` | 1 — `5303` | st=0 |
 | `8127` | — | 2 — `3a1f` `7424` | st=2 imm=c8 |
 | `8128` | `slow_timer_8128` | 3 — `25a4` `72d0` `76f4` | st=1 imm=04 |
 | `8129` | — | 6 — `44e9` `48ce` `4b58` `6ff5` `7623` `7649` | st=1 imm=64 cmp=32 |
 | `812A` | `fast_timer_812a` | 2 — `31c3` `4a49` | st=1 imm=96 |
-| `812B` | — | 5 — `1a44` `53bd` `72b2` `73d5` `73dc` | st=2 imm=00,20 |
+| `812B` | — | 5 — `1a44` `53bd` `72b2` `73d5` `73dc` | st=2 imm=00 |
 | `812C` | — | 4 — `454a` `4569` `461d` `4633` | st=2 imm=64 |
 | `812D` | `wait_timer_812d` | 5 — `36e6` `3ab3` `401e` `5ef5` `6fa5` | st=5 imm=00,96 |
 | `812E` | — | 1 — `2656` | st=1 imm=0a |
-| `812F` | — | 13 — `3834` `493b` `4f19` `4f2b` `4f48` `4f5e` +7 | st=7 imm=00,0f,32,64,96 |
+| `812F` | — | 13 — `3834` `493b` `4f19` `4f2b` `4f48` `4f5e` +7 | st=6 imm=00,0f,64,96 |
 | `8130` | `timer_prescaler` | 1 — `40f4` | st=2 imm=00 |
 | `8131` | `slow_timer_8131` | 1 — `491a` | st=1 imm=1e |
 | `8132` | `fast_timer_8132` | 1 — `42be` | st=0 |
@@ -141,51 +151,51 @@ dozen places has a dozen chances to give itself away.
 | `8138` | `charge_step` | 1 — `2d18` | st=0 |
 | `8139` | `card_permission_bits` | 29 — `0095` `2559` `26dc` `2723` `2814` `282b` +23 | st=5 imm=00,04 mask=02,04,06,08 cmp=41 |
 | `813A` | — | 7 — `1a59` `250c` `2c3d` `7048` `735a` `7389` +1 | st=3 imm=01 |
-| `813B` | `dial_digit_count` | 5 — `009f` `2741` `2a15` `742b` `7730` | st=0 cmp=01,03,04,05,0b |
+| `813B` | `dial_digit_count` | 5 — `009f` `2741` `2a15` `742b` `7730` | st=0 cmp=01,03,04,0b |
 | `813C` | — | 3 — `2686` `37b9` `45f9` | st=2 imm=00,14 |
-| `813D` | — | 2 — `2421` `5d23` | st=1 |
+| `813D` | — | 2 — `2421` `5d23` | st=2 |
 | `813E` | `dial_resume_point` | 17 — `00a3` `2500` `25c1` `267c` `26eb` `35be` +11 | st=11 imm=00,21,24,27,2a cmp=27,2a |
 | `813F` | — | 5 — `2663` `2a31` `4d53` `4da9` `5eee` | st=4 imm=00 cmp=0b |
-| `8143` | `charge_event_pending` | 5 — `0640` `2d10` `35cc` `379a` `48fc` | st=4 imm=01 cmp=01 |
+| `8143` | `charge_event_pending` | 5 — `0640` `2d10` `35cc` `379a` `48fc` | st=4 imm=00,01 cmp=01 |
 | `8144` | `charge_phase` | 13 — `2579` `2638` `2716` `2a4b` `2c4f` `2deb` +7 | st=0 |
-| `8145` | `debit_pending` | 1 — `2d5a` | st=0 |
+| `8145` | `debit_pending` | 1 — `2d5a` | st=1 cmp=01 |
 | `8147` | `linedrive_count_8147` | 3 — `42c3` `43ae` `43c2` | st=1 imm=00 |
 | `8148` | `linedrive_dwell_8148` | 1 — `43d9` | st=1 |
-| `8149` | `linedrive_state_8149` | 7 — `42ba` `4912` `4b19` `52a0` `52b8` `5f7c` +1 | st=5 imm=00 mask=40,7f |
+| `8149` | `linedrive_state_8149` | 7 — `42ba` `4912` `4b19` `52a0` `52b8` `5f7c` +1 | st=6 imm=00 mask=07,38,40,7f |
 | `814A` | `low_credit_display_arm` | 4 — `2dd3` `2e78` `3924` `5283` | st=2 |
 | `814B` | — | 2 — `1a36` `72ae` | st=1 imm=80 |
 | `814C` | — | 3 — `1a3d` `35b0` `3b69` | st=2 imm=00 |
-| `814D` | `measurement_step_bits` | 5 — `34ec` `61ca` `620b` `626e` `62ac` | st=1 mask=40,80 |
+| `814D` | `measurement_step_bits` | 5 — `34ec` `61ca` `620b` `626e` `62ac` | st=2 mask=40,80 |
 | `8155` | — | 1 — `76dd` | st=0 |
 | `8164` | — | 1 — `2612` | st=0 |
 | `8165` | — | 11 — `44d4` `4509` `4660` `4716` `483d` `4895` +5 | st=2 imm=05 |
 | `8166` | — | 1 — `5c01` | st=0 |
-| `8167` | `mode_flags_8167` | 26 — `1ace` `1af2` `1b19` `1b3d` `1b67` `1bb4` +20 | st=12 imm=00,0e,20,28,2c,80 mask=20,80,fa cmp=20 |
+| `8167` | `mode_flags_8167` | 26 — `1ace` `1af2` `1b19` `1b3d` `1b67` `1bb4` +20 | st=12 imm=00,0e,20,2c,80,c0 mask=20,80,fa,fd cmp=20 |
 | `8168` | — | 2 — `475f` `47bb` | st=1 imm=aa cmp=aa |
 | `8169` | — | 9 — `4b6d` `4b8c` `4bb0` `4cac` `4d07` `5951` +3 | st=2 imm=55 cmp=55 |
 | `816B` | — | 7 — `19bc` `19f2` `270c` `374f` `3b43` `4025` +1 | st=4 imm=00,55 cmp=55 |
 | `816C` | — | 1 — `4942` | st=1 imm=00 |
 | `816D` | — | 1 — `273d` | st=0 |
 | `816F` | — | 1 — `2782` | st=1 |
-| `8170` | — | 2 — `4084` `7716` | st=3 imm=05 |
+| `8170` | — | 2 — `4084` `7716` | st=2 imm=05 |
 | `8172` | — | 1 — `711e` | st=0 |
-| `8173` | — | 1 — `711a` | st=1 imm=00 |
+| `8173` | — | 1 — `711a` | st=0 |
 | `8174` | `bufDisplayString_8174` | 1 — `713f` | st=1 |
 | `8180` | `fast_timer_8180` | 6 — `3733` `3763` `4d9c` `6ecc` `6fee` `7021` | st=5 imm=19,64 |
 | `8182` | — | 4 — `1a4b` `2b33` `4b12` `73ca` | st=4 imm=00,01 |
 | `8183` | `permission_valid_8183` | 6 — `26e6` `2c36` `3a33` `4b23` `72fe` `7409` | st=2 cmp=aa |
 | `8184` | `low_credit_warned` | 2 — `527e` `5295` | st=2 imm=aa |
-| `8185` | `port3_readback` | 2 — `50d9` `617e` | st=1 cmp=3f |
+| `8185` | `port3_readback` | 2 — `50d9` `617e` | st=1 |
 | `8186` | — | 4 — `4180` `44dc` `6fc8` `7035` | st=2 imm=00,aa |
 | `818C` | — | 2 — `5d09` `5d1b` | st=1 |
 | `818D` | `burn_ack_retry_count` | 4 — `3420` `343c` `5db8` `623f` | st=3 imm=00 cmp=64 |
-| `818E` | `reader_z_reply_count` | 3 — `2a53` `3453` `34bc` | st=4 imm=80 |
+| `818E` | `reader_z_reply_count` | 3 — `2a53` `3453` `34bc` | st=3 imm=80 |
 | `8190` | `config_parse_result` | 2 — `3e2f` `5d97` | st=1 cmp=04 |
 | `8191` | `port1_bit0_latch` | 6 — `2c9f` `2e2e` `4149` `45e4` `5d78` `6ea2` | st=3 |
-| `8196` | — | 1 — `3ef9` | st=1 |
+| `8196` | — | 1 — `3ef9` | st=2 |
 | `8197` | — | 1 — `4ce7` | — |
 | `819B` | — | 2 — `3e58` `3ef5` | st=1 cmp=3a |
-| `81A3` | — | 2 — `3f4f` `5987` | st=4 imm=00,57,84,aa |
+| `81A3` | — | 2 — `3f4f` `5987` | st=2 imm=57,aa |
 | `81A5` | — | 1 — `3e78` | st=0 |
 | `81A9` | — | 1 — `3e74` | st=0 |
 | `81AC` | — | 2 — `3d94` `3d9c` | st=0 |
@@ -200,7 +210,7 @@ dozen places has a dozen chances to give itself away.
 | `81F8` | — | 1 — `3d98` | st=0 |
 | `81FA` | — | 1 — `52cb` | st=0 mask=0f |
 | `81FB` | — | 2 — `4b0a` `7667` | st=1 mask=20 |
-| `81FC` | — | 2 — `4466` `5c77` | st=3 mask=fd,fe |
+| `81FC` | — | 2 — `4466` `5c77` | st=1 mask=fd,fe |
 
 ## Pages `82`–`84` — the fault log and event records
 
@@ -210,9 +220,9 @@ dozen places has a dozen chances to give itself away.
 | `8303` | — | 1 — `52cf` | st=0 |
 | `83FE` | — | 1 — `6e20` | — |
 | `8409` | — | 1 — `3c1b` | st=0 |
-| `840A` | `fault_log` | 4 — `3c23` `3f70` `5b9e` `600d` | st=2 mask=7f |
+| `840A` | `fault_log` | 4 — `3c23` `3f70` `5b9e` `600d` | st=1 mask=7f |
 | `843A` | — | 1 — `3b24` | st=0 |
-| `8442` | — | 5 — `3c1f` `5b97` `5ccc` `5e1c` `5e6e` | st=3 imm=00 |
+| `8442` | — | 5 — `3c1f` `5b97` `5ccc` `5e1c` `5e6e` | st=1 imm=00 |
 | `8443` | — | 4 — `3c6d` `3faa` `5be2` `2f48` | st=2 |
 | `8444` | — | 1 — `3f9c` | st=1 |
 | `8445` | — | 1 — `3fa6` | st=0 |
@@ -220,13 +230,13 @@ dozen places has a dozen chances to give itself away.
 | `8447` | — | 1 — `3fa1` | st=1 |
 | `8448` | `cleaning_event_record` | 1 — `3fb0` | st=1 |
 | `8449` | — | 1 — `3c69` | st=0 |
-| `844A` | — | 4 — `2f51` `3bdc` `3f90` `3fe8` | st=4 imm=00,01 |
+| `844A` | — | 4 — `2f51` `3bdc` `3f90` `3fe8` | st=3 imm=00 |
 | `844B` | — | 3 — `3e50` `3fc2` `5da4` | st=2 imm=00,05 cmp=04 |
 | `844C` | — | 1 — `5de4` | st=0 |
 | `844D` | `coldstart_sentinel_844d` | 1 — `306f` | st=1 imm=aa |
 | `844E` | — | 5 — `3ae4` `3af8` `5b7b` `54a3` `574c` | st=0 |
 | `845A` | `pulse_count_event` | 6 — `23ae` `2f4c` `3f5f` `4252` `4cee` `76c6` | st=4 imm=00 cmp=2d |
-| `845C` | — | 19 — `1c1a` `1c26` `1c35` `1c41` `2cda` `2f30` +13 | st=13 imm=00,23,80,c0 mask=01,f0,fc cmp=c0,ca |
+| `845C` | — | 19 — `1c1a` `1c26` `1c35` `1c41` `2cda` `2f30` +13 | st=10 imm=00,80,c0 mask=01,f0,fc cmp=c0,ca |
 | `845D` | `ram_sentinel_845d` | 1 — `6112` | st=1 imm=00 |
 
 ## Page `85` — provisioning and the totalizer bank
@@ -253,30 +263,30 @@ dozen places has a dozen chances to give itself away.
 | Addr | Name | Sites | Signature |
 |---|---|---|---|
 | `8600` | — | 1 — `74d0` | — |
-| `8602` | — | 1 — `5a15` | st=2 imm=02 |
+| `8602` | — | 1 — `5a15` | st=0 |
 | `8629` | — | 1 — `74ea` | st=0 |
-| `862A` | — | 6 — `59bc` `59c0` `5a3e` `5a55` `7522` `7526` | st=3 |
+| `862A` | — | 6 — `59bc` `59c0` `5a3e` `5a55` `7522` `7526` | st=1 |
 | `862B` | — | 1 — `7518` | st=0 |
 | `867B` | `coldstart_sentinel_867b` | 1 — `3076` | st=1 imm=55 |
 | `867F` | — | 1 — `3ce4` | st=0 |
 | `8680` | — | 1 — `3cc1` | st=0 |
 | `8681` | — | 1 — `3bec` | st=1 imm=02 |
 | `8700` | — | 2 — `62d2` `74d9` | st=0 |
-| `8780` | — | 3 — `62d6` `6379` `640e` | st=2 |
+| `8780` | — | 3 — `62d6` `6379` `640e` | st=1 |
 | `8781` | — | 2 — `370c` `3df7` | st=0 |
 | `8783` | — | 1 — `5a6f` | st=1 |
 | `8785` | — | 5 — `3b84` `3d74` `4006` `509d` `6e32` | st=4 imm=00,80 |
-| `8786` | — | 5 — `3cca` `50b0` `5ab3` `5b0b` `5b29` | st=2 mask=01,0f,80 |
+| `8786` | — | 5 — `3cca` `50b0` `5ab3` `5b0b` `5b29` | st=1 mask=01,0f,80 |
 | `8787` | — | 1 — `3d8b` | st=1 imm=00 |
-| `8788` | — | 2 — `636e` `63de` | st=2 imm=00 |
+| `8788` | — | 2 — `636e` `63de` | st=1 imm=00 |
 | `8789` | — | 1 — `5a8e` | st=1 |
-| `878A` | — | 5 — `3cd2` `3dab` `3dd4` `3dfd` `62dc` | st=7 imm=04 cmp=01 |
+| `878A` | — | 5 — `3cd2` `3dab` `3dd4` `3dfd` `62dc` | st=5 imm=04 cmp=01 |
 | `878C` | — | 3 — `508d` `5a3a` `752a` | st=1 |
-| `878E` | — | 1 — `5af0` | st=3 imm=ff cmp=01 |
+| `878E` | — | 1 — `5af0` | st=1 cmp=01 |
 | `8790` | — | 1 — `5ae1` | st=0 |
 | `8791` | — | 1 — `403c` | st=0 |
 | `8794` | — | 1 — `74dd` | st=0 |
-| `8795` | — | 3 — `3cdd` `3d05` `5ac4` | st=5 imm=00 |
+| `8795` | — | 3 — `3cdd` `3d05` `5ac4` | st=2 imm=00 |
 | `87C0` | — | 1 — `2209` | — |
 
 ## Page `88`–`89` — counters, the state machine and the stack
@@ -303,13 +313,13 @@ dozen places has a dozen chances to give itself away.
 | `886C` | `sm_state` | 3 — `3270` `51d3` `5503` | st=2 imm=00 cmp=04 |
 | `8890` | — | 1 — `2f14` | st=0 |
 | `8891` | — | 1 — `2f18` | st=0 |
-| `88BA` | — | 3 — `2a11` `2cf6` `46ea` | st=1 imm=00 cmp=aa |
+| `88BA` | — | 3 — `2a11` `2cf6` `46ea` | st=2 imm=00 cmp=aa |
 | `88BB` | `optical_reader_fault_flag` | 2 — `23a6` `29e9` | st=0 |
 | `88BD` | `units_spent_marker` | 3 — `36c2` `5063` `51b9` | st=2 imm=00,aa |
-| `88BE` | — | 3 — `75e7` `75f9` `7680` | st=3 imm=00 cmp=aa |
+| `88BE` | — | 3 — `75e7` `75f9` `7680` | st=3 imm=00 |
 | `88C0` | — | 1 — `77a6` | st=0 |
 | `88C1` | — | 1 — `39de` | st=0 |
-| `88C5` | — | 5 — `3992` `44bc` `48a9` `48f5` `6f19` | st=6 imm=00,aa mask=7f |
+| `88C5` | — | 5 — `3992` `44bc` `48a9` `48f5` `6f19` | st=6 imm=00,aa cmp=aa |
 | `89FA` | `stack_top` *(no Ghidra label)* | 2 — `306b` `6e08` | st=0 |
 | `89FE` | — | 1 — `5c98` | st=0 |
 
@@ -338,19 +348,19 @@ dozen places has a dozen chances to give itself away.
 | `8C28` | — | 1 — `0be1` | st=0 |
 | `8C29` | — | 1 — `03f2` | — |
 | `8C37` | — | 1 — `77dd` | st=0 |
-| `8C59` | — | 1 — `1674` | st=1 imm=05 cmp=02 |
+| `8C59` | — | 1 — `1674` | st=0 cmp=02 |
 
 ## Pages `8D`–`8E` — the modem side and the ROM checksum
 
 | Addr | Name | Sites | Signature |
 |---|---|---|---|
-| `8D26` | — | 3 — `020a` `180d` `1cc2` | st=1 imm=02 |
+| `8D26` | — | 3 — `020a` `180d` `1cc2` | st=0 |
 | `8DA6` | — | 2 — `02d6` `0bcd` | st=1 cmp=01 |
-| `8DA7` | — | 5 — `03af` `0772` `0953` `0e2a` `0f26` | st=1 imm=00 |
-| `8DA9` | — | 2 — `1dfb` `1e56` | st=1 |
+| `8DA7` | — | 5 — `03af` `0772` `0953` `0e2a` `0f26` | st=3 imm=00 |
+| `8DA9` | — | 2 — `1dfb` `1e56` | st=0 |
 | `8DAA` | — | 1 — `1809` | st=0 |
 | `8DAB` | — | 8 — `0798` `0e6b` `1817` `1ddf` `1e46` `1e74` +2 | st=4 imm=00,01 cmp=02 |
-| `8DAC` | `feature_flags_8dac` | 7 — `0222` `0278` `0338` `0352` `05fb` `072e` +1 | st=4 imm=00,01 cmp=01 |
+| `8DAC` | `feature_flags_8dac` | 7 — `0222` `0278` `0338` `0352` `05fb` `072e` +1 | st=2 imm=00,01 |
 | `8DAD` | — | 2 — `04c8` `04da` | st=2 imm=01 |
 | `8DAE` | — | 1 — `060a` | st=1 imm=01 |
 | `8DB3` | — | 1 — `0b1c` | st=1 imm=01 |
@@ -409,8 +419,8 @@ dozen places has a dozen chances to give itself away.
 | `8E13` | — | 1 — `0978` | st=0 |
 | `8E14` | — | 2 — `0d37` `0d69` | st=2 imm=00 |
 | `8E2A` | — | 2 — `07cc` `07e6` | st=1 imm=00 |
-| `8E2C` | — | 2 — `07c8` `0800` | st=1 imm=00 |
-| `8E2D` | — | 1 — `0980` | st=1 imm=01 cmp=09 |
+| `8E2C` | — | 2 — `07c8` `0800` | st=1 |
+| `8E2D` | — | 1 — `0980` | st=2 imm=01 cmp=09 |
 | `8E2E` | — | 4 — `09bb` `09d4` `09fe` `0a07` | st=1 |
 | `8E36` | — | 3 — `090e` `0925` `091c` | st=1 |
 | `8E37` | — | 1 — `0936` | — |
@@ -422,7 +432,7 @@ dozen places has a dozen chances to give itself away.
 | `8E77` | — | 1 — `2176` | st=0 |
 | `8E79` | — | 7 — `20f4` `210a` `2120` `2136` `214d` `219c` +1 | st=5 imm=00,01 cmp=00 |
 | `8E7A` | — | 2 — `21c4` `220d` | st=0 cmp=01 |
-| `8E7B` | — | 7 — `20a1` `20bb` `20ec` `221d` `2233` `2268` +1 | st=2 imm=fc |
+| `8E7B` | — | 7 — `20a1` `20bb` `20ec` `221d` `2233` `2268` +1 | st=2 |
 | `8EBC` | — | 1 — `5c72` | st=1 |
 | `8EC0` | — | 3 — `1985` `1ec6` `1fa9` | — |
 | `8EC8` | — | 2 — `14c1` `14ce` | st=1 |
@@ -433,7 +443,7 @@ dozen places has a dozen chances to give itself away.
 | `8ED0` | — | 2 — `15ab` `195d` | st=2 imm=00 |
 | `8ED5` | — | 1 — `0760` | st=1 imm=00 |
 | `8ED7` | — | 1 — `0769` | st=1 imm=00 |
-| `8EDD` | — | 4 — `06d3` `0fa0` `0fc7` `0ff3` | st=2 imm=00 |
+| `8EDD` | — | 4 — `06d3` `0fa0` `0fc7` `0ff3` | st=4 imm=00 |
 | `8EE0` | — | 3 — `1fd8` `2016` `205d` | st=1 cmp=00 |
 | `8EE1` | — | 3 — `1ff8` `203e` `200c` | st=1 |
 | `8EE4` | — | 2 — `200e` `2083` | st=1 |
@@ -476,13 +486,13 @@ dozen places has a dozen chances to give itself away.
 | `97A8` | — | 1 — `76a9` | st=1 imm=00 |
 | `97AA` | — | 1 — `1c6b` | — |
 | `97AC` | — | 1 — `76b0` | st=1 |
-| `97AD` | — | 2 — `24d3` `24dc` | st=1 |
+| `97AD` | — | 2 — `24d3` `24dc` | st=2 imm=01 |
 | `97AE` | — | 2 — `30a6` `1c72` | st=0 |
 | `97B0` | — | 1 — `76b5` | st=1 |
 | `97B1` | — | 3 — `1ac2` `1bc5` `1c08` | st=1 cmp=02 |
-| `97B2` | — | 2 — `1b2e` `1b99` | st=1 imm=04 |
+| `97B2` | — | 2 — `1b2e` `1b99` | st=0 |
 | `97B3` | — | 1 — `1aea` | st=0 |
-| `DFFF` | — | 1 — `305b` | st=1 imm=aa |
+| `DFFF` | — | 1 — `305b` | st=0 |
 | `E000` | — | 4 — `27b2` `296c` `2970` `6e39` | st=2 |
 
 ## Tally

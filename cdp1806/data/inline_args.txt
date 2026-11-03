@@ -89,9 +89,14 @@ program TAMAC-18
 #
 # Without this the weights disassemble as code, and at both call sites the
 # result is plausible enough to mislead: 2ea8 and 2ec5 render as
-# OUT 4 / LDN RA / LDN R1, inventing a PORT 4 WRITE inside the credit
-# renderer. Those are the only two OUT 4 sites in the image, so port 4 is not
-# used by this firmware at all.
+# OUT 4 / LDN RA / LDN R1, inventing a PORT 4 WRITE inside the credit renderer,
+# which does not touch any port.
+#
+# An earlier version of this comment went on to claim those were the only OUT 4
+# sites in the image and that port 4 is unused. That was wrong - the search was
+# never done. Instruction-aligned OUT 4 (0x64) occurs at 75ab and 75b5 in
+# flush_output_latches, at 5530, and at 6df3/6df9 in the reset block's X==P
+# region.
 2ecd  b,b,b
 
 # 5032: store_reader_decimal_to_page80 - converts the reader's three decimal
