@@ -3907,6 +3907,53 @@ Both uses cannot be the cell's only purpose, and nothing yet decides which.
 
 Sole caller: `77F0`, in the technician-menu block around `77F4`.
 
+## 10ad. `update_low_credit_warning` (`0x524F`)
+
+Decides each tick whether the card still has enough credit, and raises or
+tears down the warning. Called from `2DCF` inside `FUN_2D10`, the per-tick
+update — so it runs on **every** `service_tick`.
+
+```
+524F  M(8065) = 0
+5256  M(8144) == 0          -> 52B8, the clear path
+525E  M(8144) bit 7 clear   -> 52B8
+5263  SCAL get_scaled_credit        result also left in RC.0 by PLO at 5267
+5268  SMI 0x64 / LBDF 5277          scaled credit >= 100  -> ENOUGH
+526E  SCAL credit_times_rate_ge_1000
+5272  SMI 0x14 / LBNF 528B          0 -> NOT ENOUGH, 20 -> ENOUGH
+```
+
+**Two independent routes to "enough":** scaled credit ≥ 100, or
+credit × rate ≥ 1000. Only failing both reaches `528B`.
+
+| Path | Effect |
+|---|---|
+| **Enough** (`5277`) | `M(806B)`, `M(8184)`, `M(814A)` all cleared, then fall into the clear path |
+| **Not enough** (`528B`) | suppressed if `M(806B) == 0xAA`; skipped if `M(8184) != 0` (already warned); else `M(8184) = 0xAA`, `M(8149) = (M(8149) & 0x40) \| 0x80`, and `M(814A) = 0xFE` if it was zero |
+| **Clear** (`52B8`) | if `M(8149)` bit 7 is set, clear it and call `setFlags_8033_and_8036` |
+
+### `M(814A) = 0xFE` is a two-tick arm
+
+The caller consumes it immediately: `2DD3` reads `M(814A)`, increments it
+when non-zero, exits when it wraps to 0, and otherwise displays descriptor
+`6576`. `0xFE` therefore gives exactly **two** ticks of display.
+
+And `6576` is another **self-referential cycle** — `6576 → 645A → 6576`,
+dwell `0x0F` each — alternating line 2 between the RAM credit buffer at
+`804C` and the text `6B22`, **`"0 ----> "`**. So the warning flashes the
+remaining credit against an arrow toward zero.
+
+That is the third self-referential descriptor chain found (§10l, §10b): the
+display list uses them wherever a message has to persist without the code
+re-issuing it.
+
+### The guard is on contested ground
+
+`M(8144)` gates the whole routine, and that cell's meaning is disputed —
+§1a ties it to the credit screen, §10t reads it as "the dial pulse
+arrived". Nothing here settles it; this routine only needs it non-zero with
+bit 7 set.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -3963,7 +4010,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 `FUN_52f7` → **`credit_times_rate_ge_1000`**; `FUN_389a` →
 **`compare_words16`** (§10aa); `FUN_5426` →
 **`parse_config_record`**; `FUN_54b5` → **`parse_digits_into`** (§10ab);
-`proc_5370` → **`test_dial_and_reader`** (§10ac).
+`proc_5370` → **`test_dial_and_reader`** (§10ac);
+`FUN_524f` → **`update_low_credit_warning`** (§10ad).
 
 Renamed from an earlier, inaccurate name:
 `LoadEmptyLine_AND_8036_with_0xBF` → **`BlankDisplayAndClear8036Bit6`**
