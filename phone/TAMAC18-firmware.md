@@ -3261,6 +3261,63 @@ Added to `cdp1806/data/inline_args.txt`:
 | `290a` | `p,b,p` | memset — and **downward**, so the pointer is the *top* of the region (§10r) |
 | `75c6` | `b` | a stub that only steps over its byte; **auto-detection cannot infer this**, since the routine never loads it |
 
+## 10t. `flush_nopulse_fault_counter` (`0x75F9`) — a fault counter end to end
+
+The clearest worked example of the fault machinery in §10i, §10f and §10n
+acting together on one real fault.
+
+```
+75F9  RLDI R5,88BE
+75FD  LDN R5 / LBZ 760E        nothing pending -> return
+7601  ADI 0x01                 D = M(88BE) + 1, which is 5E1B's SELECTOR
+7604  SCAL 5E1B(0x17, 0x28, 0x53)
+760B  LDI 0 / STR R5           clear the pending byte
+```
+
+### Which fault
+
+`5E1B`'s first inline byte is a **low byte**, so offset `0x17` gives
+`R8 = 8417` — an odd offset from `840A`, therefore the **counter byte** of
+the log entry whose code byte sits at `8416` (§10i). The other arguments are
+the threshold `0x28` = **40**, and the code `0x53` OR'd in on reaching it.
+
+Following the two tables: code `0x53` → BCD table at `6069` → fault **34**
+→ module table at `6B74` index 22 → **הרמות  ללא  מתקף**, *lifts
+without pulse*.
+
+So the phone counts off-hook events that produced no dial pulse and raises
+fault 34 after forty of them.
+
+### Why `M(88BE)` carries two values
+
+`5E1B` clears its counter when the selector is 0 and increments it
+otherwise. The `ADI 0x01` is what maps the pending byte onto that:
+
+| `M(88BE)` | selector | effect |
+|---|---|---|
+| `0x01` | `0x02` | **increment** the counter |
+| `0xFF` | `0x00` | **clear** the counter |
+
+### Where it is armed
+
+`75CA`, which runs only while `M(807A) == 0xAA` and `RF.0 == 0x91`:
+
+```
+75DE  LDN RA (M(8144))
+75DF  LBZ 75E5 / LDI 0xFF / LSKP / LDI 0x01
+75EB  STR RC                M(88BE) = 0xFF if M(8144) != 0, else 0x01
+75EC  ADI 0x01 / LBNZ 75F6  only the 0xFF case falls through
+75F2  SCAL 75F9
+```
+
+A non-zero `M(8144)` means the pulse arrived, so the counter is cleared
+immediately. A zero `M(8144)` arms a count, which a later call — from
+`4CD4`, in the `RF.0 == 0x97` handler — applies.
+
+That is the whole life cycle of one fault: armed on a hook event, counted to
+a threshold, written into the log as a code, and finally rendered by
+`show_fault_entry` as a number plus the part to check.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -3308,7 +3365,7 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 **`build_report_template`** (§10r); `FUN_2cf0` →
 **`register_cleaning_event`** (§10o); `FUN_769c` →
 **`periodic_report_check`**; `FUN_04f0` → **`increment_counter16`**
-(§10s).
+(§10s); `proc_75f9` → **`flush_nopulse_fault_counter`** (§10t).
 
 ### Data named
 
