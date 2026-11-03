@@ -3426,6 +3426,45 @@ communication*, so this is the **DLC link**, not the card reader. The
 buffers at `8600`–`862A` and `8700`–`8794` are session working space and are
 **not** the 70-byte DLC record at `8D26` (§8a).
 
+## 10w. `service_tick` (`0x728A`) — one tick of the machine
+
+```
+728A  IDL                wait for the next interrupt - this is what makes it
+                         a TICK rather than a poll
+728C  SCAL R3,729E       periodic supervision: RF.0 triage, timers, the 0x91
+                         resolution at 7380 (§10d)
+7291  SCAL R3,2D10       per-tick state and display update; its tail is the
+                         idle display selector at 2E17 (§10l)
+7296  SCAL R3,3900       service_card_reader_link
+729A  GLO RF             RETURN RF.0, the global state register
+729C  SEX R2 / SRET R3
+```
+
+**The return value is the point of the routine.** Callers tick the machine
+and then dispatch on whatever state came back:
+
+```
+463C  SCAL 728A / LBZ 4660 / SCAL 744F / LBZ 48A9
+474A  SCAL 728A / LBZ 46EA / SCAL 744F / LBZ 48A9
+```
+
+so a zero state means "nothing happened, carry on", and a non-zero one is
+handed to `is_out_of_service_state` and the rest of the triage (§10d).
+
+### `3900` → `service_card_reader_link`
+
+Named in passing, because the evidence is unambiguous. It opens by loading
+exactly the pointer registers the dispatcher expects — `R5=8031`,
+`R6=805C`, `R7=8065`, `RA=8028`, `R9=8067`, the map recorded at `5FB1` —
+then calls **`send_reader_command`** (`365C`) at `3954` and
+**`dispatch_card_reader_message`** (`333D`) at `3962`. Both halves of the
+link, serviced once per tick.
+
+### A lighter variant
+
+The pair `2D10` + `3900` is also invoked directly at `4596`/`459A`, without
+the `IDL` or the supervision pass — a refresh rather than a full tick.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -3475,7 +3514,9 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 **`periodic_report_check`**; `FUN_04f0` → **`increment_counter16`**
 (§10s); `proc_75f9` → **`flush_nopulse_fault_counter`** (§10t);
 `proc_7572` → **`flush_output_latches`** (§10u);
-`FUN_74a7` → **`init_comm_session`** (§10v).
+`FUN_74a7` → **`init_comm_session`** (§10v);
+`proc_728a` → **`service_tick`**; `FUN_3900` →
+**`service_card_reader_link`** (§10w).
 
 ### Data named
 
