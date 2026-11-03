@@ -209,11 +209,15 @@ inline-operand forms disassemble with the right length. The field is `noflow`,
 so it applies to the one instruction rather than propagating down the
 fall-through, which suits an idiom used at isolated sites.
 
-**Using it on an address:**
+**Using it on an address** — `ghidra_scripts/SetXPInline` does all three on
+`Ctrl`-`Shift`-`X`, and `SetXPNormal` reverses it; by hand it is:
 
 1. clear the bytes there (`C`), so the wrong-length instruction goes away
 2. right-click → **Set Register Values…**, set `XP = 1` over just that address
 3. disassemble (`D`)
+
+That order is not optional. The context value is read when the instruction is
+created, so setting it under a live instruction has no visible effect.
 
 Same mechanism ARM uses for `TMode` and MIPS for its 16-bit mode.
 

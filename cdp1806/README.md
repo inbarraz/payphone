@@ -177,6 +177,31 @@ idiom:
 TAMAC-18 image: `0000` (`DIS` + `00`), the `6DD5` reset block, `51A8`
 (`OUT 6` + `'>'`) and `51B1` (`RET` + `0x24`). See `REVIEW.md` gaps G1 and G2.
 
+### One keystroke instead of three steps
+
+Two scripts in `ghidra_scripts/` do the clear-set-disassemble sequence at the
+cursor, or over the selection if there is one:
+
+| Script | Does | Default key | Menu |
+|---|---|---|---|
+| `SetXPInline` | `XP = 1`, the inline form | `Ctrl`-`Shift`-`X` | *Tools ▸ CDP1806 ▸ Set XP inline form* |
+| `SetXPNormal` | `XP = 0`, back to one byte | `Ctrl`-`Shift`-`Z` | *Tools ▸ CDP1806 ▸ Set XP normal form* |
+
+The key comes from the `//@keybinding` line in each script, so Ghidra picks it
+up as soon as the script directory is on its list — *Window ▸ Script Manager ▸
+Manage Script Directories*, then add this `ghidra_scripts` folder. To use a
+different key, either edit that line or set it in the Script Manager's
+**Key Binding** column, which overrides the file.
+
+`Ctrl`-`Shift`-`Z` is the only one worth checking for a clash on your setup;
+if it collides, rebind it there.
+
+Order matters inside the scripts and is worth knowing if you ever do it by hand:
+**clear first, then set the context, then disassemble.** The context value is
+read when the instruction is created, so setting it under a live instruction
+changes nothing you can see — which is the usual reason a first attempt at this
+appears not to work.
+
 ## Building and installing
 
 ```sh
