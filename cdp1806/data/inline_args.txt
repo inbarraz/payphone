@@ -52,6 +52,12 @@ program TAMAC-18
 # 04f0: increments a saturating 16-bit counter at an inline pointer.
 04f0  p
 
+# 54b5: parse_digits_into - takes a 2-byte destination pointer, read by
+# SEX R3 / RLXA R8 at 54b5. Without this the argument bytes disassemble as
+# code; at 54ae they render as GLO R5 / LDN R1. The tell is the call at
+# 549f: a four-byte SCAL whose next real instruction is the LBNZ at 54a5.
+54b5  p
+
 # 290a: memset, but DOWNWARD - its loop is STXD/DBNZ, so the pointer is the
 # TOP of the region filled. Args are dest pointer, fill byte, count word.
 #

@@ -3779,6 +3779,86 @@ to seconds, or to something else is not shown by this code. The ROM default
 is 1 (§10q), so an unprovisioned phone does no scaling at all — another
 reason to read `850D`–`8515` out of a live unit.
 
+## 10ab. `parse_config_record` (`0x5426`) — remote provisioning
+
+Parses a received character stream and writes the whole provisioning block
+at `850D`–`8515`. Returns 0 on success, 1 on any validation failure. **This
+is how a phone gets provisioned.**
+
+```
+5437  M(850D)                       first field
+544C  M(850E) = count, kept in R5.0 as the loop counter
+5451  loop, count times:
+        5452  SCAL 38CB             assemble the next value
+        5457  SCAL 3886             POPCOUNT it
+        545B  SMI 0x04 / LBNZ 54B1  must be EXACTLY 4 - else fail
+        5461  store to 850F, 8510, 8511, 8512
+5479  M(8513)
+548D  M(8514)  = credit_divisor
+549D  M(8515)
+549F  SCAL parse_digits_into(ptr)   two more fields
+54AA  SCAL parse_digits_into(ptr)
+54B0  LSZ 54B3                      D == 0 -> success
+```
+
+Every field is validated by `558D` and masked with `ANI 0x0F`, so the stream
+carries one digit per byte.
+
+### The popcount rule, confirmed by the ROM defaults
+
+Accept-list entries must have **exactly four set bits**. The defaults seeded
+from ROM `0D01` (§10q) both pass:
+
+| | | |
+|---|---|---|
+| `0x0F` | `00001111` | popcount 4 |
+| `0x78` | `01111000` | popcount 4 |
+
+So a valid card value is a **constant-weight code** — presumably how the
+reader's optical track encodes values, and it gives free error detection.
+The cleaning card's `0x30` has popcount 2 and is matched by
+`detect_cleaning_card` on a separate path (§10o), so it never meets this
+rule.
+
+### `parse_digits_into` (`0x54B5`) and the keypad encoding
+
+Takes a **2-byte inline destination pointer** and parses up to 11 characters
+into digit *values*:
+
+| Input | Becomes |
+|---|---|
+| `'1'`–`'9'` | 1–9 |
+| `'0'` | **10** |
+| `'A'` | 0 |
+| `'-'` | skipped |
+| anything `558D` rejects | skipped |
+
+`'0'` → 10 is the **keypad index encoding** of §10f, where index `0x0A` is
+the `0` key — so the wire format speaks keypad indices, not ASCII values.
+
+**Ghidra mis-decodes `54AE`/`54AF`** as `GLO R5 / LDN R1`; they are the
+inline pointer. The tell is the first call: the `SCAL` at `549F` is four
+bytes, yet the next real instruction is the `LBNZ` at `54A5`. Now declared
+as `54b5  p`.
+
+### Where the record comes from
+
+The only caller is `3E2B`. It first calls `5A8E` with `D = 6` and bails if
+that returns zero; `5A8E` does serial I/O — `OUT 6`, the UART data
+register, polled against `INP 3` bit 1, with a 25-unit timeout. The caller
+sits in the `3Dxx`–`3Fxx` block that drives `845C`, the DLC mode byte, and
+writes the fault log at `3F83`/`3F8A`. It stores the result in `M(8190)`.
+
+So this is **remote provisioning over the DLC link**: the accept list, the
+credit divisor and the rest of `850D`–`8515` can all be set from the far
+end. Which is exactly consistent with §10q — those cells are
+battery-backed, and the ROM only seeds defaults at cold start.
+
+**Still unnamed:** `558D`, the per-character validator, and `38CB`, which
+assembles the byte that gets popcounted. Note `558D` here is a *different*
+routine from the card reader ROM's `558D` — the two images share addresses
+but not meanings (§2).
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -3833,7 +3913,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 **`service_card_reader_link`** (§10w); `FUN_533e` →
 **`get_scaled_credit`**; `FUN_38e3` → **`divide_by_3`**;
 `FUN_52f7` → **`credit_times_rate_ge_1000`**; `FUN_389a` →
-**`compare_words16`** (§10aa).
+**`compare_words16`** (§10aa); `FUN_5426` →
+**`parse_config_record`**; `FUN_54b5` → **`parse_digits_into`** (§10ab).
 
 Renamed from an earlier, inaccurate name:
 `LoadEmptyLine_AND_8036_with_0xBF` → **`BlankDisplayAndClear8036Bit6`**
