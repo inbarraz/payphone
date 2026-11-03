@@ -86,6 +86,20 @@ an open question without a next action tends to stay open.
       image (§10d). `0x25` is plausibly a reader `BR25` code (§10m); `0x85` is
       in the auto-clear set but `LDI 0x85` occurs zero times, so it may be
       vestigial.
+- [ ] **What writes `0x802F`**, the second scale-bar marker. `802C`/`802D`/
+      `802E` are all per-bit measurement state around `read_card_bit`, so
+      `802F` is probably the fourth member of that group and its writer is
+      likely nearby.
+- [ ] **Name `2124`** once `1B9F` is understood. It stores `RE.0` into
+      `0x8033` then calls `1B9F`; `set_position_target` is a guess that has
+      not been earned.
+- [ ] **Confirm `1593` is a print routine.** `adc_read_byte` calls it when
+      the conversion rails at `0x00` or `0xFF`. If it prints, that path is
+      *reporting* a measurement-out-of-range rather than handling it — which
+      would tie it to a specific adjustment-menu item.
+- [ ] **`0x8109` is read once and written nowhere** (`21FB`), so that test
+      always takes the zero branch and the `M(0x8031) != 0x78` condition
+      behind it is dead. Confirm nothing outside the ROM writes it.
 - [ ] **`CA`, `CB`, `MN`, `TG`** — the phone parses them, this reader never
       sends them (`card-reader/`, item 4). Another reader model, or a
       different peripheral?
@@ -147,6 +161,20 @@ an open question without a next action tends to stay open.
 - [ ] **Record the `RLXA`-into-PC gap** in `cdp1806/REVIEW.md`.
 - [ ] **Relax the detector's word-pair matcher** to tolerate a second
       `PHI`/`PLO` (`card-reader/`, item 6).
+- [ ] **Decide whether to rename `1ABE`.** `PerformComm?` is defensible for
+      its most important use, but the routine contains **no `INP` or `OUT` at
+      all** and is entirely generic — `run_supervised_op` would be more
+      honest (§10z). The `?` is doing real work either way; this is a
+      judgement call, not a finding.
+- [ ] **Teach the analyzer `SEP RD` inline arguments.** It is a second
+      convention separate from SCRT (`card-reader/`, §idioms): `178E` reads
+      its byte with `LDA R0 / PHI RE`. Same shape as the existing options — a
+      register plus a byte count. Worth counting the sites before deciding.
+- [ ] **Duplicate constructor name in the `.slaspec`** — `0x6805` is defined
+      at both L248 and L250.
+- [ ] **Mark the reader's phase table at `2428`–`242B` as data.** It sits
+      between `clear_byte_at_0x81xx` and `port7_release`, so Ghidra
+      disassembles it as code.
 - [ ] **A `cdp1802` language variant**, once the 1806 definition is finished
       (`card-reader/`, item 7).
 - [ ] **Reconcile the blog's address `4930`** with this image (§12a). Here it
