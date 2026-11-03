@@ -349,11 +349,26 @@ Collected separately because they are not worth static effort:
       thread: the ISR is what advances the DLC session, and it also holds the
       answer to how `uart_tx_count` maps to the strings it sends. It still has
       no function boundary, which is why it has never been decompiled.
-- [ ] **Whose host was Isranet NUA `34011503`?** `131` is settled — it was the
-      dial-up number for **Isranet**, the Israeli X.25 gateway — so the phone
-      logs in to the PAD as terminal type `D1` and calls that NUA to upload its
-      record (§10at). Presumably Bezeq's payphone management system, but that is
-      not answerable from the ROM.
+- [ ] **Find Isranet PAD documentation, circa the early 1990s.** Two questions
+      hang on it (§10at):
+      **(a) Is `D1` a terminal type or a login identifier?** The ROM shows it is
+      the phone's complete answer to the `TERMINAL=` prompt — there is no third
+      prompt pattern and no other string sent — but not what that prompt was
+      asking for. A contemporary user recalls an identifier being required after
+      the modem answered, with no password. Note that the shape of a remembered
+      human login is no guide: a carrier's own identifiers follow its own
+      conventions, and a fleet account could be two characters.
+      **(b) Whose host was NUA `34011503`?** Presumably Bezeq's payphone
+      management system.
+      *Searched and not found:* general web search turns up X.25/PAD background
+      (X.3/X.28/X.29, NUI and NUA concepts) and modern Bezeq material, but
+      nothing on Isranet's own login syntax. Hebrew-language sources, archived
+      Israeli computing forums, or `Isranet` paired with `PSS`/`Datex-P` are the
+      untried angles.
+- [ ] **Why does the NUA transmit over-run by two bytes?** `uart_tx_count` is a
+      plain down-counted byte count and total sent is 1 + count, which closes
+      exactly for `"\r.\r"` and `"D1\r"` but gives 11 bytes for a 9-byte NUA
+      string — so `1A95`/`1A96`, both `FF`, go out after the CR (§10at).
 - [ ] **Create function boundaries at `0C44` and `0C57`.** Neither login step
       has one, so the decompiler cannot render them (§10as). Same problem as
       `5071`/`514B`/`5FB1` on the reader link.

@@ -5469,7 +5469,7 @@ string's first byte. The strings:
 | Address | Bytes | Reads as | Role |
 |---|---|---|---|
 | `1A86` | `0D 2E 0D` | `"\r.\r"` | wakes the PAD — the classic CR-dot-CR autobaud/attention sequence |
-| `1A89` | `44 31 0D` | `"D1\r"` | the **terminal type**, answering `TERMINAL=` |
+| `1A89` | `44 31 0D` | `"D1\r"` | the answer to `TERMINAL=` — **terminal type or login identifier, undetermined** |
 | `1A8C` | `33 34 30 31 31 35 30 33 0D` | `"34011503\r"` | the **NUA** to call, given at the `@` prompt |
 
 Only the first byte leaves here; `uart_tx_ptr`, `uart_tx_count` and
@@ -5488,8 +5488,8 @@ guess into a textbook PAD login:
 |---|---|
 | dial `131` | reach the Isranet PAD |
 | send `"\r.\r"` | CR-dot-CR is how a PAD of that era was woken and its line speed detected |
-| wait `TERMINAL=` | the PAD asking for the terminal type |
-| send `"D1"` | the answer to that prompt |
+| wait `TERMINAL=` | the PAD's first prompt |
+| send `"D1"` | the answer to it — see below |
 | wait `"@"` | the PAD's command prompt |
 | send `"34011503"` | at `@` you give the address to connect to, so this is an **Isranet NUA** |
 | send 70 bytes | the record, once the virtual circuit is up |
@@ -5500,9 +5500,43 @@ that the main thread has no sequencer (the park loop above), so the *order the
 steps actually run in* is the ISR's business and is not visible here; it is the
 PAD protocol that makes the assignment unambiguous.
 
-So the DLC side reads end to end: **dial Isranet, log in to the PAD as terminal
-type `D1`, call NUA `34011503`, and upload a 70-byte record** — a payphone
-phoning home over the national X.25 network.
+So the DLC side reads end to end: **dial Isranet, answer its prompt with `D1`,
+call NUA `34011503`, and upload a 70-byte record** — a payphone phoning home
+over the national X.25 network.
+
+### Is `D1` a terminal type or a login identifier?
+
+**Undetermined, and the ROM cannot settle it.** An earlier draft of this section
+asserted "terminal type", on nothing more than the conventional reading of the
+word `TERMINAL=`. Against that, someone who used Isranet in the period recalls
+that a login identifier was required after the modem answered (no password —
+identifier only). Either reading fits `D1`.
+
+What the image *does* bound is useful, though:
+
+- There are **exactly two** wait-for-pattern steps in the whole ROM — `0C44`
+  for `TERMINAL=` and `0C57` for `@`. No third prompt pattern exists anywhere.
+- There are **exactly three** string sends, all through the `0C20` tail. The
+  only other transmit sites are `0BF1`, which ships the binary frame from
+  `dlc_tx_frame`, and `0B09`, which is the ISR's byte-at-a-time continuation.
+- **No login-shaped string exists in the image.** A search for runs of
+  alphanumeric ASCII finds only LCD text, the `DLCA` tag, the reversed match
+  patterns, the reader reply vocabulary and the author credits at `7BC2`. Nor is
+  one sourced from RAM: `0B09` reads from `uart_tx_ptr`, which only ever holds
+  one of the three ROM strings or the frame buffer.
+
+So **`D1\r` is the phone's complete answer to the first prompt**, whatever that
+prompt was asking for. If `TERMINAL=` was Isranet's login prompt, then `D1` *is*
+the payphone's login identifier.
+
+One trap worth naming: it is tempting to argue from the *shape* of a remembered
+human login — the one recalled was `nbezeq1aaa666` — that a two-character `D1`
+cannot be a login. That argument does not hold. That identifier was a carrier's
+own, its `n`+carrier-name prefix is an internal convention, and a single sample
+fixes no format. A payphone fleet account could perfectly well be short.
+
+Settling it needs Isranet PAD documentation, which a search has so far failed to
+turn up (see `OPEN-QUESTIONS.md`).
 
 ### Cells named
 
@@ -5512,11 +5546,26 @@ phoning home over the national X.25 network.
 | `8C21` | `uart_tx_count` |
 | `8C23` | `uart_tx_index` |
 
-**Not fully pinned:** how the counts map to the strings. `R5` is 2 for both
-short strings and `0x0A` for the address, while the strings are 3, 3 and 9 bytes,
-so the count is not a plain byte length. Reading the ISR's use of
-`uart_tx_count` would settle it — and that is the same ISR, around `5071`, that
-still has no function boundary.
+### The count, and one byte that does not add up
+
+`uart_tx_count` **is** a plain byte count, counted down. The engine at `0AD6`
+loads the 16-bit value, tests it for zero (`LSNZ` on the high byte, then the
+low), stops at `0B14` when it hits zero, and `0AF0`–`0AF2` decrements and writes
+it back. `0B09` sends `M(uart_tx_ptr + uart_tx_index)` one byte per interrupt and
+`04F0` bumps the index.
+
+The primed byte at `0C37` is *outside* the count, so total sent = 1 + count:
+
+| Start | Count | Total | Bytes |
+|---|---|---|---|
+| `1A86` | 2 | 3 | `"\r.\r"` ✓ |
+| `1A89` | 2 | 3 | `"D1\r"` ✓ |
+| `1A8C` | `0x0A` | 11 | `"34011503\r"` is 9 — **then two `0xFF` filler bytes** |
+
+Two of three close exactly. The NUA step over-runs its string by two bytes and
+sends `1A95`/`1A96`, which are `FF FF`. Either the firmware really does trail two
+filler bytes after the CR — harmless to a PAD — or there is something about that
+step's count still unaccounted for. Flagged rather than explained away.
 
 ## 10. Code executed from RAM
 
