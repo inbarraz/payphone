@@ -125,6 +125,11 @@ an open question without a next action tends to stay open.
       codes are never logged, or it is a real firmware bug present in all
       three builds.
       *Settle by:* provoking fault 43 on a live unit. **Needs hardware.**
+- [ ] **Does `M(8074)` have two uses?** `read_hardware_straps` builds a
+      5-bit strap value there and `show_version_and_comm` prints it as the
+      hardware version, but `test_dial_and_reader` clears it and tests it
+      for `0xAA` — not a 5-bit value. Either the test reuses the cell as a
+      scratch flag, or the `hardware_version` name is too confident (§10ac).
 - [ ] **What `M(8030)` means**, and therefore what condition routes to
       `wait_and_triage_state` rather than the normal path at `45D6` (§10e).
 - [ ] **What `M(845D)` holds** that is worth clearing before the "1 then 3"

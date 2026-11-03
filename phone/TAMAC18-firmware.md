@@ -3857,6 +3857,56 @@ battery-backed, and the ROM only seeds defaults at cold start.
 **Still unnamed:** `558D`, the per-character validator, and `38CB`, which
 assembles the byte that gets popcounted.
 
+## 10ac. `test_dial_and_reader` (`0x5370`)
+
+The dial-and-reader test from the technician menu. It displays
+בדוק חוגה / קורא (*check dial / reader*), then runs a pattern while
+polling for keypresses and servicing the card reader.
+
+```
+5370  M(8074) = 0
+5377  GHI RF / LBZ 5380      RF.1 != 0 -> SCAL 3658(0x20), a reader command
+5380  M(8029) &= ~0x20       clear the link's "message ready" bit (§6)
+5389  SCAL 290A(805B, 0x20, 0x0010)   memset DOWNWARD -> 804C..805B spaces
+5393  SCAL 6E6B, desc 6645   "בדוק חוגה / קורא"
+53AC  SCAL get_key_with_timeout(25)
+
+      loop from 53C8:
+53CD    LDA R7 / STR R5      next pattern byte -> M(8033)
+53CF    LDA R7 / STR R6      next byte         -> M(812B)
+53D1    SCAL get_key_with_timeout(1)
+53D9    M(8074) == 0xAA ?    -> show desc 67B6, line 2 from 804C, dwell 50
+53EB    SCAL 5F35            the card reader dispatcher wrapper
+```
+
+### The pattern table at `6D17`
+
+Twelve 2-byte pairs — a value for `M(8033)` and a hold count for `M(812B)`,
+which is **24 in every entry**:
+
+```
+3C 3C 3D 3E 3E 3D 3C 29 39 39 29 3C
+```
+
+Low five bits: `11100 11100 11101 11110 11110 11101 11100 01001 11001 11001
+01001 11100`. Those are the same low bits of `M(8033)` that
+`read_hardware_straps` drives (§10k), so this walks that field through a
+fixed sequence while the technician exercises the dial and inserts a card.
+What the lines physically reach is still not established.
+
+### A tension worth flagging
+
+`M(8074)` is named `hardware_version`, from `read_hardware_straps`, which
+clears it and ORs in five strap bits — a value of `0x00`–`0x1F` that
+`show_version_and_comm` renders as two decimal digits (§10k, §10j).
+
+Here the **same cell** is cleared at `5370` and then tested for **`0xAA`**,
+which is not a 5-bit value. So either this test reuses it as a scratch
+"result ready" flag, or the `hardware_version` reading is too confident.
+Both uses cannot be the cell's only purpose, and nothing yet decides which.
+
+Sole caller: `77F0`, in the technician-menu block around `77F4`.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -3912,7 +3962,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 **`get_scaled_credit`**; `FUN_38e3` → **`divide_by_3`**;
 `FUN_52f7` → **`credit_times_rate_ge_1000`**; `FUN_389a` →
 **`compare_words16`** (§10aa); `FUN_5426` →
-**`parse_config_record`**; `FUN_54b5` → **`parse_digits_into`** (§10ab).
+**`parse_config_record`**; `FUN_54b5` → **`parse_digits_into`** (§10ab);
+`proc_5370` → **`test_dial_and_reader`** (§10ac).
 
 Renamed from an earlier, inaccurate name:
 `LoadEmptyLine_AND_8036_with_0xBF` → **`BlankDisplayAndClear8036Bit6`**
