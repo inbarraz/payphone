@@ -18,6 +18,29 @@ masks applied, `cmp` = the values it is compared against. A cell written only
 `AA`/`55` and tested for equality is a sentinel; one written `00`/`01` and
 tested for zero is a flag; one with masks is a bit field.
 
+## Two things to know before using this
+
+**`rename_data` only works where Ghidra already has a defined data item.**
+The cells marked *(no Ghidra label)* have none, so the MCP rename returns its
+usual "Rename data attempted" and changes nothing. They have no label because
+the only way the code names them is as an inline-argument byte pair - the
+operand of `increment_decimal_counter`, `clear_block_range` or
+`store_reader_decimal_to_page80`, or an entry in the `30E3` pointer list - and
+Ghidra sees instruction-stream bytes, not an operand, so it never creates a
+reference. They need labelling by hand in the GUI; the names below are the ones
+the notes use. The same holds outside RAM for `0048` and `30E3`, which Ghidra
+has disassembled as instructions: they take a comment but not a name until a
+data item exists there (see the notes, &sect;10am).
+
+**An unnamed row is not a gap in the map, it is a gap in the knowledge.** The
+ROM shows what is done to every one of these cells; what it does not show is
+what any of them *is*. Naming the rest would mean inventing meanings, and the
+signature column is the honest version of what is actually known. The rows
+worth attacking first are the ones with many sites and a clear shape - `8165`
+(11 sites, all in the idle loop), `812F` (13, walked by the `4F19`-`4FC2`
+block), `8169`, `8183`, `81B5`, `8186`, `8182` - because a cell touched from a
+dozen places has a dozen chances to give itself away.
+
 ## Page `80` — the card-reader link, the credit pools and the display frame
 
 | Addr | Name | Sites | Signature |
@@ -90,11 +113,11 @@ tested for zero is a flag; one with masks is a bit field.
 
 | Addr | Name | Sites | Signature |
 |---|---|---|---|
-| `8117` | — | 1 — `2563` | st=0 |
-| `8118` | — | 1 — `2759` | st=0 |
-| `8119` | — | 10 — `00b9` `1a26` `25d8` `2c81` `2dfd` `3191` +4 | st=2 imm=15,80 |
-| `811A` | `buf8119_ptr` | 7 — `25d4` `2652` `2c74` `2c8f` `35b7` `3b5f` +1 | st=3 imm=15 cmp=01 |
-| `811B` | `buf8119_end` | 6 — `1a5f` `2c23` `3b1a` `45f1` `7054` `72aa` | st=4 imm=19 cmp=17,18 |
+| `8117` | `recent_key_m2` | 1 — `2563` | st=0 |
+| `8118` | `recent_key_m1` | 1 — `2759` | st=0 |
+| `8119` | `recent_key_last` | 10 — `00b9` `1a26` `25d8` `2c81` `2dfd` `3191` +4 | st=2 imm=15,80 |
+| `811A` | `dial_buf_ptr` | 7 — `25d4` `2652` `2c74` `2c8f` `35b7` `3b5f` +1 | st=3 imm=15 cmp=01 |
+| `811B` | `dial_buf_end` | 6 — `1a5f` `2c23` `3b1a` `45f1` `7054` `72aa` | st=4 imm=19 cmp=17,18 |
 | `811D` | `minute_meter_timer` | 1 — `4223` | st=1 imm=3c |
 | `811F` | — | 1 — `4290` | st=0 |
 | `8122` | `rate_word_a` | 4 — `37a1` `530a` `4159` `52fc` | st=0 |
@@ -150,7 +173,7 @@ tested for zero is a flag; one with masks is a bit field.
 | `8174` | `bufDisplayString_8174` | 1 — `713f` | st=1 |
 | `8180` | `fast_timer_8180` | 6 — `3733` `3763` `4d9c` `6ecc` `6fee` `7021` | st=5 imm=19,64 |
 | `8182` | — | 4 — `1a4b` `2b33` `4b12` `73ca` | st=4 imm=00,01 |
-| `8183` | — | 6 — `26e6` `2c36` `3a33` `4b23` `72fe` `7409` | st=2 cmp=aa |
+| `8183` | `permission_valid_8183` | 6 — `26e6` `2c36` `3a33` `4b23` `72fe` `7409` | st=2 cmp=aa |
 | `8184` | `low_credit_warned` | 2 — `527e` `5295` | st=2 imm=aa |
 | `8185` | `port3_readback` | 2 — `50d9` `617e` | st=1 cmp=3f |
 | `8186` | — | 4 — `4180` `44dc` `6fc8` `7035` | st=2 imm=00,aa |
@@ -204,7 +227,7 @@ tested for zero is a flag; one with masks is a bit field.
 | `844E` | — | 5 — `3ae4` `3af8` `5b7b` `54a3` `574c` | st=0 |
 | `845A` | `pulse_count_event` | 6 — `23ae` `2f4c` `3f5f` `4252` `4cee` `76c6` | st=4 imm=00 cmp=2d |
 | `845C` | — | 19 — `1c1a` `1c26` `1c35` `1c41` `2cda` `2f30` +13 | st=13 imm=00,23,80,c0 mask=01,f0,fc cmp=c0,ca |
-| `845D` | — | 1 — `6112` | st=1 imm=00 |
+| `845D` | `ram_sentinel_845d` | 1 — `6112` | st=1 imm=00 |
 
 ## Page `85` — provisioning and the totalizer bank
 
@@ -287,7 +310,7 @@ tested for zero is a flag; one with masks is a bit field.
 | `88C0` | — | 1 — `77a6` | st=0 |
 | `88C1` | — | 1 — `39de` | st=0 |
 | `88C5` | — | 5 — `3992` `44bc` `48a9` `48f5` `6f19` | st=6 imm=00,aa mask=7f |
-| `89FA` | `stack_top` | 2 — `306b` `6e08` | st=0 |
+| `89FA` | `stack_top` *(no Ghidra label)* | 2 — `306b` `6e08` | st=0 |
 | `89FE` | — | 1 — `5c98` | st=0 |
 
 ## Pages `8A`–`8C` — the DLC / line side
@@ -327,7 +350,7 @@ tested for zero is a flag; one with masks is a bit field.
 | `8DA9` | — | 2 — `1dfb` `1e56` | st=1 |
 | `8DAA` | — | 1 — `1809` | st=0 |
 | `8DAB` | — | 8 — `0798` `0e6b` `1817` `1ddf` `1e46` `1e74` +2 | st=4 imm=00,01 cmp=02 |
-| `8DAC` | — | 7 — `0222` `0278` `0338` `0352` `05fb` `072e` +1 | st=4 imm=00,01 cmp=01 |
+| `8DAC` | `feature_flags_8dac` | 7 — `0222` `0278` `0338` `0352` `05fb` `072e` +1 | st=4 imm=00,01 cmp=01 |
 | `8DAD` | — | 2 — `04c8` `04da` | st=2 imm=01 |
 | `8DAE` | — | 1 — `060a` | st=1 imm=01 |
 | `8DB3` | — | 1 — `0b1c` | st=1 imm=01 |
@@ -462,26 +485,6 @@ tested for zero is a flag; one with masks is a bit field.
 | `DFFF` | — | 1 — `305b` | st=1 imm=aa |
 | `E000` | — | 4 — `27b2` `296c` `2970` `6e39` | st=2 |
 
-## Two things to know before using this
-
-**`rename_data` only works where Ghidra already has a defined data item.** The
-cells marked *(no Ghidra label)* have none, so the MCP rename returns its usual
-"Rename data attempted" and changes nothing. They have no label because the only
-way the code names them is as an inline-argument byte pair — the operand of
-`increment_decimal_counter`, `clear_block_range` or
-`store_reader_decimal_to_page80` — and Ghidra sees instruction-stream bytes, not
-an operand, so it never creates a reference. They need labelling by hand in the
-GUI; the names in the table are the ones the notes use.
-
-**An unnamed row is not a gap in the map, it is a gap in the knowledge.** The
-ROM shows what is done to every one of these cells; what it does not show is
-what any of them *is*. Naming the remaining 286 would mean inventing meanings,
-and the signature column is the honest version of what is actually known. The
-rows worth attacking first are the ones with many sites and a clear shape —
-`8165` (11 sites, all in the idle loop), `812F` (13, a counter walked by the
-`4F19`–`4FC2` block), `8169`, `8183`, `81B5` — because a cell touched from a
-dozen places has a dozen chances to give itself away.
-
 ## Tally
 
-399 anchored cells, **113 named**, 286 still unnamed.
+399 anchored cells, **119 named**, 280 still unnamed.

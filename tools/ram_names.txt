@@ -72,8 +72,11 @@
 8078 pulse_prev_sample
 807b saved_8183
 807d port1_readback
-811a buf8119_ptr
-811b buf8119_end
+8117 recent_key_m2
+8118 recent_key_m1
+8119 recent_key_last
+811a dial_buf_ptr
+811b dial_buf_end
 811d minute_meter_timer
 8122 rate_word_a
 8124 rate_word_b
@@ -101,6 +104,7 @@
 8167 mode_flags_8167
 8174 bufDisplayString_8174
 8180 fast_timer_8180
+8183 permission_valid_8183
 8184 low_credit_warned
 8185 port3_readback
 818d burn_ack_retry_count
@@ -111,6 +115,7 @@
 8448 cleaning_event_record
 844d coldstart_sentinel_844d
 845a pulse_count_event
+845d ram_sentinel_845d
 850e accept_list_count
 850f accept_list_0
 8510 accept_list_1
@@ -119,7 +124,10 @@
 851a minute_meter|NOLABEL
 8520 charged_period_counter|NOLABEL
 8526 units_burned_counter|NOLABEL
+8545 ram_sentinel_8545
 867b coldstart_sentinel_867b
+867d ram_sentinel_867d|NOLABEL
+87d0 ram_sentinel_87d0|NOLABEL
 885d pulse_count_report
 8866 sm_change_shadow
 8867 sm_change_current
@@ -129,5 +137,9 @@
 888e slow_timer_888e
 88bb optical_reader_fault_flag
 88bd units_spent_marker
-89fa stack_top
+88c4 ram_sentinel_88c4|NOLABEL
+89fa stack_top|NOLABEL
+8a00 ram_sentinel_8a00|NOLABEL
+8dac feature_flags_8dac
 8e10 CTRL_F000_shadow
+8efb ram_sentinel_8efb|NOLABEL

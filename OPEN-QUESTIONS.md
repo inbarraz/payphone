@@ -169,7 +169,7 @@ an open question without a next action tends to stay open.
 
 ## Naming and tooling
 
-- [ ] **286 RAM cells are still unnamed**, out of the 399 the firmware points a
+- [ ] **280 RAM cells are still unnamed**, out of the 399 the firmware points a
       register at. [`phone/RAM-MAP.md`](phone/RAM-MAP.md) has all of them with
       the signature the ROM shows — stores, immediates, `ANI` masks, comparison
       values — which is what is actually known about each. Naming them would
@@ -180,10 +180,12 @@ an open question without a next action tends to stay open.
       block), `8169`, `8183`, `81B5`, `8186`, `8182`.
 - [ ] **Label the cells Ghidra has no data item for.** `rename_data` silently
       does nothing at `8000`, `8001`, `8019`, `8026`, `8054`, `8059`, `805B`,
-      `8516`, `851A`, `8520` and `8526`, because the only way the code names
-      them is as an inline-argument byte and Ghidra never creates a reference.
-      They need a label by hand in the GUI; the intended names are in the RAM
-      map and §11.
+      `867D`, `87D0`, `88C4`, `89FA`, `8A00`, `8EFB`, `8516`, `851A`, `8520`
+      and `8526`, nor at the ROM tables `0048` and `30E3`, because the only way
+      the code names any of them is as an inline-argument byte or a pointer-list
+      entry, and Ghidra never creates a reference. Define a byte at the address
+      (`B`, or `L` for a bare label) and the rename then works. The intended
+      names are in [`phone/RAM-MAP.md`](phone/RAM-MAP.md) and §11.
 
 - [ ] **Name the soft-timer bank.** `arm_timer_set` (§10y) revealed the whole
       set: `888E`, `8131`, `8133`, `8134`, `8136`, `8128`, `8137`, `811D`.
@@ -259,6 +261,13 @@ Collected separately because they are not worth static effort:
 - [ ] **Read the hardware straps** — five drive lines and a sense on port 3
       bit 6 (§10k) — to learn what revision a given board reports.
 - [ ] **Capture the reader's reply with no card**, settling `M(8062) == 5`.
+- [ ] **Why is the ROM integrity check dormant?** `0048` holds seven ROM
+      addresses whose bytes match `integrity_magic_bytes` exactly, and the
+      `9771` verifier takes its list pointer inline, so pointing it there would
+      make the firmware self-verifying. The constant `0048` occurs nowhere in
+      the image, so nothing invokes it (§10am). Dropped in V2.8, reserved for a
+      variant, or reached some way the search missed?
+      *Settle by:* diffing another TAMAC-18 ROM version, if one can be found.
 - [ ] **Scope port 1 bit 3.** Three consecutive high ticks raise `M(8067)`
       bit 0 (`4AB9`), which is what lets the `?CC` flush run. It is the third
       sense line found on port 1 and the only one with no candidate meaning

@@ -4630,6 +4630,87 @@ from a neighbour and five of them live in registers across the whole reader link
 display, so nothing breaks, but **`8074` is also used as a general sentinel
 byte**. Do not read a value out of it without checking which writer ran last.
 
+## 10am. The integrity check, and what the data at `0x0048` is
+
+Two fourteen-byte tables of seven big-endian addresses, and one seven-byte table
+of magic values, make up a tamper check on the battery-backed RAM — with a
+dormant twin aimed at the ROM.
+
+| Table | Contents |
+|---|---|
+| `00F7`–`00FD` | `A5 56 C6 63 3B BD DA` — the magic bytes |
+| `30E3`–`30F0` | `845D 8545 867D 87D0 88C4 8A00 8EFB` — seven **RAM** addresses |
+| `0048`–`0055` | `24FD 2936 35A4 4276 4EE9 592F 73E3` — seven **ROM** addresses |
+
+### The verifier
+
+It is RAM-resident payload 2 (§10), copied from `3011` and run at `9771`, and it
+takes **the list pointer and the entry count as inline arguments**:
+
+```
+9771  SEX R3
+9772  RLXA RC          RC = the list pointer   (inline)
+9774  RLXA RD          RD = the entry count    (inline)
+9776  R6 = 00F6
+977A  SEX RC
+977B  RLXA R5          next address from the list, RC += 2
+977D  LDN R5           the byte it points at
+977E  SEX R6
+977F  IRX              R6 -> 00F7, then 00F8, ...
+9780  XOR / LBNZ 978B  compare against the magic byte
+9784  DBNZ RD,977A
+978D  M(F000) = 0      on any mismatch, kill the control register
+9792  LDI 0xFF
+```
+
+`R6` starts one byte *below* the table and the `IRX` pre-increments, so entry
+*i* is checked against `M(00F7 + i)`. The failure action is to write zero to the
+`F000` control register (§10a), which is the same thing payload 1 does when its
+checksum fails.
+
+### The RAM side is live
+
+The one call site, `3039`, passes `30E3` and `0007`. Those seven cells are
+spread deliberately across the SRAM — one per `84`/`85`/`86`/`87`/`88`/`8A`/`8E`
+page — and the **cold-start loop in `5BFD` seeds them**, walking the same two
+tables in parallel and storing each magic byte into its cell. So the check
+answers "is the battery-backed RAM still the RAM this firmware initialised?",
+and a dead battery or a swapped chip fails it.
+
+### `0048` is the ROM-side twin, and it is dormant
+
+The byte at each of the seven addresses in the `0048` list is exactly the
+corresponding magic byte — and every one of them is a **real instruction byte in
+the middle of a routine**:
+
+| Address | Byte | What it is there |
+|---|---|---|
+| `24FD` | `A5` | `PLO R5` |
+| `2936` | `56` | `STR R6` |
+| `35A4` | `C6` | `LSNZ` |
+| `4276` | `63` | `OUT 3` |
+| `4EE9` | `3B` | `BNF` |
+| `592F` | `BD` | `PHI RD` |
+| `73E3` | `DA` | `LBNZ` |
+
+Seven matches out of seven is not coincidence. Pointing the same verifier at
+this list instead of `30E3` turns it into an **anti-patch check on the EPROM**:
+it fails if anyone has modified the program image at any of those seven spots.
+Choosing ordinary instruction bytes scattered through the code — rather than a
+dedicated signature block — is what makes it awkward to defeat, because the
+checked bytes are not distinguishable from the code around them.
+
+**Nothing invokes it.** The two-byte constant `0048` does not occur anywhere in
+the 32 KB image, so no `RLDI Rn,0048` and no inline argument can reach the
+table. The mechanism is present, the data is correct and consistent, and the ROM
+check is simply never run in V2.8 — either dropped, or reserved for a variant.
+That makes `0048` the most interesting dead data in the image: it is the piece
+that would have made the firmware self-verifying.
+
+A caution for anyone patching this ROM: the check being dormant is the *current*
+reading, resting on a search for one two-byte constant. If a patched unit
+misbehaves, these seven addresses are the first thing to compare.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -4646,7 +4727,7 @@ written for the RAM copy, which is why branches in the ROM image point at
 | Payload | ROM | RAM | Does |
 |---|---|---|---|
 | 1 | `040D`, `0x3F` bytes | `9733` | interrupts off → write `F000` → 16-bit checksum over R6 bytes at R7, accumulated at `8EFA` → compare against a stored word → `copy_byte_from_8E10_to_F000` → interrupts on |
-| 2 | `3011`, `0x26` bytes | `9771` | walk a pointer list (RC) of RD entries, require every target byte to equal `M(00F7)`; on mismatch write `0x00` to `F000` and return `0xFF` |
+| 2 | `3011`, `0x26` bytes | `9771` | walk a pointer list (RC) of RD entries, require target *i* to equal `M(00F7 + i)`; on mismatch write `0x00` to `F000` and return `0xFF`. See §10am — an earlier reading had the expected value as the single constant `M(00F7)`, but the `IRX` at `977F` advances `R6` every pass, so it is a **list** |
 
 Ghidra also shows functions at `910B`, `9421`, `95BF`, `96F9`, `9708`,
 `9733` (`proc_from_040D`) and `9771` (`proc_from_3011`).
@@ -4797,6 +4878,21 @@ the ROM shows for it.
 | `818E` | `reader_z_reply_count` | 10ak |
 | `88BB` | `optical_reader_fault_flag` | 10n |
 | `88BD` | `units_spent_marker` | 10ak |
+| `8117`–`8119` | `recent_key_m2`, `recent_key_m1`, `recent_key_last` | 10al |
+| `8183` | `permission_valid_8183` | 10al |
+| `8DAC` | `feature_flags_8dac` — a 30-entry array, tested by `021B` and cleared by `034B`, both taking the index in `D` | 10al |
+| `00F7` | `integrity_magic_bytes` | 10am |
+| `845D`, `8545`, `867D`, `87D0`, `88C4`, `8A00`, `8EFB` | `ram_sentinel_*` — the seven cells the `30E3` list names | 10am |
+| `0048` | `rom_integrity_addr_list` *(comment only — no data item)* | 10am |
+| `30E3` | `ram_sentinel_addr_list` *(comment only — no data item)* | 10am |
+
+**Corrected:** `811A`/`811B` were `buf8119_ptr`/`buf8119_end`, named on the
+assumption that `8119` was the buffer base. `25DC` shows otherwise — `RLDI
+R8,8119` only sets the high byte, and `PLO R8` from `M(811A)` makes the real
+buffer `8101`–`8115`, with the index wrapping `1`↔`0x15` and `M(811B)` as the
+tail. They are now `dial_buf_ptr` / `dial_buf_end`, and `8117`–`8119` turn out
+to be a separate three-deep key history: `2563` tests it for `4,4,1` and `2759`
+for `0x0A,0x0A`.
 | `8031` | `link_resume_point` | 10ak |
 | `805C` | `credit_bulk_pool` | 10ak |
 | `805D` | `credit_drain_pool` | 10ak |
