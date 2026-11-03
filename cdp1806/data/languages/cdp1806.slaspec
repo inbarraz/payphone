@@ -34,6 +34,32 @@ define register offset=0x60 size=1 [ EF1 EF2 EF3 EF4 ];
 # simulate the physical interrupt lines
 define register offset=0x70 size=1 [ CI XI ];
 
+# ---------------------------------------------------------------------------
+# Context register, for the X == P inline-operand idiom (gap G1/G2).
+#
+# When X equals P, R(X) *is* the program counter, so any instruction that
+# increments R(X) consumes a byte from the instruction stream and the PC steps
+# over it. That makes it two bytes long instead of one. SLEIGH cannot work this
+# out while disassembling, because P and X above are ordinary data registers
+# with no value at analysis time - so it has to be TOLD, per address.
+#
+# XP = 0  the normal form: the operand byte comes from M(R(X))
+# XP = 1  the inline form:  the operand byte follows the opcode
+#
+# `noflow` keeps the setting to the one instruction rather than propagating it
+# down the fall-through, which is what you want for an idiom used at isolated
+# sites. To use it on an address:
+#
+#   1. clear the bytes there (`C`) so the wrong-length instruction goes away
+#   2. right-click -> Set Register Values..., XP = 1, over just that address
+#   3. disassemble (`D`)
+#
+# This is the same mechanism ARM uses for TMode to switch between ARM and
+# THUMB, and MIPS for its 16-bit mode.
+define register offset=0x80 size=4 contextreg;
+define context contextreg
+	XP = (0,0) noflow;
+
 define token instr (8)
 	opbyte    = (0,7)
 	opbits1_7 = (1,7)
@@ -229,12 +255,21 @@ CalcAddr16: loc is epsilon [ loc = (inst_next); ] { local t:2 = loc; export t; }
 }
 
 # 61 - 67 / OUT (1..7) / 2 / M[RX]→BUS; RX+1→RX;
-:OUT port1 is opnibble = 0x6 & portdir = 0x0 & port1 {
+#
+# OUT increments R(X), so it has an X == P inline form - see XP above. The ROM
+# uses it: 51A8 sends the ASCII '>' from the byte at 51A9, and the reset block
+# at 6DD5 does SEX 0 / REQ and then drives the latches from inline bytes.
+:OUT port1 is XP = 0 & opnibble = 0x6 & portdir = 0x0 & port1 {
 	local tmp:2;
 	getRX(tmp);
 	busOutput(port1:1, *[ram]:1 tmp);
 	tmp = tmp + 1;
 	setRX(tmp);
+}
+
+:OUT port1,imm8 is XP = 1 & opnibble = 0x6 & portdir = 0x0 & port1 ; imm8 {
+	local b:1 = imm8;
+	busOutput(port1:1, b);
 }
 
 # 6800 / STPC / STOP COUNTER / 3 / STOP CNTR CLOCK; 0 → ÷ 32 PRESCALER
@@ -464,7 +499,19 @@ CalcAddr16: loc is epsilon [ loc = (inst_next); ] { local t:2 = loc; export t; }
 
 # TODO: Include the return operation
 # 70 / RET / Return / 2 / M[RX]→(X,P); RX+1→RX, 1→IE
-:RET is opbyte = 0x70 { 
+#
+# RET increments R(X), so it has an X == P inline form. ISR_Card_Reader_Link
+# ends on one: SEX R4 at 51B0 makes X == P, and the RET at 51B1 takes the 0x24
+# at 51B2, restoring X=2 P=4. Without XP = 1 set there, 51B2 disassembles as a
+# stray DEC R4 and the function appears to run on into dead code.
+:RET imm8 is XP = 1 & opbyte = 0x70 ; imm8 {
+	local b:1 = imm8;      # token constants have no size; same trap ADCI hit
+	X = b[4,4];
+	P = b[0,4];
+	MIE = 1;
+}
+
+:RET is XP = 0 & opbyte = 0x70 { 
 	local ofs:2 = 0;
 	getRX(ofs);
 	local byte = *[ram]:1 ofs;
@@ -481,7 +528,18 @@ CalcAddr16: loc is epsilon [ loc = (inst_next); ] { local t:2 = loc; export t; }
 
 # TODO: Make sure this is correct and includes a return operation (break flow)
 # 71 / DIS / Disable / 2 / M[RX]→(X,P); RX+1→RX, 0→IE
-:DIS is opbyte = 0x71 {
+#
+# DIS increments R(X), so it has an X == P inline form - and the very first
+# instruction in the image is one. At reset P and X are both 0, so the DIS at
+# 0000 takes the 0x00 at 0001. Set XP = 1 at 0000 and that stray IDL goes away.
+:DIS imm8 is XP = 1 & opbyte = 0x71 ; imm8 {
+	local b:1 = imm8;
+	X = b[4,4];
+	P = b[0,4];
+	MIE = 0;
+}
+
+:DIS is XP = 0 & opbyte = 0x71 {
 	local ofs:2 = 0;
 	getRX(ofs);
 	local byte = *[ram]:1 ofs;
