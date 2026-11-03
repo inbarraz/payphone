@@ -4069,6 +4069,43 @@ the value exceeds 255, then `GLO RC / LBR 5268` jumps **into**
 there is an alternative entry to the credit comparison that supplies a
 4-digit decimal value instead of `get_scaled_credit`'s output.
 
+## 10ag. `wait_idle_then_blank_display` (`0x3831`)
+
+Blocks until two pending conditions clear, then tidies the display — unless
+the display is being held.
+
+```
+3833  IDL                     wait for the next interrupt
+3834  M(812F) != 0 -> 3833    a countdown still running
+383C  M(8863) != 0 -> 3833    a flag still set
+3844  M(8167) & 0x20          the display-hold flag
+384B  LBNZ 3854               held, so leave the screen alone
+384E  SCAL BlankDisplayAndClear8036Bit6
+3852  IDL / IDL               two ticks for it to render
+```
+
+The `IDL` in the loop makes this a **tick-paced wait**, not a spin.
+`M(812F)` is driven by the timer machinery — set to 50 at `497A` in
+`wait_and_triage_state`, cleared at `493B` — and `M(8863)` is set to `0xAA`
+at `3567`.
+
+### Bit 5 of `M(8167)` is a session-wide display-hold flag
+
+Not local to this routine. It is **tested at fourteen sites**, six of them
+inside the supervised-operation engine at `1ABE` (`1ACE`, `1AF2`, `1B19`,
+`1B3D`, `1B67`, `1BB4`), plus `2702`, `3844`, `402A`, `5C9C`, `5E2C`,
+`72E7` and `74B1`. Written by `LDI 0x20` at `4D8E` and `5F75`, `LDI 0xC0`
+at `31BC`, `LDI 0x80` at `4551`, `LDI 0x00` at `45AD`.
+
+Two uses pin its sense: `init_comm_session` (§10v) takes the longer timeout
+and puts בתקשורת on screen when the bit is **set**, and this routine
+declines to blank when it is **set**. Both read as *"a message is up, leave
+it"*.
+
+Sole caller: `5C57`, in `FUN_5BFD`, immediately before the first
+`GuardOrAbortCaller` call at `5C5B` (§10h). So the fault-reporting sequence
+waits for the machine to go quiet and clears the screen before starting.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -4130,7 +4167,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 `FUN_5227` → **`step_state_machine`**; `FUN_328e` →
 **`classify_into_range`**; `FUN_3270` → **`next_state_from_table`** (§10ae);
 `proc_5000` → **`digits_to_binary16`**; `FUN_3876` →
-**`shift_rc_left16`** (§10af).
+**`shift_rc_left16`** (§10af); `FUN_3831` →
+**`wait_idle_then_blank_display`** (§10ag).
 
 Renamed from an earlier, inaccurate name:
 `LoadEmptyLine_AND_8036_with_0xBF` → **`BlankDisplayAndClear8036Bit6`**
