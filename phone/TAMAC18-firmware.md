@@ -3465,6 +3465,50 @@ link, serviced once per tick.
 The pair `2D10` + `3900` is also invoked directly at `4596`/`459A`, without
 the `IDL` or the supervision pass — a refresh rather than a full tick.
 
+## 10x. `0x70DF` — why "empty line" was the wrong reading
+
+Renamed from `LoadEmptyLine_AND_8036_with_0xBF` to
+**`BlankDisplayAndClear8036Bit6`**.
+
+```
+70DF  SEX R2
+70E0  SCAL 6E6B, desc 6451
+70E6  RLDI R6,8036 / LDN R6 / ANI 0xBF / STR R6
+70EE  SRET R3
+```
+
+### It blanks both lines, not one
+
+Descriptor `6451` is a **two-link chain**:
+
+| Desc | Cursor | Line | Width | Text |
+|---|---|---|---|---|
+| `6451` | `0x01` → cmd `0x80` | 1 | 16 | `6ADE` |
+| `64CB` | `0x41` → cmd `0xC0` | 2 | 0 | `6ADE` |
+
+and `6ADE` is sixteen spaces. So the **whole display** is cleared. Reading
+it as a single blank line mis-predicts what is left on screen — a good
+reminder that in this firmware a descriptor is a *chain head*, never a
+single line (§10b).
+
+### Bit 6 of `M(8036)` is a latch, and this is half of a pair
+
+```
+70CE  M(8134) = 0x5A ; M(8036) |= 0x40     set it
+70DF  blank the display ; M(8036) &= ~0x40 clear it
+```
+
+`4574` guards on it — `LDN / ANI 0x40 / LBNZ 4583` — so `70CE` runs only
+while the bit is clear. It is also set at `5FDC` entering `show_fault_log`
+(alongside `M(8134) = 0xAA`), and cleared at `7580` and `4132`.
+
+### Callers
+
+| Site | Context |
+|---|---|
+| `3850` | after an `IDL` wait for `M(812F)` and `M(8863)` to reach zero, and only when bit 5 of `M(8167)` is clear — tidying the screen on the way out |
+| `4C76` | in `proc_4C75`, which blanks and then calls `6FB3` |
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -3517,6 +3561,10 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 `FUN_74a7` → **`init_comm_session`** (§10v);
 `proc_728a` → **`service_tick`**; `FUN_3900` →
 **`service_card_reader_link`** (§10w).
+
+Renamed from an earlier, inaccurate name:
+`LoadEmptyLine_AND_8036_with_0xBF` → **`BlankDisplayAndClear8036Bit6`**
+(§10x).
 
 ### Data named
 
