@@ -3509,6 +3509,57 @@ while the bit is clear. It is also set at `5FDC` entering `show_fault_log`
 | `3850` | after an `IDL` wait for `M(812F)` and `M(8863)` to reach zero, and only when bit 5 of `M(8167)` is clear — tidying the screen on the way out |
 | `4C76` | in `proc_4C75`, which blanks and then calls `6FB3` |
 
+## 10y. The software timer set — `arm_timer_set` (`0x70CE`) and the tick at `40F4`
+
+```
+70CE  RLDI R6,8134 / LDI 0x5A / STR R6     M(8134) = 0x5A = 90
+70D5  RLDI R6,8036 / LDN R6 / ORI 0x40 / STR R6
+70DD  SRET R3
+```
+
+Two writes, one idea: **`M(8134)` is both a mode selector and a countdown.**
+
+### The tick, prescaled
+
+```
+40F4  RLDI R5,8130 / LDN R5 / ADI 0x01 / STR R5   M(8130)++
+40FC  SMI 0x32 / LBNF 412A                        below 50, do nothing
+4100  LDI 0 / STR R5                              reset the prescaler
+4104  M(8134) == 0xAA ? RE = 40E7 : RE = 40D6
+411A  LDN RE / LBZ 412A        a zero high byte ends the table
+411E  RLXA R5                  the next counter's address
+4120  LDN R5 / LBZ 411A        already zero, skip
+4124  SMI 0x01 / STR R5        decrement it
+412A  if M(8134) == 0 -> M(8036) &= ~0x40
+```
+
+So counters tick once per **50** base ticks.
+
+### Two tables, differing by two entries
+
+| Table | Counters |
+|---|---|
+| `40D6` | `888E` `8131` `8133` **`8134`** `8136` **`8128`** `8137` `811D` |
+| `40E7` | `888E` `8131` `8133` — `8136` — `8137` `811D` |
+
+The second is the first **minus `8134` and `8128`**, and that is the whole
+trick:
+
+| Mode | `M(8134)` | Behaviour |
+|---|---|---|
+| normal, armed here | `0x5A` | `8134` is **in** the table, so it counts *itself* down — 90 prescaled units — and on reaching zero the tick clears bit 6 of `M(8036)`. A **self-expiring** arm. |
+| `show_fault_log`, armed at `5FD5` | `0xAA` | `8134` is **excluded**, so it never expires. A **latched** mode that only an explicit write ends. |
+
+### What bit 6 of `M(8036)` means
+
+"The timer set is running." `4574` guards on it — `LDN / ANI 0x40 / LBNZ
+4583` — so `arm_timer_set` only re-arms once the previous arm has expired.
+`BlankDisplayAndClear8036Bit6` (§10x) clears the bit by hand without
+touching `M(8134)`, which is why the two routines are not symmetrical.
+
+Nine callers: `37CD`, `4542`, `457F`, `4601`, `4F44`, `4F9B`, `4FBE`,
+`59A6`, `7420`.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -3565,6 +3616,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 Renamed from an earlier, inaccurate name:
 `LoadEmptyLine_AND_8036_with_0xBF` → **`BlankDisplayAndClear8036Bit6`**
 (§10x).
+
+`proc_70ce` → **`arm_timer_set`** (§10y).
 
 ### Data named
 
