@@ -3814,11 +3814,11 @@ from ROM `0D01` (§10q) both pass:
 | `0x0F` | `00001111` | popcount 4 |
 | `0x78` | `01111000` | popcount 4 |
 
-So a valid card value is a **constant-weight code** — presumably how the
-reader's optical track encodes values, and it gives free error detection.
-The cleaning card's `0x30` has popcount 2 and is matched by
-`detect_cleaning_card` on a separate path (§10o), so it never meets this
-rule.
+So **this ROM only accepts card values with four set bits** — a
+constant-weight code, which gives free error detection. Why the values are
+encoded that way is not shown here. The cleaning card's `0x30` has popcount
+2 and is matched by `detect_cleaning_card` on a separate path (§10o), so it
+never meets this rule.
 
 ### `parse_digits_into` (`0x54B5`) and the keypad encoding
 
@@ -3855,9 +3855,7 @@ end. Which is exactly consistent with §10q — those cells are
 battery-backed, and the ROM only seeds defaults at cold start.
 
 **Still unnamed:** `558D`, the per-character validator, and `38CB`, which
-assembles the byte that gets popcounted. Note `558D` here is a *different*
-routine from the card reader ROM's `558D` — the two images share addresses
-but not meanings (§2).
+assembles the byte that gets popcounted.
 
 ## 10. Code executed from RAM
 
