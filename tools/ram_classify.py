@@ -100,6 +100,14 @@ def scan(start, reg, limit=48):
             break
         if op == 0xc0:                                  # unconditional LBR: path ends
             break
+        # SEX makes the anchored register the index register, and from then on
+        # STXD, IRX, LDXA, RSXD, RLXA, SCAL and SRET all move R(X) implicitly.
+        # Tracking that properly needs a full X model; stop instead, so a
+        # signature never describes a neighbouring cell. Without this the
+        # RLDI R8,8EFA at 0416 wrongly attributes the STR R8 at 0429 to 8EFA,
+        # which by then points at 8EF9.
+        if op == (0xe0 | reg):
+            break
         if writes_d(i):
             imm = None
         i += n

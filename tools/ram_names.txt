@@ -1,5 +1,6 @@
-8000 -
-8019 dialed_digits_end|NOLABEL
+8000 scratch_8000
+8001 dial_buf_aux|NOLABEL
+8019 dial_buf_aux_top
 801a reader_tx_queue
 801b reader_tx_queue_01
 801c reader_tx_queue_02
@@ -47,9 +48,9 @@
 804d bufDisplayString_804D
 804e bufDisplayString_804E
 8051 bufDisplayString_8051
-8054 lcd_line2_bulk_digits|NOLABEL
-8059 lcd_line2_drain_digits|NOLABEL
-805b lcd_line2_end|NOLABEL
+8054 bufDisplayString_8054_bulk_digits|NOLABEL
+8059 bufDisplayString_8059_drain_digits|NOLABEL
+805b bufDisplayString_805B_end|NOLABEL
 805c credit_bulk_pool
 805d credit_drain_pool
 805e credit_value
@@ -121,7 +122,7 @@
 850f accept_list_0
 8510 accept_list_1
 8514 credit_divisor
-8516 counter4_8516|NOLABEL
+8516 totalizer4_8516|NOLABEL
 851a minute_meter|NOLABEL
 8520 charged_period_counter|NOLABEL
 8526 units_burned_counter|NOLABEL

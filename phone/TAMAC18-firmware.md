@@ -3964,11 +3964,33 @@ credit × rate ≥ 1000. Only failing both reaches `528B`.
 | **Not enough** (`528B`) | suppressed if `M(806B) == 0xAA`; skipped if `M(8184) != 0` (already warned); else `M(8184) = 0xAA`, `M(8149) = (M(8149) & 0x40) \| 0x80`, and `M(814A) = 0xFE` if it was zero |
 | **Clear** (`52B8`) | if `M(8149)` bit 7 is set, clear it and call `setFlags_8033_and_8036` |
 
-### `M(814A) = 0xFE` is a two-tick arm
+### `M(814A) = 0xFE` is a one-shot, and it sticks at `0xFF`
 
-The caller consumes it immediately: `2DD3` reads `M(814A)`, increments it
-when non-zero, exits when it wraps to 0, and otherwise displays descriptor
-`6576`. `0xFE` therefore gives exactly **two** ticks of display.
+An earlier version of this section called it a two-tick arm. It is not. The
+caller is `2DD3`:
+
+```
+2DD7  LDN RE          D = M(814A)
+2DD8  LBZ 2DEB        zero -> the other display paths
+2DDB  ADI 0x01
+2DDD  LBZ 2E6D        wrapped to 0 -> EXIT, before the store
+2DE0  STR RE          M(814A) = D
+2DE2  SCAL LoadStringForDisplay(6576)
+```
+
+With `0xFE`: the first pass increments to `0xFF`, stores it, and submits the
+descriptor. The second pass increments `0xFF` to `0x00` and the `LBZ` at `2DDD`
+branches **before** the `STR` at `2DE0` — so nothing is stored and nothing is
+displayed, and `M(814A)` is left at `0xFF` for good. Every later pass does the
+same.
+
+So the descriptor is submitted **once**, and what keeps the warning on screen is
+the self-referential chain below, not the arm. `M(814A)` returning to zero is
+the job of `524F`'s "enough credit" path at `5277`.
+
+That stuck `0xFF` matters beyond the display: `M(814A) != 0` is also one of the
+four gates on the `?CC` flush at `3924` (§10ak), so the flush stays armed for as
+long as credit is low.
 
 And `6576` is another **self-referential cycle** — `6576 → 645A → 6576`,
 dwell `0x0F` each — alternating line 2 between the RAM credit buffer at
@@ -4684,7 +4706,7 @@ their sum (§10ak).
 ### `phone/RAM-MAP.md`
 
 [`RAM-MAP.md`](RAM-MAP.md) now lists **all 399 RAM cells the firmware points a
-register at**: 122 named, 277 not. `tools/ram_classify.py` walks forward from
+register at**: 122 named, 267 not. `tools/ram_classify.py` walks forward from
 every `RLDI Rn,addr` to record what is done to the cell, and `tools/ram_map.py`
 adds the `SCAL` inline-pointer sites — stores, immediates, `ANI` masks, comparison values — and
 `tools/ram_map.py` joins that to the hand-maintained name table in
@@ -5095,7 +5117,7 @@ Renamed from an earlier, inaccurate name:
 `proc_008f` → **`dialed_prefix_is_123`** (§10ao).
 
 **The full RAM inventory is in [`RAM-MAP.md`](RAM-MAP.md)** — all 399 cells the
-firmware points a register at, 122 named and 277 not, each with the signature
+firmware points a register at, 122 named and 267 not, each with the signature
 the ROM shows for it. The counts in this file are generated, so prefer the
 tally at the foot of the map if the two ever disagree.
 

@@ -21,11 +21,30 @@ for i in range(len(d) - 4):
         t = (d[i + 2] << 8) | d[i + 3]
         if t >= 0x8000:
             anchors[t].append(i)
+# Callees known to take inline POINTER arguments, and which word positions are
+# pointers. Inferring a pointer from its value alone manufactures entries: the
+# call to 5A52 at 5AD1 is followed by 92 EB (GHI R2 / SEX RB), which is code,
+# and reading it as an address invented a cell at 92EB. So the callee has to be
+# on this list, which comes from cdp1806/data/inline_args.txt plus the ones the
+# notes establish.
+PTR_ARGS = {
+    0x1abe: (0,), 0x04f0: (0,), 0x5227: (0,), 0x54b5: (0,), 0x290a: (0,),
+    0x36b0: (0,), 0x3866: (0,), 0x6e6b: (0,),
+    0x28f9: (0, 1),        # memcpy(dest, src, len)
+    0x746d: (0, 1),        # clear_block_range(lo, hi)
+}
+rejected = 0
 for i in range(len(d) - 6):
     if d[i] == 0x68 and d[i + 1] == 0x83:
-        t = (d[i + 4] << 8) | d[i + 5]
-        if 0x8000 <= t < 0x9900:
-            anchors[t].append(i + 4)
+        callee = (d[i + 2] << 8) | d[i + 3]
+        for w in PTR_ARGS.get(callee, ()):
+            t = (d[i + 4 + 2 * w] << 8) | d[i + 5 + 2 * w]
+            if 0x8000 <= t < 0x9900:
+                anchors[t].append(i + 4 + 2 * w)
+        if callee not in PTR_ARGS:
+            t = (d[i + 4] << 8) | d[i + 5]
+            if 0x8000 <= t < 0x9900:
+                rejected += 1
 
 sig = {}
 for line in io.open('tools/ram_cells.txt'):
@@ -131,5 +150,10 @@ for lo, hi, title in PAGES:
 W('## Tally')
 W('')
 W('%d anchored cells, **%d named**, %d still unnamed.' % (tot, named, tot - named))
+W('')
+W('%d further `SCAL` inline words happened to hold a value in RAM range but' % rejected)
+W('belong to a callee with no known pointer argument, so they are not listed.')
+W('Some are real anchors whose callee signature is simply not worked out yet;')
+W('the rest are ordinary instruction bytes. See `PTR_ARGS` in `tools/ram_map.py`.')
 io.open('phone/RAM-MAP.md', 'w').write('\n'.join(out) + '\n')
 print('%d cells, %d named' % (tot, named))

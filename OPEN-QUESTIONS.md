@@ -169,8 +169,9 @@ an open question without a next action tends to stay open.
 
 ## Naming and tooling
 
-- [ ] **277 RAM cells are still unnamed**, out of the 399 the firmware points a
-      register at. [`phone/RAM-MAP.md`](phone/RAM-MAP.md) has all of them with
+- [ ] **267 RAM cells are still unnamed**, out of the 399 the firmware points a
+      register at, after dropping the cells a bad `SCAL`-pointer heuristic had
+      invented. [`phone/RAM-MAP.md`](phone/RAM-MAP.md) has all of them with
       the signature the ROM shows — stores, immediates, `ANI` masks, comparison
       values — which is what is actually known about each. Naming them would
       mean inventing meanings.
@@ -178,14 +179,28 @@ an open question without a next action tends to stay open.
       from a dozen places has a dozen chances to give itself away: `8165` (11
       sites, all in the idle loop), `812F` (13, walked by the `4F19`–`4FC2`
       block), `8169`, `8183`, `81B5`, `8186`, `8182`.
-- [ ] **Label the cells Ghidra has no data item for.** `rename_data` silently
-      does nothing at `8000`, `8001`, `8019`, `8026`, `8054`, `8059`, `805B`,
-      `867D`, `87D0`, `88C4`, `89FA`, `8A00`, `8EFB`, `8516`, `851A`, `8520`
-      and `8526`, nor at the ROM tables `0048` and `30E3`, because the only way
-      the code names any of them is as an inline-argument byte or a pointer-list
-      entry, and Ghidra never creates a reference. Define a byte at the address
-      (`B`, or `L` for a bare label) and the rename then works. The intended
-      names are in [`phone/RAM-MAP.md`](phone/RAM-MAP.md) and §11.
+- [ ] **Label the fifteen cells Ghidra still has no data item for.**
+      `rename_data` silently does nothing without one, and the only way the code
+      names any of these is as an inline-argument byte or a pointer-list entry,
+      so Ghidra never created a reference. `0048`, `8000` and `8019` are now
+      done. Still outstanding, with the name each should get:
+
+      | Address | Name |
+      |---|---|
+      | `8001` | `dial_buf_aux` |
+      | `8026` | `reader_digit2` |
+      | `8054` | `bufDisplayString_8054_bulk_digits` |
+      | `8059` | `bufDisplayString_8059_drain_digits` |
+      | `805B` | `bufDisplayString_805B_end` |
+      | `8516` | `totalizer4_8516` |
+      | `851A` | `minute_meter` |
+      | `8520` | `charged_period_counter` |
+      | `8526` | `units_burned_counter` |
+      | `867D`, `87D0`, `88C4`, `8A00`, `8EFB` | `ram_sentinel_<addr>` |
+      | `30E3` | `ram_sentinel_addr_list` |
+
+      `89FA` (`stack_top`) has a different blocker: it is the second byte of the
+      existing word at `89F9`, so that item has to be cleared first.
 
 - [ ] **Name the soft-timer bank.** `arm_timer_set` (§10y) revealed the whole
       set: `888E`, `8131`, `8133`, `8134`, `8136`, `8128`, `8137`, `811D`.

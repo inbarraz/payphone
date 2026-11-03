@@ -50,7 +50,7 @@
 806b n=3   st=2  imm=00,aa                  mask=                 cmp=aa
 806c n=1   st=0  imm=                       mask=                 cmp=
 8070 n=1   st=0  imm=                       mask=                 cmp=
-8074 n=12  st=10 imm=00,aa,dd,ff            mask=                 cmp=aa,dd
+8074 n=12  st=9  imm=00,aa,dd,ff            mask=                 cmp=aa,dd
 8077 n=2   st=1  imm=aa                     mask=                 cmp=
 8078 n=1   st=1  imm=                       mask=                 cmp=
 8079 n=2   st=0  imm=                       mask=                 cmp=aa
@@ -122,7 +122,7 @@
 8184 n=2   st=2  imm=aa                     mask=                 cmp=
 8185 n=2   st=1  imm=                       mask=                 cmp=
 8186 n=4   st=2  imm=00,aa                  mask=                 cmp=
-818c n=2   st=1  imm=                       mask=                 cmp=
+818c n=2   st=0  imm=                       mask=                 cmp=
 818d n=4   st=3  imm=00                     mask=                 cmp=64
 818e n=3   st=3  imm=80                     mask=                 cmp=
 8190 n=2   st=1  imm=                       mask=                 cmp=04
@@ -328,7 +328,7 @@
 8e77 n=1   st=0  imm=                       mask=                 cmp=
 8e79 n=7   st=5  imm=00,01                  mask=                 cmp=00
 8e7a n=2   st=0  imm=                       mask=                 cmp=01
-8e7b n=7   st=2  imm=                       mask=                 cmp=
+8e7b n=7   st=1  imm=                       mask=                 cmp=
 8ebc n=1   st=1  imm=                       mask=                 cmp=
 8ec8 n=1   st=1  imm=                       mask=                 cmp=
 8ec9 n=1   st=0  imm=                       mask=                 cmp=08
@@ -338,7 +338,7 @@
 8ed0 n=2   st=2  imm=00                     mask=                 cmp=
 8ed5 n=1   st=1  imm=00                     mask=                 cmp=
 8ed7 n=1   st=1  imm=00                     mask=                 cmp=
-8edd n=4   st=4  imm=00                     mask=                 cmp=
+8edd n=4   st=3  imm=00                     mask=                 cmp=
 8ee0 n=3   st=1  imm=                       mask=                 cmp=00
 8ee1 n=2   st=1  imm=                       mask=                 cmp=
 8ee4 n=2   st=1  imm=                       mask=                 cmp=
@@ -347,12 +347,12 @@
 8ee8 n=1   st=0  imm=                       mask=                 cmp=
 8eea n=2   st=2  imm=00,aa                  mask=                 cmp=
 8ef2 n=1   st=0  imm=                       mask=                 cmp=
-8ef3 n=1   st=1  imm=                       mask=                 cmp=
+8ef3 n=1   st=0  imm=                       mask=                 cmp=
 8ef4 n=1   st=0  imm=                       mask=                 cmp=
 8ef7 n=1   st=0  imm=                       mask=                 cmp=
 8ef8 n=3   st=2  imm=00,01                  mask=                 cmp=
 8ef9 n=1   st=0  imm=                       mask=                 cmp=
-8efa n=1   st=1  imm=00                     mask=                 cmp=
+8efa n=1   st=0  imm=                       mask=                 cmp=
 8efc n=2   st=1  imm=                       mask=                 cmp=
 8efd n=2   st=1  imm=                       mask=                 cmp=
 9797 n=3   st=1  imm=                       mask=                 cmp=
