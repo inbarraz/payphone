@@ -5538,6 +5538,36 @@ fixes no format. A payphone fleet account could perfectly well be short.
 Settling it needs Isranet PAD documentation, which a search has so far failed to
 turn up (see `OPEN-QUESTIONS.md`).
 
+### `34011503` is confirmed as an Isranet NUA, by an independent 1989 source
+
+Phrack 27's *NUA list for Datex-P and X.25 networks* has one Israeli entry, and
+its format settles the question:
+
+```
+0425                  IL         Israel
+0425 1                           Isranet
+B 0425 130 000 215               Israelbox
+```
+
+So the DNIC is `0425` and Isranet adds `1`, making the full prefix `04251`.
+Strip that from the one listed Israeli address and the national part is
+**`30000215`** — **eight digits**, beginning `3`.
+
+| | Digits | Length |
+|---|---|---|
+| Phrack 1989, `Israelbox` | `30000215` | 8 |
+| This ROM, sent at the `@` prompt | `34011503` | 8 |
+
+Same length, same leading digit, and given **bare** — no `04251` — which is
+exactly how you address a host on the network you are already dialled into, the
+packet-switching equivalent of a local call. That is independent confirmation
+that `34011503` is a genuine Isranet NUA rather than an account number, a
+password or anything else, and it is the first fact about this firmware
+corroborated from entirely outside the project.
+
+The dates line up too: the list is from 1989 and this ROM is `V2.8`, image
+`9513` — the same network era.
+
 ### Cells named
 
 | Address | Name |

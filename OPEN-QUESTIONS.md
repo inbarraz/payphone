@@ -359,7 +359,11 @@ Collected separately because they are not worth static effort:
       human login is no guide: a carrier's own identifiers follow its own
       conventions, and a fleet account could be two characters.
       **(b) Whose host was NUA `34011503`?** Presumably Bezeq's payphone
-      management system.
+      management system. *That it is an Isranet NUA is now settled* — Phrack
+      27's 1989 NUA list gives Isranet's prefix as `04251` and its one Israeli
+      address an eight-digit national part, `30000215`, matching this ROM's
+      eight-digit `34011503` in length and leading digit (§10at). Whose host it
+      was is still open.
       *Searched and not found:* general web search turns up X.25/PAD background
       (X.3/X.28/X.29, NUI and NUA concepts) and modern Bezeq material, but
       nothing on Isranet's own login syntax. Hebrew-language sources, archived

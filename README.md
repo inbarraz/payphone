@@ -25,6 +25,17 @@ The repo includes the ROMs, the Ghidra CPU definition and (soon) the Ghidra proj
   Hebrew and Latin strings, and walks LCD descriptor chains. Handles the
   ROM's `0xA0`-based Hebrew encoding and its per-string byte order.
 
+## External corroboration
+
+The phone uploads its call records over **Isranet**, Israel's X.25 network,
+dialled on `131`. Phrack 27's [NUA list for Datex-P and X.25
+networks](https://phrack.org/issues/27/nua-list-for-datex-p-and-x25-networks)
+(1989) gives Israel's DNIC as `0425` and Isranet as `04251`, and its one Israeli
+address — `0425 130 000 215` — has an eight-digit national part. The NUA this
+firmware calls, `34011503`, is eight digits with the same leading `3`, sent bare
+as a same-network address. See
+[`phone/TAMAC18-firmware.md`](phone/TAMAC18-firmware.md) §10at.
+
 ## Background
 
 The hardware phase of this project is written up (in Hebrew) at
