@@ -2859,7 +2859,7 @@ image.
 | | |
 |---|---|
 | `46EE` | `M(88BA) == 0xAA`? |
-| `46F5` | `SCAL 2CF0` → clears `M(88BA)` at `2CFC`, then `LBR 36D5` |
+| `46F5` | `SCAL 2CF0` = `register_cleaning_event` — clears `M(88BA)`, then `LBR 36D5` |
 | `36D6` | `store_byte_84xx(0x48, 0x79)` → **`M(8448) = 0x79`**, recording the event in the same `84xx` page as the fault log |
 | `36DD` | `SCAL 6E6B`, desc `00E5` → פעולת הנקיון / נרשמה — ***the cleaning operation has been registered*** |
 | `46F9` | `LBR 4AF6`, back to the main idle loop |
@@ -2867,6 +2867,21 @@ image.
 So inserting the cleaning card makes the phone **log the maintenance event
 and confirm it on screen**. The flag is consumed once and cleared, so the
 message appears exactly once per insertion.
+
+**`register_cleaning_event` is one function split across two ROM regions.**
+`2CF0` saves `R5`, `RC`, `RD`, clears the flag and branches to `36D5`; the
+keypad table at `2D00` (§10f) occupies the gap. The continuation ends with
+
+```
+36E3  LDI 0xFF / STXD
+36E6  M(812D) = 0x96              a 150-tick timer
+36ED  IDL / LDN RC / LBNZ 36ED    hold the message up until it expires
+36F3  IRX / LDXA
+36F5  RLXA RD / RLXA RC / RLXA R5 / DEC R2 / SEX R2 / SRET R3
+```
+
+and that restore matches `2CF0`'s saves exactly — which is what proves the
+two halves are one routine rather than a branch into unrelated code.
 
 ### `store_byte_84xx` (`0x5E6E`)
 
@@ -3227,7 +3242,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 `proc_29e7` → **`show_optical_reader_fault`** (§10n);
 `FUN_2a0c` → **`detect_cleaning_card`**; `FUN_5e6e` →
 **`store_byte_84xx`** (§10o); `FUN_2c97` →
-**`build_report_template`** (§10r).
+**`build_report_template`** (§10r); `FUN_2cf0` →
+**`register_cleaning_event`** (§10o).
 
 ### Data named
 
