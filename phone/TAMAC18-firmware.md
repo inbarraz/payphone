@@ -2830,6 +2830,68 @@ live code in the `6069` table lands inside the table, so it is not a
 systematic misreading of the index arithmetic. Since no byte of code differs
 between the three builds (§1a), it would be present in all of them.
 
+## 10o. The cleaning card, and how card types are told apart
+
+`detect_cleaning_card` (`0x2A0C`, was `FUN_2a0c`) recognises the **reader
+cleaning card**. It is a four-way AND over one card value and three state
+bytes, and a clean leaf function with a proper save/restore — unusual in this
+image.
+
+```
+2A0C  RSXD RC / RSXD RD / STXD     save RC, RD and D
+2A11  RLDI RD,88BA                 the result cell
+2A15  M(813B) != 0    -> fail
+2A1D  M(8060) != 0x30 -> fail      <- card_packed_byte, i.e. THE CARD TYPE
+2A27  M(805E) != 0x78 -> fail
+2A31  M(813F) != 0x0B -> fail
+2A3B  LDI 0xAA / LSKP
+2A3E  LDI 0x00
+2A40  STR RD                       M(88BA) = 0xAA or 0
+2A41  IRX / LDXA / RLXA RD / RLXA RC / DEC R2 / SEX R2 / SRET R3
+```
+
+### What the flag does
+
+| | |
+|---|---|
+| `46EE` | `M(88BA) == 0xAA`? |
+| `46F5` | `SCAL 2CF0` → clears `M(88BA)` at `2CFC`, then `LBR 36D5` |
+| `36D6` | `store_byte_84xx(0x48, 0x79)` → **`M(8448) = 0x79`**, recording the event in the same `84xx` page as the fault log |
+| `36DD` | `SCAL 6E6B`, desc `00E5` → פעולת הנקיון / נרשמה — ***the cleaning operation has been registered*** |
+| `46F9` | `LBR 4AF6`, back to the main idle loop |
+
+So inserting the cleaning card makes the phone **log the maintenance event
+and confirm it on screen**. The flag is consumed once and cleared, so the
+message appears exactly once per insertion.
+
+### `store_byte_84xx` (`0x5E6E`)
+
+```
+5E6E  RLDI R8,8442
+5E72  LDA R3 / PLO R8    arg1 is a LOW BYTE, so R8 = 0x84:arg1
+5E74  LDA R3 / STR R8    M(R8) = arg2
+```
+
+Two inline bytes, `b,b` — the analyzer detects this one unaided. Note `PLO R8`
+*replaces* the low byte, so the `8442` in the `RLDI` only sets the page; the
+offset is the argument. Other call sites: `5F68` → `M(8445) = 0x70`,
+`3095` → `M(8444) = 0x62`. It is the one-byte sibling of `5E1B` (§10i),
+which does the counter-and-threshold work on the same page.
+
+### `M(8060)` is the card type
+
+The same byte is discriminated immediately below the cleaning check:
+
+```
+4701  M(8060) == 0x78, with bit 3 of M(8139)  ->  RF.0 = 0x75 = NO_INTL_CALLS
+```
+
+So the packed nibble pair the reader returns (`PackCardNibbles`, §10m) is how
+the phone tells card types apart — `0x30` is the cleaning card, `0x78` a card
+barred from international calls. That is the same cell the idle selector
+reads for card presence (§10l), so one byte carries both "is there a card"
+and "what kind".
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -2871,7 +2933,9 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 **`show_version_and_comm`** (§10j); `FUN_6173` →
 **`read_hardware_straps`** (§10k); `FUN_36b0` → **`PackCardNibbles`**
 (§10m); `FUN_5e8b` → **`show_fault_entry`**;
-`proc_29e7` → **`show_optical_reader_fault`** (§10n).
+`proc_29e7` → **`show_optical_reader_fault`** (§10n);
+`FUN_2a0c` → **`detect_cleaning_card`**; `FUN_5e6e` →
+**`store_byte_84xx`** (§10o).
 
 ### Data named
 
