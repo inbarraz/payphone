@@ -49,6 +49,13 @@ program TAMAC-18
 # observed arguments are 1C7E, 1C91 and 1CA4, all of which point into RAM.
 1abe  p
 
+# 36b0: packs the two card-data nibbles at 8024/8025 into one byte at the
+# destination given as a 2-byte inline pointer. SEX R3 / RLXA R8 at 36b0-36b1
+# is the canonical inline-arg read. Without this the argument bytes decode as
+# instructions: at 33a1 they read as GLO R0 / IDL, and an IDL inside a card
+# reader message handler would hang the dispatcher - which is the tell.
+36b0  p
+
 # 5e1b: a fault-log counter updater. The inline reads are scattered and
 # conditional - LDA R3 at 5e20, 5e36, 5e41 and 5e55, plus bare INC R3 skips at
 # 5e28 and 5e5a - but EVERY path consumes exactly three bytes, so one callee

@@ -1976,7 +1976,9 @@ and so on down the list.
 
 ### Values that are tested but never produced
 
-`0x25`, `0x26`, `0x85` and `0x91` are equality-tested but have **no
+`0x25` and `0x26` **arrive from the card reader** as `BR` fault codes — see
+§10m, where the `BR` handler packs the reader's two digits and does
+`PLO RF`. `0x85` and `0x91` are equality-tested but have **no
 `LDI` anywhere in the image** — `LDI 0x85` in particular occurs zero times.
 `0x91` is explained above (it must be set by an interrupt handler or restored
 from battery-backed RAM). The others are either set the same way or are
@@ -2550,6 +2552,130 @@ which relies on `OUT` auto-incrementing `X` and therefore covers `8034` and
 acts on the low bits of `8033` between the write and the read, but that
 handler has not been found. **Do not assume `8033` is a port latch.**
 
+## 10l. How the phone knows there is no card
+
+**The phone has no card-presence input of its own.** Everything it knows
+about the card comes from messages the reader sends over the serial link
+(§6, §7). The chain is: reader message → `M(8062)` → `M(8069)` → the idle
+display selector.
+
+### The idle display selector (`0x2E17`)
+
+```
+2E17  RLDI RE,8062 / LDN RE / SMI 0x05 / LBZ 2E2E   M(8062) == 5 -> choose
+2E21  RLDI RE,8069 / LDN RE / XRI 0x6A / LBNZ 2E2E  else, not the fault value
+2E2B  LBR 2E6D                                      otherwise show nothing
+
+2E2E  M(8191) != 0      -> 2E52, desc 6696
+2E36  M(8501) == 0      -> 2E52
+2E3E  M(81B5) == 0x42   -> 2E52
+2E49  SCAL 6E6B, desc 66BA     <- THE INSERT-CARD PROMPT
+```
+
+`66BA` chains `66C3` (line 2 from the RAM buffer at `804C`) into `64D4`, and
+`64D4` is a **four-link cycle that loops back on itself**, dwell `0x96` = 150:
+
+| Desc | Text |
+|---|---|
+| `64D4` | הכנס  טלכרט   או |
+| `64DD` | העבר כרטיס אשראי |
+| `64E6` | `INSERT TELECARD/` |
+| `64EF` | `SWIPE CREDIT CRD` → next = `64D4` |
+
+That self-reference is what makes the prompt alternate Hebrew and English
+indefinitely, paced by the dwell countdown in `LCD_RenderNextDescriptor`
+(§10b). It is the clearest demonstration that the display list is a real
+sequencer and not a one-shot.
+
+### Where `M(8062)` comes from
+
+In the `CA`/`CB`/`CO` handler at `33C5`:
+
+```
+33C6  SCAL PackCardNibbles(8060)   packs the digits at 8024/8025
+33CC  SCAL 3886                    returns a POPCOUNT in D
+33D4  SDI 0x07                     D = 7 - popcount
+33DA  STR R9                       M(8062) = that
+```
+
+and the same handler sets the status byte from it:
+
+| `M(8062)` | Result |
+|---|---|
+| 3 | `33EB`, checks a table at `850E` |
+| 4 or 5 | `3415`: `M(8061) = 0xAA`, `M(8069) = 0xAA` |
+| otherwise | `3406` → `3410`: `M(8069) = 0x69` |
+
+### `M(8069)` is the card-session status
+
+Four values, written **only** by reader-message handlers, and enumerated by
+the chained `SMI 0x6A / ADI 1 / ADI 0x14 / SMI 0x55` ladder at `7336` in
+`FUN_729E`:
+
+| Value | Set at | Meaning |
+|---|---|---|
+| `0x55` | `313C` | set immediately before `SCAL 365C` (`send_reader_command`) — a command is outstanding |
+| `0x69` | `3214`, `3410` | card data accepted |
+| `0x6A` | `33BE` | in the **`BR` fault handler** |
+| `0xAA` | `341C` | the `M(8062)` 4-or-5 outcome |
+
+### What is inference
+
+That **`M(8062) == 5` is the empty-reader signature**. The code path is
+solid — `8062` of 4 or 5 yields status `0xAA`, and `8062 == 5` is what lets
+the selector reach the insert-card prompt — but *why* an empty reader should
+yield `7 − popcount == 5`, i.e. two bits set, has not been verified against
+the reader itself. Confirming it needs the reader's reply with an empty slot.
+
+### A dead branch worth knowing about
+
+`46AE` also loads `64D4`, but it is **unreachable**: `469E` calls `75BB`,
+which is `LDI 0xFF / SEX R2 / SRET R3` and therefore always non-zero, so the
+`LBNZ 46BA` at `46A2` is always taken and `46C3` shows `650A`
+("כרטיס טלכרט בלבד / `TELECARD    ONLY`") instead. Since no byte of code
+differs between the three builds (§1a), that branch is dead in all of them.
+
+## 10m. Reader fault codes become `RF.0`
+
+`PackCardNibbles` (`36B0`, was `FUN_36b0`) takes its destination as a
+**2-byte inline argument**:
+
+```
+36B0  SEX R3          X = R3, which after a SCAL points at the inline args
+36B1  RLXA R8         R8 = dest, R3 advanced past it
+36B3  RLDI R9,8024
+36B7  LDA R9 / SHL x4 / SEX R9 / OR    pack M(8024)<<4 | M(8025)
+36BE  STR R8
+```
+
+Declared as `36b0  p` in `cdp1806/data/inline_args.txt`. Undeclared, `33A5`
+decodes as `GLO R0 / IDL` — and **an `IDL` inside a card-reader message
+handler would hang the dispatcher**, which is the tell that those bytes are
+data rather than code.
+
+That matters beyond tidiness. In the **`BR` (fault) handler** at `33A0`:
+
+```
+33A1  SCAL PackCardNibbles(8000)
+33A7  PLO RF                      <- RF.0 = the packed reader fault code
+33A8  LBZ 33BF
+33AB  if M(8069) == 0xAA then RF.0 = 0xA9   (error reading card)
+33BE  M(8069) = 0x6A
+```
+
+**So a reader `BRxx` fault code becomes `RF.0` directly.** The reader's BR
+suffixes run **01–49** (its own table at `1198`, §`card-reader/`), which is
+exactly where the two status codes `0x25` and `0x26` sit — the ones tested in
+this image but **never written by any `LDI`** (§10d). They arrive over the
+wire.
+
+This also explains the shape of the whole status space: every code is valid
+packed BCD **except `0xA9`**, which is deliberately outside BCD so the
+internally generated "error reading card" cannot collide with a reader code.
+And `0x26`'s message — תקלה בקורא אופטי או בכרטיס תשלום, *fault in the
+optical reader or in the payment card* — is exactly what a reader-originated
+fault should say.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -2589,7 +2715,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 **`WaitForBuffer8119`** (§10g); `FUN_5df9` →
 **`GuardOrAbortCaller`** (§10h); `FUN_609c` →
 **`show_version_and_comm`** (§10j); `FUN_6173` →
-**`read_hardware_straps`** (§10k).
+**`read_hardware_straps`** (§10k); `FUN_36b0` → **`PackCardNibbles`**
+(§10m).
 
 Data named: `8037` → `LCD_verify_errcount`; `8038` → `LCD_next_descriptor`;
 `803A` → `LCD_dwell_countdown`; `803B` → `LCD_last_command`.
