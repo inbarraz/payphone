@@ -2676,6 +2676,129 @@ And `0x26`'s message — תקלה בקורא אופטי או בכרטיס תשל
 optical reader or in the payment card* — is exactly what a reader-originated
 fault should say.
 
+## 10n. The module-name table (`0x6B74`) — faults name the part to check
+
+31 word pointers at `6B74`–`6BB1`, each to a fixed **16-byte** Hebrew string
+naming an assembly. This is the "קוד מכלול" (*module code*) subsystem whose
+label sits at `69DF`, and it completes the fault log: the readout tells a
+technician a number **and the part to check**.
+
+### How an entry is rendered
+
+`show_fault_entry` (`5E8B`, was `FUN_5e8b`), called from `show_fault_log` at
+`6031` with the BCD fault number already looked up from `6069`:
+
+```
+5E8E  ANI 0xF0 / SHR x4 / ADI 0x30 / STR R8   high digit -> 8041
+5E9C  LDX / ANI 0x0F / ADI 0x30 / STR R8      low digit  -> 8042
+5EA7  LDX / SMI 0x10 / LBNF ...               BCD -> binary by subtraction
+5EB5  GLO R8 / ADD / SMI 0x0C / SHL           index = (number - 12) * 2
+5EBC  SCAL 6E6B, desc 6789                    LINE 1, col 5, width 11, from 8041
+5EC4  RLDI R8,6B74 / ADD / PLO R8 / RLXA R8   the module pointer
+5ED2  copy 16 bytes to 804C
+5EE2  SCAL 6E6B, desc 679B                    LINE 2 from 804C
+```
+
+Two descriptors cooperate on line 1: `670B` draws the label
+תקלה מס':  -בדוק (*Fault no.: - check*) with a gap, and `6789` drops the two
+digits into **column 5, width 11**. The module name then fills line 2.
+
+**So the module index is `fault number - 12`**, covering numbers **12–42**.
+
+### The table
+
+| idx | Fault | Module |
+|---|---|---|
+| 0 | 12 | חוגת   לחיצים |
+| 1 | 13 | שפופרת |
+| 2 | 14 | כרטיס ראשי |
+| 3 | 15 | *(unused — filler)* |
+| 4 | 16 | *(unused — filler)* |
+| 5 | 17 | *(unused — filler)* |
+| 6 | 18 | *(unused — filler)* |
+| 7 | 19 | סוללה |
+| 8 | 20 | לחצן החלפת כרטיס |
+| 9 | 21 | לחצן  חיוג  חוזר |
+| 10 | 22 | *(unused — filler)* |
+| 11 | 23 | קורא אופטי |
+| 12 | 24 | קורא מגנטי |
+| 13 | 25 | *(unused — filler)* |
+| 14 | 26 | *(unused — filler)* |
+| 15 | 27 | *(unused — filler)* |
+| 16 | 28 | *(unused — filler)* |
+| 17 | 29 | *(unused — filler)* |
+| 18 | 30 | *(unused — filler)* |
+| 19 | 31 | *(unused — filler)* |
+| 20 | 32 | גביות  ללא הצלחה |
+| 21 | 33 | שפופרת מורמת שוא |
+| 22 | 34 | הרמות  ללא  מתקף |
+| 23 | 35 | כ' ראשי/ק' אופטי |
+| 24 | 36 | כ' ראשי/מ תחזוקה |
+| 25 | 37 | כ' ראשי/מ' אשראי |
+| 26 | 38 | ארקה   מנותקת |
+| 27 | 39 | כ' ראשי/מ' אשראי |
+| 28 | 40 | מ' גביה ללא חיוג |
+| 29 | 41 | טרם בוצעה תקשורת |
+| 30 | 42 | תאורה    חיצונית |
+
+Eleven entries point at `68CF`, a message used elsewhere
+(בקשתך אושרה-חייג), which is simply filler for fault numbers that are never
+raised. Index 27 repeats index 25's string.
+
+### Fault code → module, end to end
+
+Combining the BCD table (§10f) with this one gives the full chain
+**code → number → module** for every live entry at `6069`:
+
+| Code | № | Module |
+|---|---|---|
+| `46` | 14 | כרטיס ראשי |
+| `48` | 43 | **out of range — see below** |
+| `49` | 43 | **out of range — see below** |
+| `50` | 14 | כרטיס ראשי |
+| `51` | 14 | כרטיס ראשי |
+| `52` | 33 | שפופרת מורמת שוא |
+| `53` | 34 | הרמות  ללא  מתקף |
+| `54` | 23 | קורא אופטי |
+| `55` | 23 | קורא אופטי |
+| `57` | 12 | חוגת   לחיצים |
+| `58` | 14 | כרטיס ראשי |
+| `59` | 20 | לחצן החלפת כרטיס |
+| `60` | 23 | קורא אופטי |
+| `61` | 35 | כ' ראשי/ק' אופטי |
+| `62` | 40 | מ' גביה ללא חיוג |
+| `63` | 24 | קורא מגנטי |
+| `64` | 40 | מ' גביה ללא חיוג |
+| `65` | 21 | לחצן  חיוג  חוזר |
+| `66` | 13 | שפופרת |
+| `67` | 19 | סוללה |
+| `68` | 36 | כ' ראשי/מ תחזוקה |
+| `69` | 37 | כ' ראשי/מ' אשראי |
+| `73` | 41 | טרם בוצעה תקשורת |
+| `74` | 41 | טרם בוצעה תקשורת |
+| `75` | 38 | ארקה   מנותקת |
+| `76` | 39 | כ' ראשי/מ' אשראי |
+| `77` | 23 | קורא אופטי |
+| `78` | 42 | תאורה    חיצונית |
+
+Several codes share a module, which is expected: four distinct codes
+(`46`, `50`, `51`, `58`) all point at כרטיס ראשי (*main card*), and four
+(`54`, `55`, `60`, `77`) at קורא אופטי (*optical reader*). The code
+identifies the test; the module identifies the part.
+
+### An apparent off-by-one
+
+Codes **`0x48` and `0x49` map to fault number 43**, giving index 31 — one
+past the end. The table ends at `6BB1` and the strings begin at `6BB2`, so
+index 31 reads the word `0x20AD`, which is **code**
+(`48 57 17 68 2b 94 ...`), not a pointer. Those two codes would therefore
+display garbage on line 2.
+
+Either they are never logged, or this is a real firmware bug. Every other
+live code in the `6069` table lands inside the table, so it is not a
+systematic misreading of the index arithmetic. Since no byte of code differs
+between the three builds (§1a), it would be present in all of them.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -2716,7 +2839,7 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 **`GuardOrAbortCaller`** (§10h); `FUN_609c` →
 **`show_version_and_comm`** (§10j); `FUN_6173` →
 **`read_hardware_straps`** (§10k); `FUN_36b0` → **`PackCardNibbles`**
-(§10m).
+(§10m); `FUN_5e8b` → **`show_fault_entry`** (§10n).
 
 ### Data named
 
