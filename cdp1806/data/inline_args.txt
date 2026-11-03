@@ -49,6 +49,19 @@ program TAMAC-18
 # observed arguments are 1C7E, 1C91 and 1CA4, all of which point into RAM.
 1abe  p
 
+# 04f0: increments a saturating 16-bit counter at an inline pointer.
+04f0  p
+
+# 290a: memset, but DOWNWARD - its loop is STXD/DBNZ, so the pointer is the
+# TOP of the region filled. Args are dest word, fill byte, count word.
+290a  p,b,p
+
+# 75c6: a stub - INC R3 / SEX R2 / SRET R3. It does nothing but SKIP one
+# inline byte, so a call to it is disabled functionality whose argument still
+# sits in the ROM. Auto-detection cannot infer this: the routine never loads
+# the byte, it only steps over it.
+75c6  b
+
 # 36b0: packs the two card-data nibbles at 8024/8025 into one byte at the
 # destination given as a 2-byte inline pointer. SEX R3 / RLXA R8 at 36b0-36b1
 # is the canonical inline-arg read. Without this the argument bytes decode as

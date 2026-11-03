@@ -3198,6 +3198,69 @@ three writes here are the only `RLDI` references to them. The buffer must be
 reached through a pointer computed elsewhere, so the claim that this record
 is transmitted is unproven. Find the reader before relying on it.
 
+## 10s. `periodic_report_check` (`0x769C`) — every 45 calls
+
+Called once per pass of the main idle loop, from `4B81`, and from nowhere
+else. Two independent threshold checks, both at 45 (`0x2D`):
+
+```
+769C  M(885D) >= 45 ?
+76A6    M(885D) = 0
+76A9    M(97A8) = M(97AC) = M(97B0) = 0
+76BA    M(8859) = 0xA5                  arm the request token
+76C2    SCAL build_report_template      2C97
+76C6  M(845A) >= 45 ?
+76D0    M(845A) = 0
+76D4    SCAL store_byte_84xx(0x46,0x71) M(8446) = 0x71
+```
+
+Both tests are `SMI 0x2D` / `LBNF`, so they fire at **45 or more** — a
+counter that overshoots still triggers.
+
+### What the counters count
+
+Both are incremented at a single site, together, inside `FUN_420E`:
+
+```
+4252  RLDI R7,845A / LDN R7 / ADI 0x01 / STR R7
+425A  RLDI R7,885D / LDN R7 / ADI 0x01 / STR R7
+4263  SCAL R3,1C5F
+4268  SCAL R3,77AD
+```
+
+and `FUN_420E` opens with `SCAL 0100` — sampling **EF3, the hook switch** —
+then checks `card_permission_bits` against `0x96`. So these count completed
+call events: **every 45 calls the phone prepares a report record and logs an
+event**. (`FUN_420E` is never reached by `SCAL`; it is branched to.)
+
+### The `97xx` counter records
+
+`1C5F` calls `increment_counter16` (`04F0`) on `97A6`, `97AA` and `97AE` —
+three counters four bytes apart. The three cells this routine clears,
+`97A8`, `97AC` and `97B0`, are the `+2` byte of each. So each record is
+{16-bit count, byte}, and the byte is zeroed when a report is prepared —
+read-and-clear, the same discipline `build_dlc_record` uses (§8a).
+
+`increment_counter16` saturates rather than wrapping:
+
+```
+04F0  SEX R3 / RLXA RC          RC = inline pointer
+04F3  LDA RC / SMI 0xFF / LBNZ 04FF
+04F9  LDN RC / SMI 0xFF / LBZ 0508     both 0xFF -> leave it alone
+04FF  LDN RC / ADI 0x01 / STR RC
+0503  DEC RC / LDN RC / ADCI 0x00 / STR RC
+```
+
+### Three more inline signatures declared
+
+Added to `cdp1806/data/inline_args.txt`:
+
+| Callee | Signature | Why |
+|---|---|---|
+| `04f0` | `p` | the counter pointer |
+| `290a` | `p,b,p` | memset — and **downward**, so the pointer is the *top* of the region (§10r) |
+| `75c6` | `b` | a stub that only steps over its byte; **auto-detection cannot infer this**, since the routine never loads it |
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -3243,7 +3306,9 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 `FUN_2a0c` → **`detect_cleaning_card`**; `FUN_5e6e` →
 **`store_byte_84xx`** (§10o); `FUN_2c97` →
 **`build_report_template`** (§10r); `FUN_2cf0` →
-**`register_cleaning_event`** (§10o).
+**`register_cleaning_event`** (§10o); `FUN_769c` →
+**`periodic_report_check`**; `FUN_04f0` → **`increment_counter16`**
+(§10s).
 
 ### Data named
 
