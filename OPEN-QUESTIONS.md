@@ -74,20 +74,6 @@ an open question without a next action tends to stay open.
 
 ## The card reader link
 
-- [ ] **What loads the card's credit into `805C`/`805D`?** This is the one
-      missing link in the charging chain (§10ak). Every write to either cell
-      that exists in the image is a decrement, a zero, or the `?CC` move that
-      only shuffles between them — so with a cold battery the first metering
-      pulse borrows at `2D88` and returns `RF.0 = 0x82`, "no credit", and the
-      phone can never bill anything. Something must load them.
-      *Already ruled out:* every `RLDI Rn,805C`/`805D`/`805E` in the ROM;
-      `805C` and `805D` as `SCAL` inline pointer arguments; `746D`, which is a
-      block clear; and both RAM-resident payloads (`040D` → `9733`,
-      `3011` → `9771`), which touch only `F000` and the checksum cells.
-      *Settle by:* reading `290A` (called with `805B` as a pointer at `538D`,
-      `57BB`, `5872`) and the `8054`–`805F` field area that
-      `render_credit_indicator` indexes at `2E98`/`2EB1` — the loader is most
-      likely a field copy out of a reader reply rather than a named store.
 - [ ] **What does the reader do with `F` (`0CD9`) and `EF` (`10E6`)?** The
       phone's side is settled — `?F` for one unit, `?EF0NN` for N, with N taken
       straight from `M(8064)` (§10ak) — and the reader's TE menu ties the
@@ -182,6 +168,22 @@ an open question without a next action tends to stay open.
       three builds, so build comparison cannot recover what was removed.
 
 ## Naming and tooling
+
+- [ ] **286 RAM cells are still unnamed**, out of the 399 the firmware points a
+      register at. [`phone/RAM-MAP.md`](phone/RAM-MAP.md) has all of them with
+      the signature the ROM shows — stores, immediates, `ANI` masks, comparison
+      values — which is what is actually known about each. Naming them would
+      mean inventing meanings.
+      *Attack in this order,* highest site count first, because a cell touched
+      from a dozen places has a dozen chances to give itself away: `8165` (11
+      sites, all in the idle loop), `812F` (13, walked by the `4F19`–`4FC2`
+      block), `8169`, `8183`, `81B5`, `8186`, `8182`.
+- [ ] **Label the cells Ghidra has no data item for.** `rename_data` silently
+      does nothing at `8000`, `8001`, `8019`, `8026`, `8054`, `8059`, `805B`,
+      `8516`, `851A`, `8520` and `8526`, because the only way the code names
+      them is as an inline-argument byte and Ghidra never creates a reference.
+      They need a label by hand in the GUI; the intended names are in the RAM
+      map and §11.
 
 - [ ] **Name the soft-timer bank.** `arm_timer_set` (§10y) revealed the whole
       set: `888E`, `8131`, `8133`, `8134`, `8136`, `8128`, `8137`, `811D`.
@@ -310,6 +312,18 @@ Kept as a record of what the method looks like when it works.
       `3989`/`398D`/`3100` fall through only for `0xFF`, the resting state;
       anything else is jumped to by `PLO R4` at `3102` inside page `31`. The
       whole reader link is a coroutine (§10ak).
-- [x] **What `746D` does** — a **block clear**, not a copy: `7483`–`7487`
-      fills downward with zero. All three call sites only clear, which is why
-      none of them is the missing credit loader (§10ak).
+- [x] **What `746D` does** — `clear_block_range`: `range_to_count` (`7498`)
+      makes the count `RC − RD + 1`, so it clears an **inclusive** range
+      downward. That fixes three buffer extents: the reader receive buffer is
+      `8022`–`8026`, the LCD line-2 buffer `804C`–`805C`, and the credit and
+      link working set `805C`–`8067` (§10al).
+- [x] **What loads the card's credit into `805C`/`805D`** —
+      `store_reader_decimal_to_page80` (`5032`), from the `MO` reply's three
+      decimal digits, with the destination cell given as an **inline argument
+      byte**. That is why no search for a store to `805C` found it. It also
+      explains `card_units_shadow`: `5032` leaves `X = R8 = 805C`, so `MO`'s
+      `SM` at `348E` yields the units consumed since the last report (§10al).
+- [x] **Whether the firmware uses port 4** — **no.** The two apparent `OUT 4`
+      sites, `2EA8` and `2EC5`, are the inline digit weights 100/10/1 that
+      `binary_to_ascii_digits` reads through `X = R3`. §10k's port list should
+      drop port 4 (§10al).

@@ -4502,11 +4502,14 @@ The three external writes of `M(8031)` are all `0xD8` (`47B4`, `4C1A`, `728C`),
 which resumes at `31D8` — clear the state, clear `805C`, **send `?EJ`**. Status
 `0x81` (temporary fault) takes that route, from `4C14`.
 
-### The open question this leaves
+### The open question this leaves — **now answered, see §10al**
 
-**Nothing in the ROM ever loads a positive value into `805C` or `805D`.** Every
-write found is a decrement, a zero, or the `?CC` move that only shuffles between
-them:
+**Nothing in the ROM ever loads a positive value into `805C` or `805D`** by any
+of the routes searched below. The answer turned out to be
+`store_reader_decimal_to_page80` (`5032`), whose destination is an inline
+argument byte, which is exactly why none of these searches found it. Every
+write that *is* visible as a store is a decrement, a zero, or the `?CC` move
+that only shuffles between the pools:
 
 | Site | Write |
 |---|---|
@@ -4525,11 +4528,107 @@ With both pools at zero the first charge event borrows at `2D88` and returns
 but it means **the step that reads a card's value and turns it into spendable
 credit has not been found.** The card's raw read *is* understood —
 `card_value_7_minus_popcount` (`M(8062)`) from the `CA`/`CB`/`CO` handler, and
-`card_units_shadow` (`M(806A)`) from `MO` — but neither feeds `805C`. Candidates
-to check next: the `8054`–`805F` region looks like a parsed-reply field area
-(`render_credit_indicator` indexes it at `2E98`/`2EB1`, and `290A` is called with
-`805B` as a pointer at `538D`, `57BB` and `5872`), so the loader may be a field
-copy out of a reply rather than a named store.
+`card_units_shadow` (`M(806A)`) from `MO` — but neither feeds `805C`. The guess at the time — a field copy out of a reply rather than a named store —
+was close: it is a *converted* copy out of the reply's three decimal digits,
+through an inline-argument destination. §10al has it.
+
+## 10al. The card-credit loader, and a RAM map
+
+### `store_reader_decimal_to_page80` (`0x5032`) — the write §10ak could not find
+
+Cards are single-use: units are burned away and never put back, so the number
+the phone needs is a **read** of the card mirrored into RAM. That read is here,
+and it was hidden behind an unmodelled inline argument.
+
+```
+5034  R5 = 8024                          reader_digit0..2
+5039  SCAL digits_to_binary16, count 3   -> 0..999 in RC
+503F  R8.1 = 0x80
+5042  LDA R3 / PLO R8                    R8.0 = THE INLINE ARGUMENT BYTE
+5044  GLO RC / STR R8                    M(80xx) = RC.0
+```
+
+The inline byte names a page-`80` destination, and only the **low byte** of the
+converted value is stored, so anything over 255 truncates. Two call sites:
+
+| Site | Arg | Effect |
+|---|---|---|
+| `3469`, in the `MO` handler | `0x5C` | **`M(805C)` = the card's remaining units** |
+| `34C5`, in the `NE`/`NZ` handler | `0x5F` | `M(805F)` = the reported value |
+
+So `credit_bulk_pool` is the card's own count, arriving as three ASCII decimal
+digits in the `MO` reply — a 60-unit card comes in as `"060"`.
+
+**`R8` is not restored, and `MO` depends on that.** It returns with
+`X = R8 = 805C`, so the `SM` at `348E` computes `M(806A) − M(805C)` — the units
+consumed since the last report — and `34AC` then copies `M(805C)` into
+`M(806A)`. That confirms `card_units_shadow` and closes the loop on §10ak: the
+reader states the card's count, the phone mirrors it and accounts for the gap.
+
+A signature for `5032` is now in `inline_args.txt`. Without it the argument
+decodes as code, and at both sites the result is plausible enough to pass
+unnoticed: `0x5C` reads as `STR R6` at `346D` and `0x5F` as `LDN R7` at `34C9`,
+both unremarkable inside a reader-message handler.
+
+### `clear_block_range` (`0x746D`) is inclusive, which fixes the buffer extents
+
+`746D` takes two pointers and `range_to_count` (`7498`) turns them into
+`RC − RD + 1`, so `746D(lo, hi)` clears **`lo`–`hi` inclusive**, downward. That
+settles three block boundaries that were guesses:
+
+| Call | Range | What it is |
+|---|---|---|
+| `746D(8022, 8026)` | `8022`–`8026` | the 5-byte reader receive buffer: two prefix chars then three digits |
+| `746D(804C, 805C)` | `804C`–`805C` | the LCD line-2 buffer |
+| `746D(805C, 8067)` | `805C`–`8067` | the credit pools and the link's working set |
+
+### `OUT 4` does not exist in this firmware
+
+`binary_to_ascii_digits` (`0x2ECD`) takes its **digit weights inline**: `SEX R3`
+at `2ECF`, then `SM` against `M(R3)` and `IRX` once per digit, three times. The
+three bytes are `0x64`, `0x0A`, `0x01` — 100, 10, 1.
+
+Both call sites are in `render_credit_indicator`, and without a signature those
+weights disassemble as `OUT 4 / LDN RA / LDN R1`. **`2EA8` and `2EC5` are the
+only two `OUT 4` sites in the image**, so §10k's list of ports the firmware uses
+should drop port 4: there is no port-4 write anywhere, only this mis-decode.
+
+`render_credit_indicator` itself is pure display. It blanks the line-2 buffer
+with spaces — 16 bytes, or 8 when the low-credit warning is up — then renders
+`M(805D)` at column `8059` and `M(805C)` at a column offset by `4 − M(805D)`.
+**Both pools are shown**, which is the clearest confirmation that the balance is
+their sum (§10ak).
+
+### `phone/RAM-MAP.md`
+
+[`RAM-MAP.md`](RAM-MAP.md) now lists **all 399 RAM cells the firmware points a
+register at**: 113 named, 286 not. `tools/ram_classify.py` walks forward from
+every `RLDI Rn,addr` and every `SCAL` inline pointer to record what is done to
+the cell — stores, immediates, `ANI` masks, comparison values — and
+`tools/ram_map.py` joins that to the hand-maintained name table in
+`tools/ram_names.txt`.
+
+The signature is the point. A cell written only `AA`/`55` and tested for
+equality is a sentinel; one written `00`/`01` and tested for zero is a flag; one
+with masks is a bit field. That is real, checkable knowledge about a cell whose
+*purpose* is still unknown, and it keeps the unnamed rows honest instead of
+dressing them in invented names.
+
+Two cautions are recorded in the map itself: `rename_data` silently does nothing
+where Ghidra has no data item (the `8000`/`8001`/`8019`/`8026`/`8054`/`8059`/
+`805B` and totalizer cells, all named only as inline-argument bytes), and the
+`Sites` count is a lower bound, because most cells are reached by `INC`/`DEC`
+from a neighbour and five of them live in registers across the whole reader link
+(`5FB1`).
+
+### `M(8074)` carries two unrelated things
+
+`hardware_version` is well founded — `read_hardware_straps` (`6173`) builds a
+5-bit strap value into it and `show_version_and_comm` prints it under
+*מהד' חמרה:* — but `26A3` writes `0xAA` into the same cell and `3474`, in the
+`MO` handler, writes `0xDD`. The straps are re-read on demand before every
+display, so nothing breaks, but **`8074` is also used as a general sentinel
+byte**. Do not read a value out of it without checking which writer ran last.
 
 ## 10. Code executed from RAM
 
@@ -4610,6 +4709,14 @@ Renamed from an earlier, inaccurate name:
 **`account_one_unit_spent`**; `FUN_2E71` → **`render_credit_indicator`**
 (all §10ak).
 
+`FUN_5032` → **`store_reader_decimal_to_page80`**; `FUN_2ECD` →
+**`binary_to_ascii_digits`**; `FUN_746D` → **`clear_block_range`**; `FUN_7498`
+→ **`range_to_count`** (all §10al).
+
+**The full RAM inventory is in [`RAM-MAP.md`](RAM-MAP.md)** — all 399 cells the
+firmware points a register at, 113 named and 286 not, each with the signature
+the ROM shows for it.
+
 ### Data named
 
 | Address | Name | § |
@@ -4659,6 +4766,37 @@ Renamed from an earlier, inaccurate name:
 | `886A` | `sm_input_value` | 10ae |
 | `886B` | `sm_bracket` | 10ae |
 | `886C` | `sm_state` | 10ae |
+| `801A`–`8020` | `reader_tx_queue`, `reader_tx_digit0`–`2` | 8, 10al |
+| `8022`/`8023` | `reader_msg_prefix0`/`1` | 10al |
+| `8027` | `reader_rx_ptr` | 10al |
+| `8028` | `reader_tx_countdown` | 10al |
+| `8029` | `reader_link_flags` | 10al |
+| `802A`/`802B` | `reader_tg_latch` / `reader_ok_latch` | 10al |
+| `802C`–`802F` | `card_measure_802c`…`802f` | 10m |
+| `8030` | `mode_select_8030` | 10al |
+| `8032` | `call_in_progress` | 10ak |
+| `8036` | `timer_and_display_flags` | 10y |
+| `803D`–`8051` | `bufDisplayString_*` (the 32-byte display frame) | 10al |
+| `805F` | `reader_ne_value` | 10al |
+| `8061` | `card_accepted_flag` | 10m |
+| `8065` | `credit_dirty_flag` | 10ak |
+| `8066` | `settle_resume_point` | 10ak |
+| `8067` | `settle_request_shift` | 10ak |
+| `806B` | `settle_done_flag` | 10ak |
+| `807B` | `saved_8183` | 10al |
+| `807D` | `port1_readback` | 10al |
+| `8128`, `8131`, `8133`, `8134`, `8136`, `8137`, `888E` | `slow_timer_*` — membership proven by the 1 Hz tables at `40D6`/`40E7` | 10aj |
+| `812A`, `8132`, `8180` | `fast_timer_*` — decremented on the 50 Hz pass | 10ak |
+| `812D` | `wait_timer_812d` | 10y |
+| `8144` | `charge_phase` | 10ak |
+| `8147`–`8149` | `linedrive_count_8147`, `linedrive_dwell_8148`, `linedrive_state_8149` | 10ai |
+| `814D` | `measurement_step_bits` | 7 |
+| `813E` | `dial_resume_point` | 10al |
+| `8191` | `port1_bit0_latch` | 10l |
+| `818D` | `burn_ack_retry_count` | 10ak |
+| `818E` | `reader_z_reply_count` | 10ak |
+| `88BB` | `optical_reader_fault_flag` | 10n |
+| `88BD` | `units_spent_marker` | 10ak |
 | `8031` | `link_resume_point` | 10ak |
 | `805C` | `credit_bulk_pool` | 10ak |
 | `805D` | `credit_drain_pool` | 10ak |

@@ -82,6 +82,28 @@ program TAMAC-18
 # 038d notes below use for a little-endian word.
 290a  p,b,b,b
 
+# 2ecd: binary_to_ascii_digits - takes its DIGIT WEIGHTS inline. SEX R3 at
+# 2ecf, then SM against M(R3) and IRX once per digit, three times, so three
+# bytes are consumed: 100, 10, 1. Auto-detection cannot see it because the
+# bytes are never loaded as operands, only subtracted through X.
+#
+# Without this the weights disassemble as code, and at both call sites the
+# result is plausible enough to mislead: 2ea8 and 2ec5 render as
+# OUT 4 / LDN RA / LDN R1, inventing a PORT 4 WRITE inside the credit
+# renderer. Those are the only two OUT 4 sites in the image, so port 4 is not
+# used by this firmware at all.
+2ecd  b,b,b
+
+# 5032: store_reader_decimal_to_page80 - converts the reader's three decimal
+# digits at 8024..8026 and stores the result into a page-80 cell named by one
+# inline byte (LDA R3 / PLO R8 at 5042, after PHI R8 = 0x80). Auto-detection
+# declines because the byte is consumed through R8 rather than used as an
+# operand. Without this the argument decodes as code and the listing loses the
+# single most important write in the credit path: at 346d the 0x5C reads as
+# STR R6 and at 34c9 the 0x5F as LDN R7, both plausible enough to pass
+# unnoticed inside a reader-message handler.
+5032  b
+
 # 75c6: a stub - INC R3 / SEX R2 / SRET R3. It does nothing but SKIP one
 # inline byte, so a call to it is disabled functionality whose argument still
 # sits in the ROM. Auto-detection cannot infer this: the routine never loads
