@@ -3726,6 +3726,45 @@ as `NBR`'s operand and as an instruction.
 `8*(v div 24) + ((v mod 24) div 3)` **is** `v div 3`. Splitting it that way
 caps the loop at about 18 iterations instead of 85.
 
+### `credit_times_rate_ge_1000` (`0x52F7`) — the other half of the test
+
+The same caller takes a second route to "enough credit", and it is a
+multiply:
+
+```
+52F8  SCAL compare_words16(8122, 8124)
+5300  LBDF 530A         DF = word@8122 >= word@8124
+5303  RD = 8124         ... so RD points at the LARGER of the two
+530A  RD = 8122
+5313  LDA RD / SMI 0x04 / LBDF 5336    rate high byte >= 4 -> return 20
+531A  RE += word@RD                     16-bit add, low then high with ADC
+5327  DBNZ RC,531A                      repeat RC.0 times
+532B  continue only if RE.1 == 3
+5331  RE.0 >= 0xE8 ?
+5336  return 20   /   5339  return 0
+```
+
+The loop is a **multiply by repeated addition** — `RE = credit * rate` — and
+`RE.1 == 3` with `RE.0 >= 0xE8` means `RE >= 0x03E8`, i.e. **1000**. The
+early bail at `RE.1 >= 4` covers everything above that.
+
+**It takes an implicit argument in `RC.0`**, the scaled credit. The routine
+zeroes `RC.1` but never `RC.0`; the caller leaves it there with `PLO RC` at
+`5267`, right after `SCAL get_scaled_credit`. Miss that and the loop count
+looks undefined.
+
+`389A` → `compare_words16`: a 16-bit big-endian compare of two inline
+pointers, returning the result in `DF`.
+
+So `FUN_524F` has **two independent routes to "enough credit"** — scaled
+credit ≥ 100, or product ≥ 1000 — and only failing both reaches `528B`, the
+low-credit path.
+
+**Not established:** what the two rate words at `8122` and `8124` are, why
+there are two, or why the **larger** is chosen. A day/night or local/trunk
+tariff pair would fit, but nothing here shows it. Nor are the units of 1000
+shown.
+
 ### What `M(805E)` holds
 
 `FUN_3A0B`, the credit display, reads it at `3A7B`; the per-tick update
@@ -3792,7 +3831,9 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 `FUN_74a7` → **`init_comm_session`** (§10v);
 `proc_728a` → **`service_tick`**; `FUN_3900` →
 **`service_card_reader_link`** (§10w); `FUN_533e` →
-**`get_scaled_credit`**; `FUN_38e3` → **`divide_by_3`** (§10aa).
+**`get_scaled_credit`**; `FUN_38e3` → **`divide_by_3`**;
+`FUN_52f7` → **`credit_times_rate_ge_1000`**; `FUN_389a` →
+**`compare_words16`** (§10aa).
 
 Renamed from an earlier, inaccurate name:
 `LoadEmptyLine_AND_8036_with_0xBF` → **`BlankDisplayAndClear8036Bit6`**
