@@ -72,9 +72,9 @@
 8078 pulse_prev_sample
 807b saved_8183
 807d port1_readback
-8117 recent_key_m2
-8118 recent_key_m1
-8119 recent_key_last
+8117 dial_digit_3
+8118 dial_digit_2
+8119 dial_digit_1
 811a dial_buf_ptr
 811b dial_buf_end
 811d minute_meter_timer
@@ -92,6 +92,7 @@
 8137 slow_timer_8137
 8138 charge_step
 8139 card_permission_bits
+813b dial_digit_count
 813e dial_resume_point
 8143 charge_event_pending
 8144 charge_phase

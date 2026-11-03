@@ -283,6 +283,17 @@ Collected separately because they are not worth static effort:
       RAM `9100` from two call sites, entered at `9421` with `D = 0x13` and
       `R9 = 8DD2`, holding twelve of the image's `F000` writes (§10an). It is
       the largest piece of this firmware with no described purpose.
+- [ ] **What did `123…` reach?** `dialed_prefix_is_123` (`008F`) suppresses the
+      on-screen echo once four or five digits are in and the number starts
+      `1 2 3`, which reads as a calling-card or PIN prefix (§10ao). The
+      mechanism is settled; the service is not, and it is a question about the
+      Israeli network rather than the ROM.
+      *Settle by:* period Bezeq payphone or calling-card documentation.
+- [ ] **Why does the dial buffer have two extents?** `25DC` wraps `M(811A)`
+      `1 → 0x15`, bounding the index at `8101`–`8115`, while `1A26` clears
+      `8101`–`8119` and `3B0D` sets the top index to `0x19`. The four slots
+      `8116`–`8119` sit inside the cleared region but outside the wrap
+      (§10ao).
 - [ ] **Scope port 1 bit 3.** Three consecutive high ticks raise `M(8067)`
       bit 0 (`4AB9`), which is what lets the `?CC` flush run. It is the third
       sense line found on port 1 and the only one with no candidate meaning

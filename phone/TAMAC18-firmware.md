@@ -4810,6 +4810,77 @@ at `9771`–`9796`, both **inside its tail**. So whatever uses `9733`/`9771` mus
 run before the big block is copied, or after it is finished with. Worth knowing
 before patching anything in that region.
 
+## 10ao. `dialed_prefix_is_123` (`0x008F`) — and which way the dial buffer grows
+
+Returns `0xFF` if the number being dialled starts with the null-terminated
+sequence in the table at `00DF`, `0x00` otherwise. In this ROM that table is
+`01 02 03 00`, so the question is *"does it start 1-2-3"*.
+
+```
+008F  RSXD R5 / RC / RD
+0095  M(8139) & 0x10 == 0 -> return 0   card_permission_bits bit 4 must be set
+009F  RC = 813B                          the dialled-digit count
+00A3  M(813E) == 0x27 ? 5 : 4            dial_resume_point picks the threshold
+00B6  count below it -> return 0
+00B9  RC = 8119                          the TOP of the dial buffer
+00BD  RD = 00DF                          the prefix table
+00C2  LDA RD / LBZ 00CE                  terminator: all matched -> 0xFF
+00C6  XOR / DEC RC / LBNZ 00D1           compare, walk DOWN, mismatch -> 0x00
+```
+
+### The dial buffer fills downward, and that fixes three readings
+
+Two independent sites settle the layout:
+
+| Site | What it shows |
+|---|---|
+| `1A26` | `RLDI RC,8119` / `RLDI RA,0019` / `SEX RC` / `STXD` / `DBNZ RA` — clears **25 bytes downward** from `8119`, so the region is `8101`–`8119` |
+| `3B0D` | copies a null-terminated string downward from `8119`, then sets `M(811B) = 0x19` — the top index — and `M(811A)` to where it stopped |
+
+So **`8119` holds the first digit dialled**, `8118` the second, `8117` the
+third. Walking `RC` *down* from `8119` therefore reads the number in **dialling
+order**, and the table at `00DF` is a plain forward prefix.
+
+That retracts the "three-deep key history" reading in §10al, and it turns two
+other tests on the same cells from arbitrary constants into real numbers:
+
+| Site | Condition | Reads as |
+|---|---|---|
+| `2563` | `M(8119)=1`, `M(8118)=4`, `M(8117)=4` | the number starts **144** — Bezeq directory enquiries |
+| `2759` | `M(8119)=0x0A`, `M(8118)=0x0A` | starts **0 0** — the international prefix, and `RF.0 = 0x75` is "no international calls" (§10d) |
+
+Key codes are `1`–`9` for the digits and `0x0A` for `0`.
+
+### What the result is for
+
+The one call site is `260B`, inside the dial handler:
+
+```
+260B  SCAL dialed_prefix_is_123
+260F  LBNZ 262B                 MATCH -> skip the next block
+2612  copy 8163..8055 downward into 803C upward, 0x20 for zero bytes
+      i.e. ECHO THE DIALLED NUMBER into the line-1 display buffer
+```
+
+A match **suppresses the on-screen echo of what is being dialled.** Together
+with the four-or-five-digit minimum, that reads as a calling-card or
+PIN-bearing prefix: dial `123`, then an account number the phone deliberately
+does not show. The suppression is the solid part; what `123` actually reached is
+not in the ROM.
+
+**The prefix is data, not code.** A different build could carry another sequence
+at `00DF` with no code change, so `123` is this image's value rather than the
+mechanism.
+
+### One loose end
+
+`25DC` decrements `M(811A)` and wraps `1 → 0x15`, which bounds the index at
+`8101`–`8115`, while `1A26` clears `8101`–`8119` and `3B0D` sets the top index
+to `0x19`. The four slots `8116`–`8119` are inside the cleared and filled
+region but outside that wrap. Not resolved — it may be two paths with different
+ideas of the buffer, or `8116`–`8119` may be reserved for the prefix the match
+above reads.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -4898,6 +4969,8 @@ Renamed from an earlier, inaccurate name:
 **`relocate_1cb7_block_and_run`**; `proc_021b` → **`test_feature_flag`**;
 `proc_034b` → **`clear_feature_flag`** (all §10an).
 
+`proc_008f` → **`dialed_prefix_is_123`** (§10ao).
+
 **The full RAM inventory is in [`RAM-MAP.md`](RAM-MAP.md)** — all 399 cells the
 firmware points a register at, 113 named and 286 not, each with the signature
 the ROM shows for it.
@@ -4982,7 +5055,9 @@ the ROM shows for it.
 | `818E` | `reader_z_reply_count` | 10ak |
 | `88BB` | `optical_reader_fault_flag` | 10n |
 | `88BD` | `units_spent_marker` | 10ak |
-| `8117`–`8119` | `recent_key_m2`, `recent_key_m1`, `recent_key_last` | 10al |
+| `8117`–`8119` | `dial_digit_3`, `dial_digit_2`, `dial_digit_1` | 10ao |
+| `813B` | `dial_digit_count` | 10ao |
+| `00DF` | `secret_prefix_digits` | 10ao |
 | `8183` | `permission_valid_8183` | 10al |
 | `8DAC` | `feature_flags_8dac` — a 30-entry array, tested by `021B` and cleared by `034B`, both taking the index in `D` | 10al |
 | `00F7` | `integrity_magic_bytes` | 10am |
@@ -5006,11 +5081,11 @@ the ROM shows for it.
 
 **Corrected:** `811A`/`811B` were `buf8119_ptr`/`buf8119_end`, named on the
 assumption that `8119` was the buffer base. `25DC` shows otherwise — `RLDI
-R8,8119` only sets the high byte, and `PLO R8` from `M(811A)` makes the real
-buffer `8101`–`8115`, with the index wrapping `1`↔`0x15` and `M(811B)` as the
-tail. They are now `dial_buf_ptr` / `dial_buf_end`, and `8117`–`8119` turn out
-to be a separate three-deep key history: `2563` tests it for `4,4,1` and `2759`
-for `0x0A,0x0A`.
+R8,8119` only sets the high byte, and `PLO R8` from `M(811A)` is what indexes.
+They are now `dial_buf_ptr` / `dial_buf_end`. `8117`–`8119` were briefly called
+a key history; **§10ao retracts that** — they are the first three digits of the
+dial buffer, which fills *downward* from `8119`, and are now `dial_digit_1`
+through `dial_digit_3`.
 
 Names reflect what the code **does** with a cell, not an assumed purpose:
 `card_value_7_minus_popcount` records the computation at `33D4` rather than

@@ -113,9 +113,9 @@ dozen places has a dozen chances to give itself away.
 
 | Addr | Name | Sites | Signature |
 |---|---|---|---|
-| `8117` | `recent_key_m2` | 1 — `2563` | st=0 |
-| `8118` | `recent_key_m1` | 1 — `2759` | st=0 |
-| `8119` | `recent_key_last` | 10 — `00b9` `1a26` `25d8` `2c81` `2dfd` `3191` +4 | st=2 imm=15,80 |
+| `8117` | `dial_digit_3` | 1 — `2563` | st=0 |
+| `8118` | `dial_digit_2` | 1 — `2759` | st=0 |
+| `8119` | `dial_digit_1` | 10 — `00b9` `1a26` `25d8` `2c81` `2dfd` `3191` +4 | st=2 imm=15,80 |
 | `811A` | `dial_buf_ptr` | 7 — `25d4` `2652` `2c74` `2c8f` `35b7` `3b5f` +1 | st=3 imm=15 cmp=01 |
 | `811B` | `dial_buf_end` | 6 — `1a5f` `2c23` `3b1a` `45f1` `7054` `72aa` | st=4 imm=19 cmp=17,18 |
 | `811D` | `minute_meter_timer` | 1 — `4223` | st=1 imm=3c |
@@ -141,7 +141,7 @@ dozen places has a dozen chances to give itself away.
 | `8138` | `charge_step` | 1 — `2d18` | st=0 |
 | `8139` | `card_permission_bits` | 29 — `0095` `2559` `26dc` `2723` `2814` `282b` +23 | st=5 imm=00,04 mask=02,04,06,08 cmp=41 |
 | `813A` | — | 7 — `1a59` `250c` `2c3d` `7048` `735a` `7389` +1 | st=3 imm=01 |
-| `813B` | — | 5 — `009f` `2741` `2a15` `742b` `7730` | st=0 cmp=01,03,04,05,0b |
+| `813B` | `dial_digit_count` | 5 — `009f` `2741` `2a15` `742b` `7730` | st=0 cmp=01,03,04,05,0b |
 | `813C` | — | 3 — `2686` `37b9` `45f9` | st=2 imm=00,14 |
 | `813D` | — | 2 — `2421` `5d23` | st=1 |
 | `813E` | `dial_resume_point` | 17 — `00a3` `2500` `25c1` `267c` `26eb` `35be` +11 | st=11 imm=00,21,24,27,2a cmp=27,2a |
@@ -487,4 +487,4 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-399 anchored cells, **121 named**, 278 still unnamed.
+399 anchored cells, **122 named**, 277 still unnamed.
