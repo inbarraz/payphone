@@ -34,6 +34,9 @@ an open question without a next action tends to stay open.
       site — `399D` covers only `8034`/`8035`. `flush_output_latches` is the
       best candidate, but it has not been shown to run from the interrupt path.
       *Settle by:* finding what calls `7572`, or scoping the strap lines.
+- [ ] **Find the ÷4096 divider chip** feeding EF1, and scope EF1 to confirm
+      600 Hz (§10aj). The ÷12 and ÷50 are in the ROM; the divider is not.
+      **Needs hardware.**
 - [ ] **UART pin 4 (CS2)** — the remaining enable. If tied low the UART
       answers ports 6/7 unconditionally; if driven, something can gate it off
       the bus. (§6) **Needs hardware.**
@@ -251,4 +254,8 @@ Kept as a record of what the method looks like when it works.
 - [x] **What `845A` and `885D` count** — **pulses**, not calls. `4243`
       edge-detects port 3 bit 7 against the previous sample in `M(8078)`
       (§10ai). So the periodic report fires every 45 pulses.
+- [x] **What the timer tick rate is** — the slow tick is **exactly 1 Hz**.
+      The 2.4576 MHz crystal ÷ 4096 gives EF1 at 600 Hz, the 1806 counter
+      ÷ 12 gives a 50 Hz base tick, and the `40F4` prescaler ÷ 50 gives 1 Hz.
+      So `M(811D) = 60` is one minute and `851A` is a minute meter (§10aj).
 - [x] **What bit 6 of `M(8036)` means** — "the timer set is running" (§10y).

@@ -4184,8 +4184,9 @@ jobs.
 ```
 
 `M(811D)` is one of the eight cells in the soft-timer table at `40D6`
-(§10y), so the tick decrements it. **The `851A` counter advances once per
-60 timer units of off-hook time with a valid card** — a duration meter.
+(§10y), so the tick decrements it. The slow tick is **exactly 1 Hz**
+(§10aj), so **`851A` advances once per 60 seconds of off-hook time with a
+valid card — it is a minute meter**, matching per-minute charging.
 
 ### 2. Pulse counter (`4238`–`4276`) — this settles §10s
 
@@ -4231,6 +4232,56 @@ That is the same `M(8033)` low field `read_hardware_straps` drives (§10k)
 and `test_dial_and_reader` walks (§10ac). A state machine driving it during
 call progress is the strongest evidence yet that the field is a genuine
 output — though what it reaches is still unknown.
+
+## 10aj. The timebase — the slow tick is exactly one second
+
+The board's crystal nearest the CPU reads **2.4576 MHz**, and that settles
+the whole timing chain to the integer.
+
+```
+2,457,600 Hz  / 4096  =  600 Hz     EF1
+          600 /   12  =   50 Hz     base tick
+           50 /   50  =    1 Hz     slow tick
+```
+
+| Stage | Where it is in the ROM |
+|---|---|
+| ÷ 4096 | **not in the ROM** — external, and 4096 = 2^12 is one CMOS ripple counter |
+| ÷ 12 | `STPC` / `LDI 0x0C` / `LDC` / `SCM1` at `05D7`, `4079`, `6EEC`. `SCM1` clocks the 1806 counter from **EF1**, and the counter is loaded with 12 |
+| ÷ 50 | the prescaler at `40F4`: `M(8130)` counts to `0x32` before the slow table is touched (§10y) |
+
+**Every division is exact**, which is the strongest argument for it. The
+alternatives do not land anywhere sensible: EF1 at mains 50 Hz would make
+`M(811D) = 60` into **12 minutes**, and 100 Hz into 6.
+
+### What that makes the timers
+
+| Cell | Value | Meaning |
+|---|---|---|
+| `811D` | 60 | **60 seconds** — the per-minute charge interval (§10ai) |
+| `8131` | 30 | 30 s |
+| `8134` | 90 | 90 s, the `arm_timer_set` lifetime (§10y) |
+
+Israeli calls were charged by the minute, and `meter_and_drive_line` bumps
+the 6-digit counter at `851A` once per `M(811D)` expiry. **So `851A` is a
+minute meter.**
+
+### The same crystal sets the baud rate
+
+§6 records that the UART's baud rate is not in the control register, so it
+comes from an external clock. 2.4576 MHz is the canonical UART crystal:
+÷16 = 153,600 Hz = 16 × **9600 baud**, with ÷32 and ÷64 giving 4800 and
+2400. One crystal serves both the serial links and, through the divider,
+the timebase.
+
+### The caveat
+
+The ÷4096 divider is **inferred, not observed** — it is off-chip and no
+instruction touches it. What the ROM fixes is the ÷12 and the ÷50; the
+crystal fixes the input. The inference is that the only divider making all
+three stages exact is a power of two, and 4096 is the one that lands on
+1 Hz. Confirming it means finding the divider chip on the board and
+checking EF1 with a scope.
 
 ## 10. Code executed from RAM
 
@@ -4297,6 +4348,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 **`wait_idle_then_blank_display`** (§10ag); `proc_3806` →
 **`increment_decimal_counter`** (§10ah); `FUN_420e` →
 **`meter_and_drive_line`** (§10ai).
+
+The timebase is worked out in §10aj: the slow timer tick is exactly 1 Hz.
 
 Renamed from an earlier, inaccurate name:
 `LoadEmptyLine_AND_8036_with_0xBF` → **`BlankDisplayAndClear8036Bit6`**
