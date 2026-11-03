@@ -4023,6 +4023,52 @@ driven as an output by `flush_output_latches` (§10u).
 the states have meanings yet. The neighbourhood is tariff and credit code,
 so a duration or pulse count would fit, but nothing here shows it.
 
+## 10af. `digits_to_binary16` (`0x5000`)
+
+Converts a run of decimal **digit values** at `R5` into a 16-bit binary
+number in `RC`. The count is a 2-byte inline argument.
+
+```
+5003  RC = 0
+5007  LBR 5022              enter at the ADD, so the first pass is 0*10 + d
+
+      loop body:
+500C  SCAL shift_rc_left16  RC *= 2
+5010  SCAL shift_rc_left16  RC *= 4
+5014  RC += the pushed value           -> 5x
+501E  SCAL shift_rc_left16             -> 10x
+5022  RC = 10x + M(R5), R5++
+502C  DBNZ RD,500A
+```
+
+The classic `RC = RC*10 + digit`, with the ×10 built as `(x*4 + x)*2`
+because `shift_rc_left16` (`3876`) is the only primitive available — it
+shifts `RC` left one bit via `GLO/SHL/PLO` then `GHI/RSHL/PHI` to carry
+across the halves.
+
+The input is **digit values, not ASCII**: nothing subtracts `0x30`. That
+matches `parse_digits_into` (§10ab), which also produces values.
+
+### The count must be `b,b`, not `w`
+
+Both call sites pass a small number — `0x0003` at `5039`, `0x0004` at
+`52E9` — which falls in ROM address range, so `w` would manufacture data
+references to addresses 3 and 4. Same trap Codex caught on `290a`.
+Declared `5000  b,b`.
+
+### Callers
+
+| Site | Setup |
+|---|---|
+| `5039` | `R5 = 8024`, count 3 — the reader digit cells `8024`–`8026`, so this turns a reader numeric suffix into a binary value |
+| `52E9` | count 4 — the caller unpacks nibbles onto the stack at `52D8`–`52E3` first |
+
+The second is worth noting. After converting, `GHI RC / LBNZ 52B8` bails if
+the value exceeds 255, then `GLO RC / LBR 5268` jumps **into**
+`update_low_credit_warning` at its "scaled credit ≥ 100" test (§10ad). So
+there is an alternative entry to the credit comparison that supplies a
+4-digit decimal value instead of `get_scaled_credit`'s output.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -4082,7 +4128,9 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 `proc_5370` → **`test_dial_and_reader`** (§10ac);
 `FUN_524f` → **`update_low_credit_warning`** (§10ad);
 `FUN_5227` → **`step_state_machine`**; `FUN_328e` →
-**`classify_into_range`**; `FUN_3270` → **`next_state_from_table`** (§10ae).
+**`classify_into_range`**; `FUN_3270` → **`next_state_from_table`** (§10ae);
+`proc_5000` → **`digits_to_binary16`**; `FUN_3876` →
+**`shift_rc_left16`** (§10af).
 
 Renamed from an earlier, inaccurate name:
 `LoadEmptyLine_AND_8036_with_0xBF` → **`BlankDisplayAndClear8036Bit6`**

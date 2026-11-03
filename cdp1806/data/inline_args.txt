@@ -52,6 +52,12 @@ program TAMAC-18
 # 04f0: increments a saturating 16-bit counter at an inline pointer.
 04f0  p
 
+# 5000: digits_to_binary16 - the inline word is a digit COUNT, not an
+# address, so b,b rather than w. Both sites pass a small number (3 at 5039,
+# 4 at 52e9) which falls in ROM range, and 'w' references any target in
+# initialized memory. Same reasoning as 290a below.
+5000  b,b
+
 # 5227: step_state_machine - a 2-byte pointer to a two-word descriptor
 # {range table, state table}. SEX R3 / RLXA RE at 5227-5228.
 5227  p
