@@ -4,7 +4,10 @@
   <global>
     <range space="ram"/>
   </global>
-  <stackpointer register="R3" space="ram" growth="positive"/>
+  <!-- The stack is R(X), and X is R2 throughout this firmware: cold start does
+       RLDI R2,89FA at 306B, and MARK hardcodes R2. SCAL, RSXD, STXD and MARK
+       all DECREMENT, so growth is negative, not positive. -->
+  <stackpointer register="R2" space="ram" growth="negative"/>
   <default_proto>
     <prototype name="__mem_r3" extrapop="0" stackshift="0" strategy="register">
       <input>

@@ -40,10 +40,10 @@ an open question without a next action tends to stay open.
 - [ ] **What drives the U230 select line** (§6a). Parked. Suggested checks:
       whether the Y throws (pins 3, 1, 13) are wired at all, and the DC
       voltage on pin 9 with the board powered. **Needs hardware.**
-- [ ] **`SCM1` vs `SCM2` for opcode `68 05`.** The Ghidra module says `SCM2`;
-      the RCA table has `68 03` = SCM2 and `68 05` = SCM1. One is wrong.
-      *Settle by:* checking `Documentation/Datasheets/CDP1805AC.PDF`. Cheap,
-      and it affects the EF1 counter reading at `05DD` (§7).
+- [x] **`SCM1` vs `SCM2` for opcode `68 05`** — `68 05` is **SCM1**. The
+      module's own comment said so while the constructor was named `SCM2`;
+      review finding M6, now fixed. Confirms the EF1 counter reading at
+      `05DD` (§7).
 
 ## The DLC link
 
@@ -195,8 +195,12 @@ an open question without a next action tends to stay open.
       convention separate from SCRT (`card-reader/`, §idioms): `178E` reads
       its byte with `LDA R0 / PHI RE`. Same shape as the existing options — a
       register plus a byte count. Worth counting the sites before deciding.
-- [ ] **Duplicate constructor name in the `.slaspec`** — `0x6805` is defined
-      at both L248 and L250.
+- [ ] **Give `P` a context register so `RET` can terminate flow** (review
+      gaps G1/G2, mistake M10). Until then `RET` must fall through, because
+      this firmware uses `RET 0x24` to set `X` with `P` unchanged.
+- [ ] **The nine 1806 BCD instructions are empty stubs** (G3), the
+      counter/timer is unmodelled (G4), and the `X == P` inline-operand
+      idiom the whole ROM is built on has no model (G1).
 - [ ] **Mark the reader's phase table at `2428`–`242B` as data.** It sits
       between `clear_byte_at_0x81xx` and `port7_release`, so Ghidra
       disassembles it as code.

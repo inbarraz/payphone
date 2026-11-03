@@ -5,6 +5,19 @@ Reviewed files: `cdp1806.slaspec` (892 lines), `cdp1806.ldefs`, `cdp1806.pspec`,
 Reference: *CDP1805AC, CDP1806AC* datasheet, Table 1 (Instruction Summary) and Notes 10–19.
 Line numbers refer to `cdp1806.slaspec` as of commit `c8a5479`.
 
+## Status, 2026-11-03
+
+Fifteen of the sixteen mistakes are **fixed**: M1–M9 and M11–M16. The slaspec
+compiles clean against the Ghidra 12.2 SLEIGH compiler (19 NOP constructors,
+up from 17 because M11 emptied `STPC` and `ETQ`).
+
+**M10 is deliberately not applied.** Adding a `return` to `RET` (`0x70`) is
+correct in the abstract, but `RET` loads `(X,P)` from its operand, and this
+firmware uses it as an idiom to set `X` while leaving `P` unchanged — `RET
+0x24` at `2AD1`, `75B7` and `6110` all continue inline. Terminating flow
+there would stop the following code disassembling. The fix needs a context
+register for `P` first; see gap **G2**. The gaps G1–G10 are untouched.
+
 ## How this was verified
 
 - The slaspec compiles cleanly with the Ghidra 12.1.3 SLEIGH compiler (only the usual
