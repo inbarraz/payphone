@@ -388,8 +388,12 @@ firmware line diverged.
 | `0xE000`–`0xE007` | **LCD**, an HD44780 (16x2). `E000` = instruction register, `E001` = data register — see §10b |
 | `0xF000` | **write-only control register**, shadowed at `0x8E10` — not declared as a segment (§10a) |
 
-RAM extends to `0x9FFF`, further than the reader's, and part of it holds
-**code copied from ROM and executed in place** — see §10.
+The firmware only *references* `0x8000`–`0x9FFF`, but the cold-start clear
+at `305B` wipes `0x8000`–`0xDFFF`, stopping exactly below the LCD — which
+fits the 32K SRAM being decoded across `0x8000`–`0xFFFF` with the LCD and
+control register overlaid. See §10q. Part of this space holds **code copied
+from ROM and executed in place** (§10), and all of it is
+**battery-backed**.
 
 ## 3. THE CRITICAL CONVENTION: `P = R4`
 
@@ -2977,6 +2981,134 @@ accepted by configuration**, and their identities are not in the ROM at all —
 they live in the battery-backed SRAM of a given unit. A dump of `850E`
 onward from a live phone would reveal which cards that unit was provisioned
 to take.
+
+## 10q. The battery-backed RAM
+
+Everything the phone remembers across a power cut lives in one chip: **U6 on
+the `TAAS TAMAC MEMORY CARD` daughterboard, an SRM2A256LLMT10 — 32K × 8 SRAM
+with a lithium cell** (§1a). There is no EEPROM and no other non-volatile
+store, so the fault log, the tariff state, the accept-list and the counters
+all depend on that battery.
+
+### How much of it there is
+
+| Evidence | Says |
+|---|---|
+| Ghidra's `ram` segment | `8000`–`9FFF` |
+| Address references in the image | 1070 into `8000`–`8FFF`, 35 into `9000`–`9FFF`, **none** into `A000`–`DFFF` |
+| The cold-start clear at `305B` | wipes `8000`–`DFFF` |
+
+```
+3058  SEX R4 / DIS 0x24      interrupts off
+305B  RLDI RC,DFFF
+305F  RLDI RD,6000           0x6000 = 24576 bytes
+3066  STXD / DBNZ RD,3066    clears 8000..DFFF, downward
+306B  RLDI R2,89FA           the stack
+```
+
+So the firmware only *uses* `8000`–`9FFF`, but cold start assumes RAM exists
+up to `DFFF` and stops exactly below the LCD at `E000`. That fits a 32K part
+decoded at `8000`–`FFFF` with the LCD and the `F000` control register
+overlaid on its top pages. **It is consistent, not proven** — writes to
+absent memory would be harmless either way. The single `DFFF` reference is
+the clear loop itself; nothing else in the image ever addresses that region.
+
+### Cold start versus warm start
+
+```
+3038  SCAL R3,304A
+3041  LBNZ 3058      check failed -> FULL COLD INIT
+3044  SCAL R3,4455   otherwise keep the RAM and carry on
+```
+
+and `304A` is the check itself:
+
+```
+304A  SCAL 28F9(dest 9771, src 3011, len 0026)   relocate 38 bytes to RAM
+3055  LBR 9771                                    and run them there
+```
+
+The relocated routine (ROM image at `3011`) walks a region XORing bytes and
+can write **0 to `F000`** at `302B`–`3031`. That closes the loop on §10a,
+where clearing the control register was guessed to be the response to a
+failed integrity check: it is.
+
+`28F9(dest, src, count)` is a plain memcpy taking **three** 2-byte inline
+pointers — `SEX R3` then three `RLXA`s. The analyzer resolves it unaided.
+
+### What cold start writes
+
+| Cell | Value |
+|---|---|
+| `8000`–`DFFF` | zeroed |
+| `R2` (stack) | `89FA` |
+| `844D` | `0xAA` |
+| `867B`, `867C` | `0x55` |
+| `8500` | `M(0D00)` = `0x05` |
+| `850D`–`8515` | 9 bytes copied from ROM `0D01` |
+| `8444` | `0x62`, via `store_byte_84xx` |
+| `8E0A` | `0x01` |
+| `97A1` | `0` |
+| `9798`, `979C`, `979F`, `97AE` | word constants |
+
+then `LBR 29D8` — reboot into the initialised machine.
+
+### The ROM defaults, and the accept-list
+
+```
+0D00:  05 | 40 02 0f 78 00 00 01 01 01
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^ -> 850D..8515
+```
+
+| Cell | Default | Meaning |
+|---|---|---|
+| `850D` | `0x40` | |
+| `850E` | `0x02` | **count** for the accept-list; `33F4` computes `((n-1)&3)+1` so 1–4 |
+| `850F` | `0x0F` | **accepted card value 1** |
+| `8510` | `0x78` | **accepted card value 2** |
+| `8511`, `8512` | `0x00` | unused list slots |
+| `8513` | `0x01` | read at `1A52`, becomes `M(813A) = M(8513) - 1` |
+| `8514` | `0x01` | tested at `347D` |
+| `8515` | `0x01` | |
+
+So out of the box a phone accepts **two card values, `0x0F` and `0x78`**,
+and can be provisioned with up to four (§10p). `0x78` is the one `4700`
+separately marks as barred from international calls.
+
+### Known structures
+
+| Range | Contents |
+|---|---|
+| `8000`–`80FF` | working state: card type/value, port shadows, display scratch |
+| `8101`–`8119` | the 25-byte downward buffer, pointers at `811A`/`811B` (§10g) |
+| `8129`–`8199` | timers and flags |
+| `840A`–`8441` | **the fault log**, 28 entries × 2 bytes (§10e, §10i) |
+| `8442`–`84xx` | event cells written by `store_byte_84xx` and `5E1B` |
+| `8500`–`85xx` | **configuration**, including the accept-list |
+| `867B`, `867C` | `0x55` sentinels |
+| `88xx` | `88BA` cleaning flag, `88BB` optical-reader fault, `88C5` |
+| `89FA` | the stack (`R2`) |
+| `9100`–`97xx` | **code relocated from ROM and executed in place** (§10) |
+
+### The `0xAA` / `0x55` sentinel convention
+
+Validity is marked with `0xAA` or `0x55` rather than a flag bit, throughout:
+`807A`, `807C`, `8134`, `844D`, `8864`, `8865`, `867B`/`867C`, `816C`,
+`8183`, `8079`, and `8169` (`0x55` as one of its four card-session states,
+§10l). `LDI 0xAA` alone occurs 28 times, every one followed by `STR` — which
+is how §10d established that `0xAA` is **not** a status code.
+
+Two complementary bit patterns are the classic choice for detecting a RAM
+that has lost its battery: all-zeros and all-ones both fail.
+
+### Why this matters practically
+
+A unit whose lithium cell has died comes up, fails the integrity check,
+clears `8000`–`DFFF` and re-seeds the ROM defaults — losing its fault log,
+its counters and any provisioned card values. Conversely, **reading
+`850D`–`8515` and `840A`–`8441` out of a phone with a live battery recovers
+that unit's provisioning and its fault history**, neither of which is
+derivable from the ROM.
 
 ## 10. Code executed from RAM
 
