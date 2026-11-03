@@ -268,6 +268,21 @@ Collected separately because they are not worth static effort:
       the image, so nothing invokes it (§10am). Dropped in V2.8, reserved for a
       variant, or reached some way the search missed?
       *Settle by:* diffing another TAMAC-18 ROM version, if one can be found.
+- [ ] **Is there a second 32 KB RAM over `0000`–`7FFF`?** §10an argues `F000`
+      bit 0 maps a writable shadow there in place of the AT29C256, and that the
+      phone normally *runs from that shadow* — `0x03` is what the initialiser
+      writes, `rewrite_code_space` clears bit 0 to read the real ROM and copies
+      all 32 KB into the shadow, and every other site that clears bit 0 is in
+      code relocated to RAM at `9100` first. The reasoning is internal to the
+      firmware; the chip is the proof.
+      *Settle by:* looking at the board. **Needs hardware** — but only a glance
+      at the part numbers.
+- [ ] **What does `F000` bit 1 do?** Set in `0x03` and `0x02`, cleared in
+      `0x01`, `0x00`, and by a failed integrity check (§10a, §10am, §10an).
+- [ ] **What does the relocated `1CB7`–`2330` block do?** 1658 bytes copied to
+      RAM `9100` from two call sites, entered at `9421` with `D = 0x13` and
+      `R9 = 8DD2`, holding twelve of the image's `F000` writes (§10an). It is
+      the largest piece of this firmware with no described purpose.
 - [ ] **Scope port 1 bit 3.** Three consecutive high ticks raise `M(8067)`
       bit 0 (`4AB9`), which is what lets the `?CC` flush run. It is the third
       sense line found on port 1 and the only one with no candidate meaning

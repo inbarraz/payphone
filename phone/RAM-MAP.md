@@ -398,7 +398,7 @@ dozen places has a dozen chances to give itself away.
 | `8E03` | — | 5 — `074c` `0ac7` `0da1` `0ddf` `0e01` | st=4 imm=00,0f,64 |
 | `8E04` | — | 7 — `0751` `0de6` `0e08` `0e41` `0f36` `0f4e` +1 | st=7 imm=00,14 |
 | `8E05` | — | 2 — `1718` `17ac` | st=0 cmp=01 |
-| `8E0A` | — | 3 — `1ed8` `1ef1` `30c3` | st=3 imm=00,01 |
+| `8E0A` | `code_shadow_mode` | 3 — `1ed8` `1ef1` `30c3` | st=3 imm=00,01 |
 | `8E0B` | — | 2 — `0525` `0530` | st=2 imm=00 |
 | `8E0C` | — | 1 — `20de` | st=1 |
 | `8E0D` | — | 2 — `066f` `1003` | st=1 |
@@ -469,7 +469,7 @@ dozen places has a dozen chances to give itself away.
 | `979B` | — | 1 — `161f` | — |
 | `979C` | — | 1 — `30b2` | st=0 |
 | `979F` | — | 4 — `1bd6` `24e4` `30ac` `1c79` | st=1 |
-| `97A1` | — | 9 — `0028` `051b` `0577` `0e8f` `0f6b` `1394` +3 | st=4 imm=00 cmp=01,02 |
+| `97A1` | `code_shadow_job_state` | 9 — `0028` `051b` `0577` `0e8f` `0f6b` `1394` +3 | st=4 imm=00 cmp=01,02 |
 | `97A4` | — | 2 — `1b12` `1b52` | st=2 imm=00 |
 | `97A5` | — | 1 — `5bf5` | st=1 |
 | `97A6` | — | 3 — `5e4d` `5e60` `1c64` | st=2 imm=06 |
@@ -487,4 +487,4 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-399 anchored cells, **119 named**, 280 still unnamed.
+399 anchored cells, **121 named**, 278 still unnamed.

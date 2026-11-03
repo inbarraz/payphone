@@ -1588,8 +1588,11 @@ poked. Interrupts are off across the whole sequence, which fits: an interrupt
 would try to fetch from ROM. Clearing it as the response to a failed integrity
 check fits a capability-withdrawal or protection latch.
 
-**This is inference from structure, not proof.** The bits have not been
-identified.
+**Bit 0 is now identified — see §10an.** `rewrite_code_space` (`0056`) reads
+every byte of `0000`–`7FFF` and writes it straight back, which is only
+meaningful if reads and writes there reach different devices, and the
+distribution of the `F000 = 0x02` writes says which way round. Bit 1 is still
+unknown.
 
 ## 10b. The display: HD44780 and the display list
 
@@ -4711,6 +4714,102 @@ A caution for anyone patching this ROM: the check being dormant is the *current*
 reading, resting on a search for one two-byte constant. If a patched unit
 misbehaves, these seven addresses are the first thing to compare.
 
+## 10an. `rewrite_code_space` (`0x0056`) and the code shadow
+
+Two small routines in the first 128 bytes of the ROM turn out to carry the
+answer to what `F000` bit 0 does, and with it a claim about the hardware.
+
+### `rewrite_code_space` — `0x0056`
+
+```
+0056  M(F000) = 0x02        bit 0 cleared, bit 1 set
+005D  R5 = 8000             32768: the loop count, and DBNZ is 16-bit
+0061  RC = 0000
+0065  LDN RC / STR RC       read a byte, write it straight back
+0067  INC RC
+0068  DBNZ R5,0065          ... for every byte of 0000..7FFF
+006C  M(F000) = 0x00
+0074  SRET R3
+```
+
+A read-modify-write that stores the value it just read is a **no-op unless reads
+and writes in that range reach different devices**. So the loop is a copy, over
+exactly the 32 KB the ROM occupies.
+
+### Which direction, and what bit 0 is
+
+Every other `F000 = 0x02` write in the image — `1DC5`, `1DCF`, `1E39`, `1EA2`,
+`1EE3`, `1F04`, `1F27`, `1F58`, `209A`, `20B4`, `2221`, `226C` — lies inside
+**`1CB7`–`2330`**, and that is precisely the block
+`relocate_1cb7_block_and_run` copies into RAM: `memcpy(9100, 1CB7, 067A)`.
+`1DCC` even does `LBR 921F`, an internal jump within the relocated copy. So
+**clearing bit 0 is something only code executing from RAM ever does** — with
+one exception, `rewrite_code_space` itself.
+
+That exception is the tell. If bit 0 = 1 meant "ROM visible", `0056` would unmap
+itself mid-loop. It has to be the other way round:
+
+| `F000` bit 0 | What is mapped at `0000`–`7FFF` |
+|---|---|
+| `1` | the **writable shadow** |
+| `0` | the real ROM |
+
+Which makes `0x03` — what the initialiser at `000C`/`000F` writes — the **normal
+running state: the phone runs out of the shadow, not out of the EPROM.** The
+relocated block clears bit 0 to get at the real ROM and is immune because it
+lives at `9100`; `1ECA` puts bit 0 back and records the mode in
+`code_shadow_mode` (`8E0A`), `1EE3` takes it away and clears that cell. And
+`rewrite_code_space` clears bit 0 so the ROM becomes readable, then copies all
+32 KB of it into the shadow — the one operation that has to happen before the
+shadow can be trusted.
+
+### `rewrite_code_space_if_requested` — `0x001E`
+
+```
+001E  D = feature_flags_8dac[0x16]
+0025  clear -> return
+0028  M(97A1) == 1 -> 003E        a job already in flight: abandon
+0032  SCAL rewrite_code_space
+0036  SCAL relocate_1cb7_block_and_run
+003E  clear feature_flags_8dac[0x16]
+```
+
+The flag is cleared on **both** paths — at `003E` on the abandon path, and
+inside `relocate_1cb7_block_and_run` at `137F` on the do-it path — so the
+request is consumed either way and never repeats. Its only caller is `6F07`.
+
+That the shadow fill is **gated on a request rather than done at every boot** is
+itself evidence: it only makes sense if the shadow is battery-backed and
+survives power cycles, which is the same reasoning as the `30E3` RAM sentinels
+(§10am).
+
+### The flag array at `8DAC`
+
+`test_feature_flag` (`021B`) returns 1 if `M(8DAC + i) == 1`, and
+`clear_feature_flag` (`034B`) clears that entry. Both take the index in `D` and
+both reject `i >= 0x1E` by branching to `0A5C`, so it is a **30-entry byte
+array**. Entry `0x16` is the code-shadow request.
+
+### The prediction, and how to check it
+
+This says there is a **second writable 32 KB device over `0000`–`7FFF`**,
+alongside the AT29C256 that holds the image. One SRM2A256LLMT10 is already
+accounted for in the upper half; the prediction is a second one, or one part
+banked. That is visible on the board, so it is cheap to settle — and it would
+explain why a phone whose firmware lives in a shadow RAM has a dormant ROM
+integrity check (§10am) and a relocatable 1658-byte subsystem.
+
+`F000` bit 1 remains unidentified: it is set in `0x03` and `0x02`, cleared in
+`0x01`, `0x00` and by the failed integrity check.
+
+### A hazard in the RAM layout
+
+The three relocated payloads overlap. The `1CB7` block occupies
+`9100`–`9779`; the `040D` payload lands at `9733`–`9771` and the `3011` payload
+at `9771`–`9796`, both **inside its tail**. So whatever uses `9733`/`9771` must
+run before the big block is copied, or after it is finished with. Worth knowing
+before patching anything in that region.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -4793,6 +4892,11 @@ Renamed from an earlier, inaccurate name:
 `FUN_5032` → **`store_reader_decimal_to_page80`**; `FUN_2ECD` →
 **`binary_to_ascii_digits`**; `FUN_746D` → **`clear_block_range`**; `FUN_7498`
 → **`range_to_count`** (all §10al).
+
+`proc_0056` → **`rewrite_code_space`**; `proc_001e` →
+**`rewrite_code_space_if_requested`**; `FUN_1366` →
+**`relocate_1cb7_block_and_run`**; `proc_021b` → **`test_feature_flag`**;
+`proc_034b` → **`clear_feature_flag`** (all §10an).
 
 **The full RAM inventory is in [`RAM-MAP.md`](RAM-MAP.md)** — all 399 cells the
 firmware points a register at, 113 named and 286 not, each with the signature
@@ -4885,14 +4989,8 @@ the ROM shows for it.
 | `845D`, `8545`, `867D`, `87D0`, `88C4`, `8A00`, `8EFB` | `ram_sentinel_*` — the seven cells the `30E3` list names | 10am |
 | `0048` | `rom_integrity_addr_list` *(comment only — no data item)* | 10am |
 | `30E3` | `ram_sentinel_addr_list` *(comment only — no data item)* | 10am |
-
-**Corrected:** `811A`/`811B` were `buf8119_ptr`/`buf8119_end`, named on the
-assumption that `8119` was the buffer base. `25DC` shows otherwise — `RLDI
-R8,8119` only sets the high byte, and `PLO R8` from `M(811A)` makes the real
-buffer `8101`–`8115`, with the index wrapping `1`↔`0x15` and `M(811B)` as the
-tail. They are now `dial_buf_ptr` / `dial_buf_end`, and `8117`–`8119` turn out
-to be a separate three-deep key history: `2563` tests it for `4,4,1` and `2759`
-for `0x0A,0x0A`.
+| `8E0A` | `code_shadow_mode` | 10an |
+| `97A1` | `code_shadow_job_state` | 10an |
 | `8031` | `link_resume_point` | 10ak |
 | `805C` | `credit_bulk_pool` | 10ak |
 | `805D` | `credit_drain_pool` | 10ak |
@@ -4905,6 +5003,14 @@ for `0x0A,0x0A`.
 | `8138` | `charge_step` | 10ak |
 | `8143` | `charge_event_pending` | 10ak |
 | `8145` | `debit_pending` | 10ak |
+
+**Corrected:** `811A`/`811B` were `buf8119_ptr`/`buf8119_end`, named on the
+assumption that `8119` was the buffer base. `25DC` shows otherwise — `RLDI
+R8,8119` only sets the high byte, and `PLO R8` from `M(811A)` makes the real
+buffer `8101`–`8115`, with the index wrapping `1`↔`0x15` and `M(811B)` as the
+tail. They are now `dial_buf_ptr` / `dial_buf_end`, and `8117`–`8119` turn out
+to be a separate three-deep key history: `2563` tests it for `4,4,1` and `2759`
+for `0x0A,0x0A`.
 
 Names reflect what the code **does** with a cell, not an assumed purpose:
 `card_value_7_minus_popcount` records the computation at `33D4` rather than
