@@ -64,7 +64,7 @@ label denotes a build, not a different product.
 | U3, U4, U5, U14, U18 | **MC14094BCP** ×5 | serial-in, parallel-out shift registers with output latches |
 | U204 | MC14021BCP | parallel-in, serial-out shift register (input expander) |
 | U202 | CD4099BE | 8-bit addressable latch |
-| **U230** | **MC74HC4053N** | **triple 2-channel analog multiplexer — the UART peer selector**, see §6b |
+| **U230** | **MC74HC4053N** | **triple 2-channel analog multiplexer — the UART peer selector**, see §6a |
 | U214, U11 | M74HC4066B1 ×2 | quad analog switches; U214 by the CPU/decode area, U11 among the modem chips. **Not** the UART router — most likely audio switching around the speech circuit |
 | U215, U217, U218, U219 | SN74HC367N ×4 | buffers driving the J1 connector |
 | U224 | MC74HC245AN | bus transceiver |
@@ -620,7 +620,7 @@ Link reset at **`0x5FB1`** clears bit 0 of `0x8029`, zeroes `8031` and
 `805C`–`805E`, calls `EraseBlock` over the receive buffer, and sets
 `8134 = 0xAA`.
 
-## 6. How the ports are decoded — measured
+## 6b. How the ports are decoded — measured
 
 **There is no external I/O decoder for the UART. It decodes its own port
 select**, which is the entire point of the 1854's Mode 1.
@@ -710,7 +710,7 @@ the baud rate, either measure those pins or work out the divider chain from the
 crystal (`X201`) through the `CD74HC4040E` counters (`U210`, `U212`) and the
 `CD4521BE`. **Not yet determined.**
 
-So anyone tapping pins 4 and 15 of `U230` (§6b) should set their analyser to
+So anyone tapping pins 4 and 15 of `U230` (§6a) should set their analyser to
 **7E1** and find the baud rate empirically.
 
 > **Correction.** An earlier opcode scan reported `OUT 7` at `4997`, `7592` and
@@ -1013,9 +1013,13 @@ credit**. A compare loop over `850E` checks the parsed value against a small
 table, and the outcome writes `0xAA` (accepted) or `0x69` (rejected) to the
 session state at `8069`.
 
-`36C2` is almost certainly the **stepper single-step pulse**: `MO` calls it
-once per unit of difference between a target and the position shadow at
-`806A`, `MZ` exactly twice, `X` and `Y` once each.
+`36C2` is **`account_one_unit_spent`**: it sets `M(88BD) = 0xAA` and bumps the
+six-digit totalizer at `8526`, so that counter is the cumulative tally of card
+units burned. `MO` calls it once per unit of difference between the value the
+reader reports and the shadow at `806A`, `MZ` exactly twice, `X` and `Y` once
+each. An earlier reading here guessed a **stepper single-step pulse**; that was
+wrong — the stepper is in the reader's own ROM, on its own CPU — and §10ak lays
+out the call pattern that makes it a unit count.
 
 ## 8. Transmitting: the command set
 
@@ -1283,10 +1287,15 @@ The outbound record and its framing are now traced end to end.
 ### Relocated code
 
 `07A3` does `memcpy(dest=9100, src=1CB7, len=067A)` — **1658 bytes of ROM
-`1CB7`–`1F30` run at RAM `9100`–`9779`**, offset `+0x7449`. So that code
-exists in two places and an edit to one copy does not affect the other. The
-smaller payloads from `040D` and `3011` (§10) land *inside* this block,
-overwriting its tail.
+`1CB7`–`2330` run at RAM `9100`–`9779`**, offset `+0x7449`. So that code
+exists in two places and an edit to one copy does not affect the other.
+
+(An earlier draft gave the ROM source as `1CB7`–`1F30`, which is only 634
+bytes, not 1658. `1CB7 + 0x067A − 1 = 0x2330`.)
+
+The payload from `040D` lands at `9733`–`9771`, *inside* this block and
+overwriting its tail. The payload from `3011` lands at `9771`–`9796`, which
+starts inside the block and **runs 29 bytes past its end** at `9779`.
 
 ### `build_dlc_record` (RAM `910B`, ROM `1CC2`)
 
@@ -1562,7 +1571,7 @@ register cannot be read back, so callers modify the shadow and push it out.
 `8000`–`9FFF`, `LCD` `E000`–`E007`), so these accesses show as unmapped until
 a block is declared.
 
-26 sites reference `0xF000`: `0016`, `0056`, `006C` (early init), `0411` and
+25 sites reference `0xF000`: `0016`, `0056`, `006C` (early init), `0411` and
 `302D` (the RAM payloads, §10), `13A6`, `29DB`, and a dense block at `1DC5`,
 `1DCF`, `1E39`, `1EA2`, `1ECA`, `1EE3`, `1F04`, `1F27`, `1F58`, `209A`,
 `20B4`, `2198`, `2221`, `2237`, `225B`, `226C`, `2282`, `22A6`. That block
@@ -1584,8 +1593,11 @@ poked. Interrupts are off across the whole sequence, which fits: an interrupt
 would try to fetch from ROM. Clearing it as the response to a failed integrity
 check fits a capability-withdrawal or protection latch.
 
-**This is inference from structure, not proof.** The bits have not been
-identified.
+**Bit 0 is now identified — see §10an.** `rewrite_code_space` (`0056`) reads
+every byte of `0000`–`7FFF` and writes it straight back, which is only
+meaningful if reads and writes there reach different devices, and the
+distribution of the `F000 = 0x02` writes says which way round. Bit 1 is still
+unknown.
 
 ## 10b. The display: HD44780 and the display list
 
@@ -3254,10 +3266,12 @@ Both are incremented at a single site, together, inside `FUN_420E`:
 4268  SCAL R3,77AD
 ```
 
-and `FUN_420E` opens with `SCAL 0100` — sampling **EF3, the hook switch** —
-then checks `card_permission_bits` against `0x96`. So these count completed
-call events: **every 45 calls the phone prepares a report record and logs an
-event**. (`FUN_420E` is never reached by `SCAL`; it is branched to.)
+**They count PULSES, not calls.** §10ai decodes the site: `4243` reads
+**port 3 bit 7** and compares it against the previous sample in `M(8078)`,
+so the increments happen on a **rising edge**. The `SCAL 0100` at the top of
+`FUN_420E` belongs to an earlier job in that stage, and every branch out of
+the `ANI 0x96` test rejoins at `4238`, before the detector. So
+`periodic_report_check` fires every **45 pulses**.
 
 ### The `97xx` counter records
 
@@ -3402,7 +3416,7 @@ so one N value can serve two devices.
 ### What port 5 receives is still unresolved
 
 Taking each pair literally gives `port n <- M(8033+n)`, with port 5 carrying
-the byte one below. But the only other flush in the image, at `399D`, is
+the byte one below. The flush at `399D` is
 `SEX RB(8034) / OUT 5 / NOP NOP / OUT 2`, making `port 5 <- M(8034)` and
 `port 2 <- M(8035)`.
 
@@ -3688,13 +3702,1337 @@ That reconciles both observations: `increment_counter16` (§10s) bumps
 engine range-checks against `limitB`. `97A4`, just below the array, is
 `1ABE`'s retry counter.
 
+## 10aa. `get_scaled_credit` (`0x533E`) and the credit divisor
+
+Returns `M(805E)` divided by the divisor configured in `M(8514)`.
+
+```
+533E  R8 = 805E, R7 = 8515
+5346  M(8515) == 1    -> 536C, return M(805E) UNSCALED
+534D  M(8514) == 1    -> 536C, return M(805E)
+5353  M(8514) == 2    -> 5369, return M(805E) >> 1
+5358  M(8514) == 4    -> 5366, return M(805E) >> 2
+535D  otherwise       -> SCAL 38E3 with D = M(805E)
+```
+
+The divisor is **1, 2, 3 or 4**, and the "otherwise" arm is the 3 case — the
+only one that is not a power of two, which is exactly why it needs a
+routine. `M(8515) == 1` bypasses scaling entirely.
+
+### A shared byte in the shift arms
+
+`5368` is `NBR`, a never-taken short branch, so it steps over the byte at
+`5369`. Entering at `5366` runs `LDN R8 / SHR`, skips `5369`, and falls into
+the `SHR` at `536A` — **two** shifts, a divide by 4. Entering at `5369` runs
+`LDN R8` then that same `SHR` once. The byte at `5369` is doing double duty
+as `NBR`'s operand and as an instruction.
+
+### `38E3` → `divide_by_3`
+
+```
+38E8  SMI 0x18 / INC RC / LBDF    count v div 24
+38EF  ADI 0x18                    restore the remainder
+38F1  SMI 0x03 / INC RD / LBDF    count (v mod 24) div 3
+38F7  GLO RC / SHL x3             quotient * 8
+38FC  GLO RD / ADD                plus the remainder's quotient
+```
+
+`8*(v div 24) + ((v mod 24) div 3)` **is** `v div 3`. Splitting it that way
+caps the loop at about 18 iterations instead of 85.
+
+### `credit_times_interval_ge_1000` (`0x52F7`) — the other half of the test
+
+The same caller takes a second route to "enough credit", and it is a
+multiply:
+
+```
+52F8  SCAL compare_words16(8122, 8124)
+5300  LBDF 530A         DF = word@8122 >= word@8124
+5303  RD = 8124         ... so RD points at the LARGER of the two
+530A  RD = 8122
+5313  LDA RD / SMI 0x04 / LBDF 5336    rate high byte >= 4 -> return 20
+531A  RE += word@RD                     16-bit add, low then high with ADC
+5327  DBNZ RC,531A                      repeat RC.0 times
+532B  continue only if RE.1 == 3
+5331  RE.0 >= 0xE8 ?
+5336  return 20   /   5339  return 0
+```
+
+The loop is a **multiply by repeated addition** — `RE = credit * rate` — and
+`RE.1 == 3` with `RE.0 >= 0xE8` means `RE >= 0x03E8`, i.e. **1000**. The
+early bail at `RE.1 >= 4` covers everything above that.
+
+**It takes an implicit argument in `RC.0`**, the scaled credit. The routine
+zeroes `RC.1` but never `RC.0`; the caller leaves it there with `PLO RC` at
+`5267`, right after `SCAL get_scaled_credit`. Miss that and the loop count
+looks undefined.
+
+`389A` → `compare_words16`: a 16-bit big-endian compare of two inline
+pointers, returning the result in `DF`.
+
+So `FUN_524F` has **two independent routes to "enough credit"** — scaled
+credit ≥ 100, or product ≥ 1000 — and only failing both reaches `528B`, the
+low-credit path.
+
+**Settled — and they are not a tariff pair.** An earlier version of this
+section said "not established … a day/night or local/trunk tariff pair would
+fit". Two sites decide it:
+
+| Site | What it does |
+|---|---|
+| `4155` | `SCAL increment_word16` with the inline pointer `8122`, on the per-tick chain that ends in `LBR 420E` — so **`8122` counts base ticks** |
+| `37A1` | on an accepted metering pulse, copies `word@8122` up to `8124` and zeroes `8122` (§10ak) |
+
+So `8122` is **how long the current charging period has run** and `8124` **how
+long the last one did** — `metering_interval_ticks` and
+`metering_interval_prev`. The product is therefore **credit × ticks-per-unit**,
+an estimate of remaining talk time, and the **larger** interval is chosen
+because it is the conservative estimate. Two words exist so that a period still
+in progress cannot collapse the estimate to zero.
+
+Note that immediately after a charge event `8122` is zero, so until the next
+tick increments it the larger of the pair is always `8124`.
+
+**Still not established:** the units behind the `1000`. It is ticks × card
+units, so with §10aj's figure that would be "unit-seconds" — resting on the
+inferred divider.
+
+### What `M(805E)` holds
+
+`FUN_3A0B`, the credit display, reads it at `3A7B`; the per-tick update
+writes it at `2DB5`; `show_fault_log` clears it together with `805C` and
+`805D` as a three-byte group. Its only caller, `FUN_524F`, compares this
+routine's result against **100** (`5268`) and **20** (`5272`) and then sets
+flags at `8184`, `814A` and `806B` — which reads as low-credit thresholds.
+
+So "credit scaled by a configured divisor" is well supported. **The
+divisor's units are not**: whether `M(8514)` converts card units to money,
+to seconds, or to something else is not shown by this code. The ROM default
+is 1 (§10q), so an unprovisioned phone does no scaling at all — another
+reason to read `850D`–`8515` out of a live unit.
+
+## 10ab. `parse_config_record` (`0x5426`) — remote provisioning
+
+Parses a received character stream and writes the whole provisioning block
+at `850D`–`8515`. Returns 0 on success, 1 on any validation failure. **This
+is how a phone gets provisioned.**
+
+```
+5437  M(850D)                       first field
+544C  M(850E) = count, kept in R5.0 as the loop counter
+5451  loop, count times:
+        5452  SCAL 38CB             assemble the next value
+        5457  SCAL 3886             POPCOUNT it
+        545B  SMI 0x04 / LBNZ 54B1  must be EXACTLY 4 - else fail
+        5461  store to 850F, 8510, 8511, 8512
+5479  M(8513)
+548D  M(8514)  = credit_divisor
+549D  M(8515)
+549F  SCAL parse_digits_into(ptr)   two more fields
+54AA  SCAL parse_digits_into(ptr)
+54B0  LSZ 54B3                      D == 0 -> success
+```
+
+Every field is validated by `558D` and masked with `ANI 0x0F`, so the stream
+carries one digit per byte.
+
+### The popcount rule, confirmed by the ROM defaults
+
+Accept-list entries must have **exactly four set bits**. The defaults seeded
+from ROM `0D01` (§10q) both pass:
+
+| | | |
+|---|---|---|
+| `0x0F` | `00001111` | popcount 4 |
+| `0x78` | `01111000` | popcount 4 |
+
+So **this ROM only accepts card values with four set bits** — a
+constant-weight code, which gives free error detection. Why the values are
+encoded that way is not shown here. The cleaning card's `0x30` has popcount
+2 and is matched by `detect_cleaning_card` on a separate path (§10o), so it
+never meets this rule.
+
+### `parse_digits_into` (`0x54B5`) and the keypad encoding
+
+Takes a **2-byte inline destination pointer** and parses up to 11 characters
+into digit *values*:
+
+| Input | Becomes |
+|---|---|
+| `'1'`–`'9'` | 1–9 |
+| `'0'` | **10** |
+| `'A'` | 0 |
+| `'-'` | skipped |
+| anything `558D` rejects | skipped |
+
+`'0'` → 10 is the **keypad index encoding** of §10f, where index `0x0A` is
+the `0` key — so the wire format speaks keypad indices, not ASCII values.
+
+**Ghidra mis-decodes `54AE`/`54AF`** as `GLO R5 / LDN R1`; they are the
+inline pointer. The tell is the first call: the `SCAL` at `549F` is four
+bytes, yet the next real instruction is the `LBNZ` at `54A5`. Now declared
+as `54b5  p`.
+
+### Where the record comes from
+
+The only caller is `3E2B`. It first calls `5A8E` with `D = 6` and bails if
+that returns zero; `5A8E` does serial I/O — `OUT 6`, the UART data
+register, polled against `INP 3` bit 1, with a 25-unit timeout. The caller
+sits in the `3Dxx`–`3Fxx` block that drives `845C`, the DLC mode byte, and
+writes the fault log at `3F83`/`3F8A`. It stores the result in `M(8190)`.
+
+So this is **remote provisioning over the DLC link**: the accept list, the
+credit divisor and the rest of `850D`–`8515` can all be set from the far
+end. Which is exactly consistent with §10q — those cells are
+battery-backed, and the ROM only seeds defaults at cold start.
+
+**Still unnamed:** `558D`, the per-character validator, and `38CB`, which
+assembles the byte that gets popcounted.
+
+## 10ac. `test_dial_and_reader` (`0x5370`)
+
+The dial-and-reader test from the technician menu. It displays
+בדוק חוגה / קורא (*check dial / reader*), then runs a pattern while
+polling for keypresses and servicing the card reader.
+
+```
+5370  M(8074) = 0
+5377  GHI RF / LBZ 5380      RF.1 != 0 -> SCAL 3658(0x20), a reader command
+5380  M(8029) &= ~0x20       clear the link's "message ready" bit (§6)
+5389  SCAL 290A(805B, 0x20, 0x0010)   memset DOWNWARD -> 804C..805B spaces
+5393  SCAL 6E6B, desc 6645   "בדוק חוגה / קורא"
+53AC  SCAL get_key_with_timeout(25)
+
+      loop from 53C8:
+53CD    LDA R7 / STR R5      next pattern byte -> M(8033)
+53CF    LDA R7 / STR R6      next byte         -> M(812B)
+53D1    SCAL get_key_with_timeout(1)
+53D9    M(8074) == 0xAA ?    -> show desc 67B6, line 2 from 804C, dwell 50
+53EB    SCAL 5F35            the card reader dispatcher wrapper
+```
+
+### The pattern table at `6D17`
+
+Twelve 2-byte pairs — a value for `M(8033)` and a hold count for `M(812B)`,
+which is **24 in every entry**:
+
+```
+3C 3C 3D 3E 3E 3D 3C 29 39 39 29 3C
+```
+
+Low five bits: `11100 11100 11101 11110 11110 11101 11100 01001 11001 11001
+01001 11100`. Those are the same low bits of `M(8033)` that
+`read_hardware_straps` drives (§10k), so this walks that field through a
+fixed sequence while the technician exercises the dial and inserts a card.
+What the lines physically reach is still not established.
+
+### A tension worth flagging
+
+`M(8074)` is named `hardware_version`, from `read_hardware_straps`, which
+clears it and ORs in five strap bits — a value of `0x00`–`0x1F` that
+`show_version_and_comm` renders as two decimal digits (§10k, §10j).
+
+Here the **same cell** is cleared at `5370` and then tested for **`0xAA`**,
+which is not a 5-bit value. So either this test reuses it as a scratch
+"result ready" flag, or the `hardware_version` reading is too confident.
+Both uses cannot be the cell's only purpose, and nothing yet decides which.
+
+Sole caller: `77F0`, in the technician-menu block around `77F4`.
+
+## 10ad. `update_low_credit_warning` (`0x524F`)
+
+Decides each tick whether the card still has enough credit, and raises or
+tears down the warning. Called from `2DCF` inside `FUN_2D10`, the per-tick
+update — so it runs on **every** `service_tick`.
+
+```
+524F  M(8065) = 0
+5256  M(8144) == 0          -> 52B8, the clear path
+525E  M(8144) bit 7 clear   -> 52B8
+5263  SCAL get_scaled_credit        result also left in RC.0 by PLO at 5267
+5268  SMI 0x64 / LBDF 5277          scaled credit >= 100  -> ENOUGH
+526E  SCAL credit_times_interval_ge_1000
+5272  SMI 0x14 / LBNF 528B          0 -> NOT ENOUGH, 20 -> ENOUGH
+```
+
+**Two independent routes to "enough":** scaled credit ≥ 100, or
+credit × rate ≥ 1000. Only failing both reaches `528B`.
+
+| Path | Effect |
+|---|---|
+| **Enough** (`5277`) | `M(806B)`, `M(8184)`, `M(814A)` all cleared, then fall into the clear path |
+| **Not enough** (`528B`) | suppressed if `M(806B) == 0xAA`; skipped if `M(8184) != 0` (already warned); else `M(8184) = 0xAA`, `M(8149) = (M(8149) & 0x40) \| 0x80`, and `M(814A) = 0xFE` if it was zero |
+| **Clear** (`52B8`) | if `M(8149)` bit 7 is set, clear it and call `setFlags_8033_and_8036` |
+
+### `M(814A) = 0xFE` is a one-shot, and it sticks at `0xFF`
+
+An earlier version of this section called it a two-tick arm. It is not. The
+caller is `2DD3`:
+
+```
+2DD7  LDN RE          D = M(814A)
+2DD8  LBZ 2DEB        zero -> the other display paths
+2DDB  ADI 0x01
+2DDD  LBZ 2E6D        wrapped to 0 -> EXIT, before the store
+2DE0  STR RE          M(814A) = D
+2DE2  SCAL LoadStringForDisplay(6576)
+```
+
+With `0xFE`: the first pass increments to `0xFF`, stores it, and submits the
+descriptor. The second pass increments `0xFF` to `0x00` and the `LBZ` at `2DDD`
+branches **before** the `STR` at `2DE0` — so nothing is stored and nothing is
+displayed, and `M(814A)` is left at `0xFF` for good. Every later pass does the
+same.
+
+So the descriptor is submitted **once**, and what keeps the warning on screen is
+the self-referential chain below, not the arm. `M(814A)` returning to zero is
+the job of `524F`'s "enough credit" path at `5277`.
+
+That stuck `0xFF` matters beyond the display: `M(814A) != 0` is also one of the
+four gates on the `?CC` flush at `3924` (§10ak), so the flush stays armed for as
+long as credit is low.
+
+And `6576` is another **self-referential cycle** — `6576 → 645A → 6576`,
+dwell `0x0F` each — alternating line 2 between the RAM credit buffer at
+`804C` and the text `6B22`, **`"0 ----> "`**. So the warning flashes the
+remaining credit against an arrow toward zero.
+
+That is the third self-referential descriptor chain found (§10l, §10b): the
+display list uses them wherever a message has to persist without the code
+re-issuing it.
+
+### The guard is on contested ground
+
+`M(8144)` gates the whole routine, and that cell's meaning is disputed —
+§1a ties it to the credit screen, §10t reads it as "the dial pulse
+arrived". Nothing here settles it; this routine only needs it non-zero with
+bit 7 set.
+
+## 10ae. `step_state_machine` (`0x5227`) — a table-driven transition engine
+
+Advances a state machine, but only when its input has changed. Returns
+`0xFF` if it stepped, `0` otherwise. Takes a **2-byte inline pointer** to a
+descriptor.
+
+```
+5227  SEX R3 / RLXA RE        RE = the descriptor pointer, inline
+522E  LDN RC / SEX RC / IRX / XOR     M(8866) ^ M(8867)
+5232  LBZ 524A                nothing changed -> return 0
+5235  LDX / DEC RC / STR RC   M(8866) = M(8867), update the shadow
+5238  LDN RC with RC = 886A   the input value
+523E  SCAL classify_into_range
+5243  SCAL next_state_from_table
+5247  LDI 0xFF
+```
+
+### The descriptor is two words
+
+Both callees do `SEX RE / RLXA`, which **advances `RE`**, so they consume
+one word each:
+
+| | |
+|---|---|
+| `desc[0]` | range table — read by `classify_into_range` (`328E`) |
+| `desc[1]` | state table — read by `next_state_from_table` (`3270`) |
+
+The call at `54FA` passes `3220`, where those words are `32CD` and `325C`.
+**`3218` is an array of such descriptors** — `32C5`/`323C`, `32BF`/`3224`,
+`32CD`/`325C` — so the routine is generic and `3220` is one entry.
+
+### The two halves
+
+**`classify_into_range`** walks the range table in **pairs** — two `LDA RC`
+per iteration, a lower and an upper bound — counting into `RD` until a zero
+entry ends the table, and stores the index in `M(886B)`. It answers "which
+bracket does `M(886A)` fall into".
+
+**`next_state_from_table`** computes `M(886B) + 4 * M(886C)`, indexes the
+state table with it, and writes the result back to `M(886C)`. Four columns,
+indexed by *(current state, input bracket)* — a transition table.
+
+| Cell | Role |
+|---|---|
+| `8866` | previous value — the change-detection shadow |
+| `8867` | current value |
+| `886A` | the input the bracket is computed from |
+| `886B` | bracket index |
+| `886C` | **the state** |
+
+### What the caller does with it
+
+```
+5500  LBZ 39E5              did not step
+5503  M(886C) != 4 -> 39E5  only state 4 proceeds
+550D  SCAL 0100             sample EF3, the hook switch
+5514  INP 1 / ANI 0x40      port 1, bit 6
+```
+
+State 4 is the trigger, gated further on the hook and on port 1 bit 6.
+
+**That is a second input use of port 1** — `45E1` reads its bit 0 into
+`M(8191)` — so port 1 carries at least two sense lines, alongside being
+driven as an output by `flush_output_latches` (§10u).
+
+**Not established:** what `M(886A)` measures, so neither the brackets nor
+the states have meanings yet. The neighbourhood is tariff and credit code,
+so a duration or pulse count would fit, but nothing here shows it.
+
+## 10af. `digits_to_binary16` (`0x5000`)
+
+Converts a run of decimal **digit values** at `R5` into a 16-bit binary
+number in `RC`. The count is a 2-byte inline argument.
+
+```
+5003  RC = 0
+5007  LBR 5022              enter at the ADD, so the first pass is 0*10 + d
+
+      loop body:
+500C  SCAL shift_rc_left16  RC *= 2
+5010  SCAL shift_rc_left16  RC *= 4
+5014  RC += the pushed value           -> 5x
+501E  SCAL shift_rc_left16             -> 10x
+5022  RC = 10x + M(R5), R5++
+502C  DBNZ RD,500A
+```
+
+The classic `RC = RC*10 + digit`, with the ×10 built as `(x*4 + x)*2`
+because `shift_rc_left16` (`3876`) is the only primitive available — it
+shifts `RC` left one bit via `GLO/SHL/PLO` then `GHI/RSHL/PHI` to carry
+across the halves.
+
+The input is **digit values, not ASCII**: nothing subtracts `0x30`. That
+matches `parse_digits_into` (§10ab), which also produces values.
+
+### The count must be `b,b`, not `w`
+
+Both call sites pass a small number — `0x0003` at `5039`, `0x0004` at
+`52E9` — which falls in ROM address range, so `w` would manufacture data
+references to addresses 3 and 4. Same trap Codex caught on `290a`.
+Declared `5000  b,b`.
+
+### Callers
+
+| Site | Setup |
+|---|---|
+| `5039` | `R5 = 8024`, count 3 — the reader digit cells `8024`–`8026`, so this turns a reader numeric suffix into a binary value |
+| `52E9` | count 4 — the caller unpacks nibbles onto the stack at `52D8`–`52E3` first |
+
+The second is worth noting. After converting, `GHI RC / LBNZ 52B8` bails if
+the value exceeds 255, then `GLO RC / LBR 5268` jumps **into**
+`update_low_credit_warning` at its "scaled credit ≥ 100" test (§10ad). So
+there is an alternative entry to the credit comparison that supplies a
+4-digit decimal value instead of `get_scaled_credit`'s output.
+
+## 10ag. `wait_idle_then_blank_display` (`0x3831`)
+
+Blocks until two pending conditions clear, then tidies the display — unless
+the display is being held.
+
+```
+3833  IDL                     wait for the next interrupt
+3834  M(812F) != 0 -> 3833    a countdown still running
+383C  M(8863) != 0 -> 3833    a flag still set
+3844  M(8167) & 0x20          the display-hold flag
+384B  LBNZ 3854               held, so leave the screen alone
+384E  SCAL BlankDisplayAndClear8036Bit6
+3852  IDL / IDL               two ticks for it to render
+```
+
+The `IDL` in the loop makes this a **tick-paced wait**, not a spin.
+`M(812F)` is driven by the timer machinery — set to 50 at `497A` in
+`wait_and_triage_state`, cleared at `493B` — and `M(8863)` is set to `0xAA`
+at `3567`.
+
+### Bit 5 of `M(8167)` is a session-wide display-hold flag
+
+Not local to this routine. It is **tested at thirteen sites**, six of them
+inside the supervised-operation engine at `1ABE` (`1ACE`, `1AF2`, `1B19`,
+`1B3D`, `1B67`, `1BB4`), plus `2702`, `3844`, `402A`, `5C9C`, `5E2C`,
+`72E7` and `74B1`. Written by `LDI 0x20` at `4D8E` and `5F75`, `LDI 0xC0`
+at `31BC`, `LDI 0x80` at `4551`, `LDI 0x00` at `45AD`.
+
+Two uses pin its sense: `init_comm_session` (§10v) takes the longer timeout
+and puts בתקשורת on screen when the bit is **set**, and this routine
+declines to blank when it is **set**. Both read as *"a message is up, leave
+it"*.
+
+Sole caller: `5C57`, in `FUN_5BFD`, immediately before the first
+`GuardOrAbortCaller` call at `5C5B` (§10h). So the fault-reporting sequence
+waits for the machine to go quiet and clears the screen before starting.
+
+## 10ah. `increment_decimal_counter` (`0x3806`) and the totalizer bank
+
+Adds 1 to a multi-digit **decimal** counter at `RD`, propagating the 9→0
+carry. The digit count is a 1-byte inline argument; the base comes in `RD`.
+
+```
+3806  LDN R3 / PLO RC / PHI RC   both halves of RC = the digit count
+3809  LDN RD / SMI 0x09          current digit == 9 ?
+380C  LBNZ 3829                  no  -> M(RD) += 1, done
+380F  GLO RC / LBZ 381D          out of digits -> the wrap path
+3813  DEC RC / LDI 0 / STR RD / INC RD / LBR 3809
+                                 yes -> zero it, carry upward
+382D  INC R3                     step over the inline byte
+```
+
+**Digits are stored least significant first** — the carry walks *upward*
+with `INC RD`, so the lowest address holds the units. The values are digit
+*values*, not ASCII: the comparison is against `9`, not `'9'`. Same
+convention as `digits_to_binary16` (§10af) and `parse_digits_into`
+(§10ab).
+
+### Four counters, contiguous
+
+| Base | Digits | Bumped at |
+|---|---|---|
+| `8516` | 4 | `429D` |
+| `851A` | 6 | `4233` |
+| `8520` | 6 | `2D24` |
+| `8526` | 6 | `36CE` |
+
+`8516`+4 = `851A`, +6 = `8520`, +6 = `8526`, +6 = `852C`. So
+**`8516`–`852B` is one 22-digit bank of totalizers**, sitting immediately
+after the provisioning block at `850D`–`8515` (§10q). That tightens the
+`85xx` map considerably:
+
+```
+8500         from M(0D00)
+850D..8515   provisioning: accept list, divisors
+8516..852B   four decimal totalizers
+852C..       a buffer the technician menu edits (4E35 onward)
+```
+
+### Who bumps what
+
+| Site | Context |
+|---|---|
+| `2D24` | `FUN_2D10`, the per-tick update |
+| `36CE` | `FUN_36C2`, which also sets `M(88BD) = 0xAA`; called from the reader dispatch handlers at `342B`, `344C`, `3460`, `3496` |
+| `4233`, `429D` | both inside `FUN_420E` — the same routine that increments `845A` and `885D`, the counters `periodic_report_check` tests against 45 (§10s) |
+
+So these are **event totalizers**, and the `420E` pair in particular move
+on the same event as the every-45 counters.
+
+**Two of the four are now identified.** `851A` is a **minute meter**: §10ai
+shows the `4233` site fires once per 60 ticks of off-hook time with a valid
+card, and §10aj makes the tick exactly one second. `8526` counts **card units
+burned** — §10ak works out the call pattern of `account_one_unit_spent`, the
+only caller of `increment_decimal_counter` for that base.
+
+`8520` is bumped at `2D24`, the first thing `apply_charge_and_refresh_display`
+does when a metering pulse arrives, so it counts **charged periods** — one per
+pulse, before any exemption test. `8516` remains unidentified. Dumping
+`8500`–`852B` from a live unit would still settle the units each one is kept in.
+
+None of the four can be renamed over the MCP — see the caveat in §11.
+
+## 10ai. `meter_and_drive_line` (`0x420E`) — and what the counters count
+
+**Not a called function.** Entered by `LBR 420E` from `415B`, leaving by
+`LBR 4A12` at `43E5` — one segment of a straight-line per-tick chain. Four
+jobs.
+
+### 1. Duration meter (`420F`–`4237`)
+
+```
+420F  SCAL 0100             sample EF3, the hook switch
+4216  M(8139) == 0          -> skip
+421E  ANI 0x96 / LBZ        -> skip
+4223  M(811D) != 0          -> skip, still counting down
+422B  M(811D) = 0x3C (60)   reload
+422E  increment_decimal_counter(851A, 6 digits)
+```
+
+`M(811D)` is one of the eight cells in the soft-timer table at `40D6`
+(§10y), so the tick decrements it. The slow tick is **exactly 1 Hz**
+(§10aj), so **`851A` advances once per 60 seconds of off-hook time with a
+valid card — it is a minute meter**, matching per-minute charging.
+
+### 2. Pulse counter (`4238`–`4276`) — this settles §10s
+
+```
+4240  LDN R7 / PLO RD       RD.0 = M(8078), the PREVIOUS sample
+4243  INP3 / ANI 0x80       read PORT 3, BIT 7
+4246  STR R7                M(8078) = the new sample
+4247  LBZ 426F              clear -> clear bit 7 of M(8033)
+424E  GLO RD / LBNZ 4273    previous non-zero -> no edge
+4252  M(845A) += 1
+425A  M(885D) += 1
+4263  SCAL 1C5F             bumps the 97xx varC counters
+```
+
+A **rising-edge detector on port 3 bit 7**. So `845A` and `885D` count
+**pulses, not completed calls**.
+
+§10s guessed "completed calls" from the `SCAL 0100` at the top of this
+stage — but that call belongs to job 1, and **every branch out of the
+`ANI 0x96` test rejoins at `4238`**, before the detector. The pulse reading
+is what the code shows. So `periodic_report_check` fires every **45
+pulses**.
+
+**Port 3 bit 7 is therefore a pulse input**, alongside bit 6 which
+`read_hardware_straps` uses as the strap sense (§10k).
+
+### 3. Second meter (`4277`–`42A4`)
+
+Gated on the hook, `M(8144)`, `M(8139) & 0x96` and `M(811F)`, it bumps the
+**4-digit** counter at `8516` and latches `M(811F) = 1`, so it counts once
+per arming rather than once per tick.
+
+### 4. Output sequencer (`42B2`–`43E5`)
+
+With `R7 = 8033`, `R8 = 8032`, `R5 = 8149`, `R6 = 8132`, it switches on the
+low three bits of `M(8149)` and on bits 3–5 against `0x28`, writing
+patterns into the **low six bits of `M(8033)`** while preserving the top
+two with `ANI 0xC0` — values `0x01`, `0x08`, `0x0A`, `0x0C`. It loads
+`M(8132)` with 100 or 10 as a dwell and clears the group at
+`8147`–`8149`.
+
+That is the same `M(8033)` low field `read_hardware_straps` drives (§10k)
+and `test_dial_and_reader` walks (§10ac). A state machine driving it during
+call progress is the strongest evidence yet that the field is a genuine
+output — though what it reaches is still unknown.
+
+## 10aj. The timebase — the slow tick is exactly one second
+
+The board's crystal nearest the CPU reads **2.4576 MHz**, and that settles
+the whole timing chain to the integer.
+
+```
+2,457,600 Hz  / 4096  =  600 Hz     EF1
+          600 /   12  =   50 Hz     base tick
+           50 /   50  =    1 Hz     slow tick
+```
+
+| Stage | Where it is in the ROM |
+|---|---|
+| ÷ 4096 | **not in the ROM** — external, and 4096 = 2^12 is one CMOS ripple counter |
+| ÷ 12 | `STPC` / `LDI 0x0C` / `LDC` / `SCM1` at `05D7`, `4079`, `6EEC`. `SCM1` clocks the 1806 counter from **EF1**, and the counter is loaded with 12 |
+| ÷ 50 | the prescaler at `40F4`: `M(8130)` counts to `0x32` before the slow table is touched (§10y) |
+
+**Every division is exact**, which is the strongest argument for it. The
+alternatives do not land anywhere sensible: EF1 at mains 50 Hz would make
+`M(811D) = 60` into **12 minutes**, and 100 Hz into 6.
+
+### What that makes the timers
+
+| Cell | Value | Meaning |
+|---|---|---|
+| `811D` | 60 | **60 seconds** — the `851A` duration meter's interval (§10ai). *Not* the charge interval: §10ak shows charging is driven by the exchange's metering pulse, not by this timer |
+| `8131` | 30 | 30 s |
+| `8134` | 90 | 90 s, the `arm_timer_set` lifetime (§10y) |
+
+Israeli calls were charged by the minute, and `meter_and_drive_line` bumps
+the 6-digit counter at `851A` once per `M(811D)` expiry. **So `851A` is a
+minute meter** — a *statistic*, though, not the billing mechanism. §10ak shows
+the money comes off the card on the exchange's metering pulse; nothing in the
+charging path reads a timer.
+
+### The same crystal sets the baud rate
+
+§6 records that the UART's baud rate is not in the control register, so it
+comes from an external clock. 2.4576 MHz is the canonical UART crystal:
+÷16 = 153,600 Hz = 16 × **9600 baud**, with ÷32 and ÷64 giving 4800 and
+2400. One crystal serves both the serial links and, through the divider,
+the timebase.
+
+### The caveat
+
+The ÷4096 divider is **inferred, not observed** — it is off-chip and no
+instruction touches it. What the ROM fixes is the ÷12 and the ÷50; the
+crystal fixes the input. The inference is that the only divider making all
+three stages exact is a power of two, and 4096 is the one that lands on
+1 Hz. Confirming it means finding the divider chip on the board and
+checking EF1 with a scope.
+
+## 10ak. How the card gets debited — and when it is actually burned
+
+> Timings in this section are quoted in milliseconds and seconds via §10aj,
+> whose ÷4096 stage is **inferred, not observed**. The ROM fixes the sample
+> *counts*; read every "ms" and "second" below as conditional on that.
+
+**The card is written during the call, within one tick of each charge, not at
+hangup.** And the charge clock is not in the phone: it is the exchange's
+metering pulse.
+
+### The chain, end to end
+
+| Step | Where | What happens |
+|---|---|---|
+| 1 | `detect_metering_pulse` (`3733`) | a pulse on **port 3 bit 0**, *and* two further gates, set `charge_event_pending` (`M(8143)`) |
+| 2 | `apply_charge_and_refresh_display` (`2D10`) stage 1 | `debit_pending` (`M(8145)`) `+=` the divisor |
+| 3 | stage 2 | spend `credit_drain_pool` (`M(805D)`) first; when it is dry, `credit_bulk_pool` (`M(805C)`) `-=` N and `burn_units_pending` (`M(8064)`) `= N` |
+| 4 | `service_card_reader_link` at `3103` | N = 1 → **`?F`**; N > 1 → **`?EF0NN`** |
+| 5 | reply handlers `X` (`3420`) / `Y` (`343C`) | clear `M(8064)`, call `account_one_unit_spent` → totalizer `8526` |
+
+Step 4 is the burn, and it goes out on the **next tick after the debit**. There
+is no "remember it and settle on eject" anywhere in that path.
+
+### 1. The charge comes from the line, not from a timer
+
+`detect_metering_pulse` is called from `meter_and_drive_line` at `42AA`, which
+is on the **50 Hz base tick** — the `1 Hz` slow tick is only the prescaler at
+`40F4`, and the chain runs on past it to `LBR 420E` at `415B`. So every count
+in this routine is a 20 ms sample.
+
+```
+3741  INP3 / ANI 0x01          port 3 bit 0
+3744  clear -> 32DB            the release path
+374F  M(816B) == 0x55 -> ret   three inhibits
+3759  M(8DC5) == 1   -> ret
+3763  M(8180) != 0   -> ret
+376C  M(8070)++                while the input is high
+3773  M(8070) >= 0x19 -> 32D5  RF.0 = 0x81, temporary fault
+
+32DB  M(8071)++                while it is low
+32E5  M(8071) < 2 -> ret       2 quiet samples = 40 ms confirms release
+32E9  M(8070) < 4  -> discard  under 80 ms is noise
+32EF  M(8070) >= 0x19 -> fault
+32F4  -> 377B                  A VALID PULSE, but not yet a charge
+377B  M(8139) >> 1 == 0 -> 378A  RF.0 = 0x90 unless already; NO charge
+3790  M(8032) != 0xAA   -> 32F9  discard
+37A0  M(8143) = 1                only now
+```
+
+**A valid-width pulse is not by itself a charge event.** `377B` requires
+`card_permission_bits` to have a bit above bit 0 set, and `3790` requires
+`call_in_progress == 0xAA`. The store is at `37A0`, after both. The high path
+also does `M(8034) |= 0x40` at `3747` on every high sample, which the listing
+above leaves out.
+
+So **a high of 4–24 samples — 80 to 480 ms — bracketed by 40 ms of release is
+one charge event.** That is an exchange metering pulse, and the window is about
+right for the European 100–200 ms convention. Anything held past ~500 ms is
+rejected as a stuck line.
+
+**Nothing in the charging path consults a clock.** `M(8145)` is written only by
+stage 1's `ADD` / `STR` pair at `2D54`/`2D55`; `M(8143)` is **set to 1** only at
+`37A0`, and is cleared at `2D1E`, `064A` and `4900`. The 60-second timer
+`minute_meter_timer` and the counter it drives (`851A`, §10ai, §10aj) are a
+**duration meter** — they never touch either cell. Per-minute billing in Israel
+therefore came from the exchange sending one pulse a minute; the phone needs no
+tariff clock, which is also why nothing here reads `8122`/`8124` (§10aa).
+
+`377B` does one more thing worth noting, and an earlier draft got it backwards.
+`37A1`–`37AE` is **not a swap**. Stepping it:
+
+```
+37A1  RC = 8122
+37A5  SEX RC
+37A6  RLXA RD      RD = word@8122;  RC -> 8124
+37A8  IRX          RC -> 8125
+37A9  RSXD RD      M(8125) = RD.0, M(8124) = RD.1;  RC -> 8123
+37AB  LDI 0
+37AD  STXD         M(8123) = 0;  RC -> 8122
+37AE  STXD         M(8122) = 0
+```
+
+So **the word at `8122` is copied up to `8124`, and `8122` is then zeroed** — a
+one-deep shift that destroys `8124`'s previous value. `8122` must be refilled
+each tick, and it is: `4155` does `SCAL 3866` with the inline pointer `8122`.
+
+And `3866` turns out to be `increment_word16`, called from `4155` with the
+inline pointer `8122` on the per-tick chain. So **`8122` is a tick counter**,
+this site latches the completed interval into `8124`, and the pair is the
+metering period — not the tariff pair §10aa first guessed at. §10aa has the
+consequences for `credit_times_interval_ge_1000`.
+
+### 2. Two pools, and only one of them costs a card write
+
+`credit_value` (`M(805E)`) is **the sum of two bytes**, computed at `2DB1`:
+
+```
+2DB1  LDA R5        D = M(805C), R5 -> 805D
+2DB2  SEX R5        X = 805D
+2DB3  ADD           D = M(805C) + M(805D)
+2DB4  INC R5 / STR R5   M(805E) = the sum
+```
+
+(The decompiler renders this as `M(805C) * 2`; it mismodels the `SEX`. The
+disassembly is unambiguous.)
+
+Stage 2 spends them differently:
+
+| Pool | How it is spent | Card traffic |
+|---|---|---|
+| `credit_drain_pool` (`805D`) | `M(8145)` units, one at a time, in the loop at `2D73` — one per charge event when the divisor is 1, otherwise the whole pending debit | **none** |
+| `credit_bulk_pool` (`805C`) | `M(805C) -= M(8145)` at `2D88`, then N units owed | one `?F`/`?EF` per debit |
+
+A borrow on that subtraction — not enough credit — yields `RF.0 = 0x82`.
+
+So `805D` reads as **credit already committed to the card**, and `805C` as
+credit still sitting on it. The names chosen are deliberately mechanical; see
+the open question below.
+
+### 3. The burn command
+
+The link machine's **resting state is `M(8031) = 0xFF`**, installed by `31EE`
+after every completed exchange. `3989` reads the state, `398D` adds one, and the
+`LSZ` at `3100` falls through to `3103` only for `0xFF`; every other value is a
+**resume-address low byte**, jumped to by `PLO R4` at `3102` (`M(8031)` is now
+named `link_resume_point`). The whole link layer is a coroutine in page `31`.
+
+```
+3104  D = M(8064)
+3105  == 0 -> 3129
+3108  SHR
+3109  LBZ 3114         D == 0 after the shift, i.e. M(8064) == 1
+                       -> send ?F      (selector 0x28)
+310C  fall through     M(8064) >= 2
+                       -> send ?EF0NN  (selector 0x48)
+3119  wait for the reply
+3122  M(8064) still set -> state 0x1D, dispatch again next tick
+3126  cleared          -> state 0xFF
+```
+
+`send_reader_command` builds the `?EF` digits **from `M(8064)` itself** — `3686`
+does `DEC R7 / LDA R7` on the `8065` pointer to reach it, and `3689`–`36A9`
+converts it to three ASCII digits over the template's `"000"` (§8). That closes
+the loop: the number on the wire *is* the number of units just taken off the
+balance.
+
+**Why `F` and `EF` are the burn.** The reader's own TE menu names it: *TE8 —
+Adjustment of erasure power ( **P1/F** )*, and TE9–13 are *Adjustment of
+erasure/reading* (`../card-reader/BSK31-firmware.md` §10). Optical cards are
+decremented by burning spots, `F` is the erasure letter, `EF` carries a count,
+and the phone picks `?F` for exactly one unit and `?EF` for more. The reader-side
+handlers (`0CD9` for `F`, `10E6` for `EF`) have **not** been read — the BSK31
+ROM is not in this repo — so that is the one confirming step left.
+
+### 4. The watchdog
+
+While `M(8064)` is non-zero, stage 3 runs instead of stage 2:
+
+```
+2D9C  M(806C)++; < 50 -> out      50 base ticks = exactly one second
+2DA5  M(806C) = 0; M(8063)--
+2DA9  M(8063) == 0 -> RF.0 = 0x93
+```
+
+`burn_watchdog_units` starts equal to the unit count, so the reader gets **50
+base ticks per unit** to acknowledge — one second per unit *if* the base tick is
+20 ms (§10aj).
+
+A caution about that "if". The `SMI 0x32` is in the ROM; the 20 ms is not. §10aj
+derives it from the 2.4576 MHz crystal through an **inferred** off-chip ÷4096,
+so using this `50` as confirmation of the 50 Hz premise would be circular. What
+the two facts do together is weaker and still worth having: a prescaler counting
+to 50 at `40F4` and a watchdog counting to 50 here both point at 50 as the
+tick-to-second ratio, which is consistent with the ÷4096 but does not prove it.
+
+### 5. `?CC` — the one bulk settlement, and it is not at hangup
+
+`service_card_reader_link` has a second path, `3924`–`3958`, gated on four
+things: `M(8067)` bit 0 set, no burn in flight, **`M(814A) != 0` — the low-credit
+warning is up** (§10ad) — and `M(805C) != 0`. Miss any and `3981` clears the
+request.
+
+```
+3932  M(8065) = M(805D)            save
+3935  M(805D) = M(805E)            = M(805C) + M(805D), the whole balance
+3941  RE.0 = M(805C); M(805C) = 0  collapse bulk into drain
+3945  M(8031) = 0                  stop the link machine
+394B  account_one_unit_spent x M(805C)
+3954  send ?CC
+```
+
+Total credit is **preserved** — it moves, it is not spent — and afterwards every
+charge comes out of `805D`, the path that writes nothing to the card. So `?CC`
+reads as *"commit the remaining units now"*: a pre-burn of the tail of the card
+once it is nearly empty, which is exactly when yanking power would otherwise be
+worth trying.
+
+`M(8067)` bit 0 is raised by `FUN_4A12` at `4AB9`, after **port 1 bit 3** reads
+high for three consecutive ticks — a shift register seeded with `0x20` at
+`4AAD`, shifted left each pass, with bit 0 ORed in once the `0x80` falls out.
+That is **a third sense line on port 1**, alongside bit 0 (→ `M(8191)`) and
+bit 6 (§10af). What it is has not been identified.
+
+**Not established:** what `CC` does inside the reader (handler `139F`).
+
+### 6. `36C2` is a unit counter, not a stepper pulse
+
+§7 guessed `36C2` was the stepper single-step pulse. It is not — the stepper is
+in the reader's own ROM, on its own CPU. `account_one_unit_spent` sets
+`M(88BD) = 0xAA` and bumps the six-digit totalizer at `8526`, and the call
+pattern is a *count*:
+
+| Caller | Calls | Reading |
+|---|---|---|
+| `X` reply (`3428`) | once, after `M(8064) = 0` | one unit acknowledged |
+| `Y` reply (`3449`) | once, same | same, degraded (`M(818D)++` instead of `= 0`) |
+| `MZ` reply (`3460`) | exactly twice (`DBNZ RE`, `RE = 2`) | |
+| `MO` reply (`3496`) | once per unit of difference between the value the reader reports and `card_units_shadow` (`M(806A)`), then `M(806A) =` that value | **reconciliation** |
+| `?CC` flush (`394B`) | once per unit moved out of `805C` | |
+
+`MO` settles it: the reader states the card's remaining units and the phone
+accounts for the gap. That only makes sense if the argument is units. **So
+`8526` is the cumulative count of card units burned** — one of the four
+totalizers §10ah could not identify.
+
+### 7. Who starts the link machine
+
+Also settled here, because it was needed to prove `0xFF` is reachable. The `RY`
+("ready") reply handler at `3389` does it:
+
+```
+3389  D = M(805C); == 0 -> 3391
+338D  M(8065) = M(805C); M(805C) = 0
+3391  M(8031) = 0x36                 -> resume at 3136
+3395  clear_block(8022, 0x26)
+```
+
+`3136` sets `M(8069) = 0x55` ("command outstanding", §10l) and sends `?CD007`
+or, if `M(802A)` is set, `?CE007`; the exchange then walks `3152` → `3178` →
+`318C` (`?MD`) → `31AB` and finally reaches `31BA` → `31EE`, which installs
+`0xFF`. From then on the link is idle-but-ready and the burn check at `3103`
+runs every tick.
+
+The three external writes of `M(8031)` are all `0xD8` (`47B4`, `4C1A`, `728C`),
+which resumes at `31D8` — clear the state, clear `805C`, **send `?EJ`**. Status
+`0x81` (temporary fault) takes that route, from `4C14`.
+
+### The open question this leaves — **now answered, see §10al**
+
+**Nothing in the ROM ever loads a positive value into `805C` or `805D`** by any
+of the routes searched below. The answer turned out to be
+`store_reader_decimal_to_page80` (`5032`), whose destination is an inline
+argument byte, which is exactly why none of these searches found it. Every
+write that *is* visible as a store is a decrement, a zero, or the `?CC` move
+that only shuffles between the pools:
+
+| Site | Write |
+|---|---|
+| `2D77` / `2D8C` | decrement |
+| `3935` / `3941` | the `?CC` move, net zero |
+| `31E1`, `3390`, `3944`, `47A3`, `47AD`, `4C26`, `4C9D`, `5FCB` | `= 0` |
+
+Searched and ruled out: every `RLDI Rn,805C`/`805D`/`805E` in the image; `805C`
+and `805D` as `SCAL` inline pointer arguments; `746D`, which turns out to be a
+**block clear**, not a copy (`7483`–`7487` fills downward with zero) so all three
+of its call sites only clear; and both RAM-resident payloads (`040D` → `9733`,
+`3011` → `9771`), which touch only `F000` and the checksum cells.
+
+With both pools at zero the first charge event borrows at `2D88` and returns
+`RF.0 = 0x82`, so an unloaded phone simply reports "no credit" — self-consistent,
+but it means **the step that reads a card's value and turns it into spendable
+credit has not been found.** The card's raw read *is* understood —
+`card_value_7_minus_popcount` (`M(8062)`) from the `CA`/`CB`/`CO` handler, and
+`card_units_shadow` (`M(806A)`) from `MO` — but neither feeds `805C`. The guess at the time — a field copy out of a reply rather than a named store —
+was close: it is a *converted* copy out of the reply's three decimal digits,
+through an inline-argument destination. §10al has it.
+
+## 10al. The card-credit loader, and a RAM map
+
+### `store_reader_decimal_to_page80` (`0x5032`) — the write §10ak could not find
+
+Cards are single-use: units are burned away and never put back, so the number
+the phone needs is a **read** of the card mirrored into RAM. That read is here,
+and it was hidden behind an unmodelled inline argument.
+
+```
+5034  R5 = 8024                          reader_digit0..2
+5039  SCAL digits_to_binary16, count 3   -> 0..999 in RC
+503F  R8.1 = 0x80
+5042  LDA R3 / PLO R8                    R8.0 = THE INLINE ARGUMENT BYTE
+5044  GLO RC / STR R8                    M(80xx) = RC.0
+```
+
+The inline byte names a page-`80` destination, and only the **low byte** of the
+converted value is stored, so anything over 255 truncates. Two call sites:
+
+| Site | Arg | Effect |
+|---|---|---|
+| `3469`, in the `MO` handler | `0x5C` | **`M(805C)` = the card's remaining units** |
+| `34C5`, in the `NE`/`NZ` handler | `0x5F` | `M(805F)` = the reported value |
+
+So `credit_bulk_pool` is the card's own count, arriving as **three decimal digit
+*values*** in the `MO` reply — `0`, `6`, `0` for a 60-unit card, not the ASCII
+`"060"`. An earlier draft said ASCII, which contradicts §10af: `5000` adds each
+byte straight into the accumulator (`SEX R5` / `GLO RC` / `ADD` at `5022`) and
+nothing in `5000`–`5030` subtracts `0x30`, so ASCII would give nonsense. Note
+the asymmetry — the **outgoing** `?EF000` digits *are* ASCII, built by `36A9`
+adding to the template's `'0'`. Where the inbound conversion happens is not
+established; the link ISR is the obvious candidate.
+
+**`R8` is not restored, and `MO` depends on that.** It returns with
+`X = R8 = 805C`, so the `SM` at `348D` computes `M(806A) − M(805C)` — the units
+consumed since the last report — and `34AC` then copies `M(805C)` into
+`M(806A)`. That confirms `card_units_shadow` and closes the loop on §10ak: the
+reader states the card's count, the phone mirrors it and accounts for the gap.
+
+A signature for `5032` is now in `inline_args.txt`. Without it the argument
+decodes as code, and at both sites the result is plausible enough to pass
+unnoticed: `0x5C` reads as `STR R6` at `346D` and `0x5F` as `LDN R7` at `34C9`,
+both unremarkable inside a reader-message handler.
+
+### `clear_block_range` (`0x746D`) is inclusive, which fixes the buffer extents
+
+`746D` takes two pointers and `range_to_count` (`7498`) turns them into
+`RC − RD + 1`, so `746D(lo, hi)` clears **`lo`–`hi` inclusive**, downward. That
+settles three block boundaries that were guesses:
+
+| Call | Range | What it is |
+|---|---|---|
+| `746D(8022, 8026)` | `8022`–`8026` | the 5-byte reader receive buffer: two prefix chars then three digits |
+| `746D(804C, 805C)` | `804C`–`805C` | the LCD line-2 buffer |
+| `746D(805C, 8067)` | `805C`–`8067` | the credit pools and the link's working set |
+
+### `2ECD` takes its weights inline — but `OUT 4` is real
+
+`binary_to_ascii_digits` (`0x2ECD`) takes its **digit weights inline**: `SEX R3`
+at `2ECF`, then `SM` against `M(R3)` and `IRX` once per digit, three times. The
+three bytes are `0x64`, `0x0A`, `0x01` — 100, 10, 1.
+
+Both call sites are in `render_credit_indicator`, and without a signature those
+weights disassemble as `OUT 4 / LDN RA / LDN R1`, which is how `render_credit_indicator`
+came to look as though it wrote a port. It does not.
+
+**But port 4 *is* used elsewhere** — an earlier draft of this section claimed
+`2EA8` and `2EC5` were the only `OUT 4` sites in the image and that §10k should
+drop port 4. That was wrong, and it came from never searching for the opcode.
+Instruction-aligned `OUT 4` (`0x64`) occurs at **`75AB`** and **`75B5`** inside
+`flush_output_latches` (`7572`), at **`5530`**, and at **`6DF3`** and **`6DF9`**
+in the reset block — the last two in the `X == P` region that starts at `6DD5`
+(`SEX R0` / `REQ`), so there each `OUT` consumes the following inline `00`.
+§10k's port list stands.
+
+`render_credit_indicator` itself is pure display. It blanks the line-2 buffer
+with spaces — 16 bytes, or 8 when the low-credit warning is up — then renders
+`M(805D)` at column `8059` and `M(805C)` at a column offset by `4 − M(805D)`.
+**Both pools are shown**, which is the clearest confirmation that the balance is
+their sum (§10ak).
+
+### `phone/RAM-MAP.md`
+
+[`RAM-MAP.md`](RAM-MAP.md) now lists **all 399 RAM cells the firmware points a
+register at**: 122 named, 267 not. `tools/ram_classify.py` walks forward from
+every `RLDI Rn,addr` to record what is done to the cell, and `tools/ram_map.py`
+adds the `SCAL` inline-pointer sites — stores, immediates, `ANI` masks, comparison values — and
+`tools/ram_map.py` joins that to the hand-maintained name table in
+`tools/ram_names.txt`.
+
+The signature is the point. A cell written only `AA`/`55` and tested for
+equality is a sentinel; one written `00`/`01` and tested for zero is a flag; one
+with masks is a bit field. That is real, checkable knowledge about a cell whose
+*purpose* is still unknown, and it keeps the unnamed rows honest instead of
+dressing them in invented names.
+
+Two cautions are recorded in the map itself: `rename_data` silently does nothing
+where Ghidra has no data item (the `8000`/`8001`/`8019`/`8026`/`8054`/`8059`/
+`805B` and totalizer cells, all named only as inline-argument bytes), and the
+`Sites` count is a lower bound, because most cells are reached by `INC`/`DEC`
+from a neighbour and five of them live in registers across the whole reader link
+(`5FB1`).
+
+### `M(8074)` carries two unrelated things
+
+`hardware_version` is well founded — `read_hardware_straps` (`6173`) builds a
+5-bit strap value into it and `show_version_and_comm` prints it under
+*מהד' חמרה:* — but `26A3` writes `0xAA` into the same cell and `3474`, in the
+`MO` handler, writes `0xDD`. The straps are re-read on demand before every
+display, so nothing breaks, but **`8074` is also used as a general sentinel
+byte**. Do not read a value out of it without checking which writer ran last.
+
+## 10am. The integrity check, and what the data at `0x0048` is
+
+Two fourteen-byte tables of seven big-endian addresses, and one seven-byte table
+of magic values, make up a tamper check on the battery-backed RAM — with a
+dormant twin aimed at the ROM.
+
+| Table | Contents |
+|---|---|
+| `00F7`–`00FD` | `A5 56 C6 63 3B BD DA` — the magic bytes |
+| `30E3`–`30F0` | `845D 8545 867D 87D0 88C4 8A00 8EFB` — seven **RAM** addresses |
+| `0048`–`0055` | `24FD 2936 35A4 4276 4EE9 592F 73E3` — seven **ROM** addresses |
+
+### The verifier
+
+It is RAM-resident payload 2 (§10), copied from `3011` and run at `9771`, and it
+takes **the list pointer and the entry count as inline arguments**:
+
+```
+9771  SEX R3
+9772  RLXA RC          RC = the list pointer   (inline)
+9774  RLXA RD          RD = the entry count    (inline)
+9776  R6 = 00F6
+977A  SEX RC
+977B  RLXA R5          next address from the list, RC += 2
+977D  LDN R5           the byte it points at
+977E  SEX R6
+977F  IRX              R6 -> 00F7, then 00F8, ...
+9780  XOR / LBNZ 978B  compare against the magic byte
+9784  DBNZ RD,977A
+978D  M(F000) = 0      on any mismatch, kill the control register
+9792  LDI 0xFF
+```
+
+`R6` starts one byte *below* the table and the `IRX` pre-increments, so entry
+*i* is checked against `M(00F7 + i)`. The failure action is to write zero to the
+`F000` control register (§10a), which is the same thing payload 1 does when its
+checksum fails.
+
+### The RAM side is live
+
+The one call site, `3039`, passes `30E3` and `0007`. Those seven cells are
+spread deliberately across the SRAM — one per `84`/`85`/`86`/`87`/`88`/`8A`/`8E`
+page — and the **cold-start loop in `5BFD` seeds them**, walking the same two
+tables in parallel and storing each magic byte into its cell. So the check
+answers "is the battery-backed RAM still the RAM this firmware initialised?",
+and a dead battery or a swapped chip fails it.
+
+### `0048` is the ROM-side twin, and it is dormant
+
+The byte at each of the seven addresses in the `0048` list is exactly the
+corresponding magic byte. An earlier draft called each one "a real instruction
+byte in the middle of a routine". That is wrong in a way that makes the design
+*better*: **none of the seven is ever executed.**
+
+| Address | Byte | Why it is unreachable |
+|---|---|---|
+| `24FD` | `A5` | follows `SEX R2` / `SRET R3` at `24FA` — past the end of a routine |
+| `2936` | `56` | follows `SEX R2` / `SRET R3` at `2933` |
+| `35A4` | `C6` | the first byte after the NUL of a string |
+| `4276` | `63` | `4273` is `LBR 4277`, so this byte is branched over |
+| `4EE9` | `3B` | `4EE6` is `LBR 70F0` |
+| `592F` | `BD` | follows `SEX R2` / `SRET R3` at `592C` |
+| `73E3` | `DA` | `73E0` is `LBR 2B00` |
+
+Nothing in the image branches to any of the seven, and the bytes sit in the
+gaps: three past a `SRET`, three skipped by a long branch, one after a string
+terminator. (`DA` is `SEP RA`, incidentally — an earlier draft called it `LBNZ`,
+which is `CA`.)
+
+That is the right way to choose them. Because the bytes are never executed they
+can hold **any** value, so the seven magic bytes are free-floating markers
+planted in the slack of the image rather than instructions that had to be
+something in particular. It also means a patch could change them without
+changing behaviour — which is exactly what the check exists to catch.
+
+Seven matches out of seven is not coincidence. Pointing the same verifier at
+this list instead of `30E3` turns it into an **anti-patch check on the EPROM**:
+it fails if anyone has modified the program image at any of those seven spots.
+Choosing ordinary instruction bytes scattered through the code — rather than a
+dedicated signature block — is what makes it awkward to defeat, because the
+checked bytes are not distinguishable from the code around them.
+
+**Nothing invokes it.** The two-byte constant `0048` does not occur anywhere in
+the 32 KB image, so no `RLDI Rn,0048` and no inline argument can reach the
+table. The mechanism is present, the data is correct and consistent, and the ROM
+check is simply never run in V2.8 — either dropped, or reserved for a variant.
+That makes `0048` the most interesting dead data in the image: it is the piece
+that would have made the firmware self-verifying.
+
+A caution for anyone patching this ROM: the check being dormant is the *current*
+reading, resting on a search for one two-byte constant. If a patched unit
+misbehaves, these seven addresses are the first thing to compare.
+
+## 10an. `rewrite_code_space` (`0x0056`) and the code shadow
+
+Two small routines in the first 128 bytes of the ROM turn out to carry the
+answer to what `F000` bit 0 does, and with it a claim about the hardware.
+
+### `rewrite_code_space` — `0x0056`
+
+```
+0056  M(F000) = 0x02        bit 0 cleared, bit 1 set
+005D  R5 = 8000             32768: the loop count, and DBNZ is 16-bit
+0061  RC = 0000
+0065  LDN RC / STR RC       read a byte, write it straight back
+0067  INC RC
+0068  DBNZ R5,0065          ... for every byte of 0000..7FFF
+006C  M(F000) = 0x00
+0074  SRET R3
+```
+
+A read-modify-write that stores the value it just read is a **no-op unless reads
+and writes in that range reach different devices**. So the loop is a copy, over
+exactly the 32 KB the ROM occupies.
+
+### Which direction, and what bit 0 is
+
+Every other `F000 = 0x02` write in the image — `1DC5`, `1DCF`, `1E39`, `1EA2`,
+`1EE3`, `1F04`, `1F27`, `1F58`, `209A`, `20B4`, `2221`, `226C` — lies inside
+**`1CB7`–`2330`**, and that is precisely the block
+`relocate_1cb7_block_and_run` copies into RAM: `memcpy(9100, 1CB7, 067A)`.
+`1DCC` even does `LBR 921F`, an internal jump within the relocated copy. So
+**clearing bit 0 is something only code executing from RAM ever does** — with
+one exception, `rewrite_code_space` itself.
+
+That exception is the tell. If bit 0 = 1 meant "ROM visible", `0056` would unmap
+itself mid-loop. So the inference is:
+
+| `F000` bit 0 | What is mapped at `0000`–`7FFF` |
+|---|---|
+| `1` | the **writable shadow** |
+| `0` | the real ROM |
+
+The sharper form of the argument is about **which sites set bit 0**, not which
+clear it. Bit 0 is set at exactly three places — `1ECA` (`0x03`), `2237` and
+`2282` (`0x01`) — and all three are inside `1CB7`–`2330`, the relocated block.
+**Nothing that executes from ROM ever sets bit 0.** That is what you would
+require if setting it takes the ROM away. Clearing it is done both from RAM and,
+once, from ROM at `0056`, which is fine if clearing restores the ROM.
+
+`1ECA` records the mode in `code_shadow_mode` (`8E0A`) when it sets bit 0;
+`1EE3` clears both. And `rewrite_code_space` runs with bit 0 clear so the ROM is
+readable, copying all 32 KB of it into the shadow — the one operation that has to
+happen before the shadow can be trusted.
+
+### Correction: `0x03` is *not* the reset state
+
+An earlier draft of this section said `0x03` was what the initialiser at
+`000C`/`000F` writes, and concluded that **the phone normally runs out of the
+shadow**. That was wrong, and a review caught it.
+
+`000C` is `F8 00 / C8 / F8 03` — `LDI 0x00`, `LSKP`, `LDI 0x03` — so the two
+entry points differ only in the value, and `LSKP` always carries `000C` over
+`000F`. The only transfer to either is **`6E15: SCAL 000C`**, on the reset path
+immediately after `RLDI R2,89FA` at `6E08`. A search of `SCAL`, `RLDI` and every
+long branch finds **nothing that reaches `000F`**. So the initialiser only ever
+writes `0x00`, and `0x03` is reached only from `1ECA`, inside the relocated
+block.
+
+Reset therefore leaves **both bits clear: the phone boots and runs from the
+ROM**, and the shadow is switched in only transiently, by RAM-resident code.
+That is a more modest claim than the one it replaces, and it leaves a real
+question behind: what is the shadow *for*, if the firmware does not normally run
+from it? Runtime patching is the obvious guess and is no more than a guess.
+
+**The polarity table above is still an inference**, resting on the
+set-sites-are-all-in-RAM argument and on `0056` executing while bit 0 is clear.
+A conservative alternative survives the same evidence: bit 1 alone is the
+write-enable for a shadow that is always write-mapped, and bit 0 is something
+else entirely. The board settles it.
+
+### `rewrite_code_space_if_requested` — `0x001E`
+
+```
+001E  D = feature_flags_8dac[0x16]
+0025  clear -> return
+0028  M(97A1) == 1 -> 003E        a job already in flight: abandon
+0032  SCAL rewrite_code_space
+0036  SCAL relocate_1cb7_block_and_run
+003E  clear feature_flags_8dac[0x16]
+```
+
+The flag is cleared on **both** paths — at `003E` on the abandon path, and
+inside `relocate_1cb7_block_and_run` at `137F` on the do-it path — so the
+request is consumed either way and never repeats. Its only caller is `6F07`.
+
+That the shadow fill is **gated on a request rather than done at every boot** is
+itself evidence: it only makes sense if the shadow is battery-backed and
+survives power cycles, which is the same reasoning as the `30E3` RAM sentinels
+(§10am).
+
+### The flag array at `8DAC`
+
+`test_feature_flag` (`021B`) returns 1 if `M(8DAC + i) == 1`, and
+`clear_feature_flag` (`034B`) clears that entry. Both take the index in `D` and
+both reject `i >= 0x1E` by branching to `0A5C`, so it is a **30-entry byte
+array**. Entry `0x16` is the code-shadow request.
+
+### The prediction, and how to check it
+
+This says there is a **second writable 32 KB device over `0000`–`7FFF`**,
+alongside the AT29C256 that holds the image. One SRM2A256LLMT10 is already
+accounted for in the upper half; the prediction is a second one, or one part
+banked. That is visible on the board, so it is cheap to settle — and it would
+explain why a phone whose firmware lives in a shadow RAM has a dormant ROM
+integrity check (§10am) and a relocatable 1658-byte subsystem.
+
+`F000` bit 1 remains unidentified: it is set in `0x03` and `0x02`, cleared in
+`0x01`, `0x00` and by the failed integrity check.
+
+### A hazard in the RAM layout
+
+The three relocated payloads overlap. The `1CB7` block occupies
+`9100`–`9779`; the `040D` payload lands at `9733`–`9771` and the `3011` payload
+at `9771`–`9796`, both **inside its tail**. So whatever uses `9733`/`9771` must
+run before the big block is copied, or after it is finished with. Worth knowing
+before patching anything in that region.
+
+## 10ao. `dialed_prefix_is_123` (`0x008F`) — and which way the dial buffer grows
+
+Returns `0xFF` if the number being dialled starts with the null-terminated
+sequence in the table at `00DF`, `0x00` otherwise. In this ROM that table is
+`01 02 03 00`, so the question is *"does it start 1-2-3"*.
+
+```
+008F  RSXD R5 / RC / RD
+0095  M(8139) & 0x10 == 0 -> return 0   card_permission_bits bit 4 must be set
+009F  RC = 813B                          the dialled-digit count
+00A3  M(813E) == 0x27 ? 5 : 4            dial_resume_point picks the threshold
+00B6  count below it -> return 0
+00B9  RC = 8119                          the TOP of the dial buffer
+00BD  RD = 00DF                          the prefix table
+00C2  LDA RD / LBZ 00CE                  terminator: all matched -> 0xFF
+00C6  XOR / DEC RC / LBNZ 00D1           compare, walk DOWN, mismatch -> 0x00
+```
+
+### The dial buffer fills downward, and that fixes three readings
+
+Two independent sites settle the layout:
+
+| Site | What it shows |
+|---|---|
+| `1A26` | `RLDI RC,8119` / `RLDI RA,0019` / `SEX RC` / `STXD` / `DBNZ RA` — clears **25 bytes downward** from `8119`, so the region is `8101`–`8119` |
+| `3B0D` | copies a null-terminated string downward from `8119`, then sets `M(811B) = 0x19` — the top index — and `M(811A)` to where it stopped |
+
+So **`8119` holds the first digit dialled**, `8118` the second, `8117` the
+third. Walking `RC` *down* from `8119` therefore reads the number in **dialling
+order**, and the table at `00DF` is a plain forward prefix.
+
+That retracts the "three-deep key history" reading this file briefly carried in
+§11, and it turns two
+other tests on the same cells from arbitrary constants into real numbers:
+
+| Site | Condition | Reads as |
+|---|---|---|
+| `2563` | `M(8119)=1`, `M(8118)=4`, `M(8117)=4` | the number starts **144** — Bezeq directory enquiries |
+| `2759` | `M(8119)=0x0A`, `M(8118)=0x0A` | starts **0 0** — the international prefix, and `RF.0 = 0x75` is "no international calls" (§10d) |
+
+Key codes are `1`–`9` for the digits and `0x0A` for `0`.
+
+### What the result is for
+
+The one call site is `260B`, inside the dial handler:
+
+```
+260B  SCAL dialed_prefix_is_123
+260F  LBNZ 262B                 MATCH -> skip the next block
+2612  copy 8163..8055 downward into 803C upward, 0x20 for zero bytes
+      i.e. ECHO THE DIALLED NUMBER into the line-1 display buffer
+```
+
+A match **suppresses the on-screen echo of what is being dialled.** Together
+with the four-or-five-digit minimum, that reads as a calling-card or
+PIN-bearing prefix: dial `123`, then an account number the phone deliberately
+does not show. The suppression is the solid part; what `123` actually reached is
+not in the ROM.
+
+**The prefix is data, not code.** A different build could carry another sequence
+at `00DF` with no code change, so `123` is this image's value rather than the
+mechanism.
+
+### One loose end
+
+`25DC` decrements `M(811A)` and wraps `1 → 0x15`, which bounds the index at
+`8101`–`8115`, while `1A26` clears `8101`–`8119` and `3B0D` sets the top index
+to `0x19`. The four slots `8116`–`8119` are inside the cleared and filled
+region but outside that wrap. Not resolved — it may be two paths with different
+ideas of the buffer, or `8116`–`8119` may be reserved for the prefix the match
+above reads.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
 `memcpy(dest=9733, src=040D, len=003F)` then `LBR 9733`. `0x304A`
 (`copy_0x26_from_3011_to_9771_and_jump`) copies `0x26` bytes from `3011` to
 `9771`. The two land **adjacent** at runtime: payload 1 occupies
-`9733`–`9770`, payload 2 starts at `9771`.
+`9733`–`9771`, and payload 2 starts at `9771` — so **the two overlap on that
+byte**. Neither fits where §8a and §10an place them either: see the correction
+under §10an.
 
 To read either, disassemble the ROM source and add the offset — `+0x9326` for
 `040D`, `+0x6760` for `3011`. Absolute targets inside each block are already
@@ -3704,7 +5042,7 @@ written for the RAM copy, which is why branches in the ROM image point at
 | Payload | ROM | RAM | Does |
 |---|---|---|---|
 | 1 | `040D`, `0x3F` bytes | `9733` | interrupts off → write `F000` → 16-bit checksum over R6 bytes at R7, accumulated at `8EFA` → compare against a stored word → `copy_byte_from_8E10_to_F000` → interrupts on |
-| 2 | `3011`, `0x26` bytes | `9771` | walk a pointer list (RC) of RD entries, require every target byte to equal `M(00F7)`; on mismatch write `0x00` to `F000` and return `0xFF` |
+| 2 | `3011`, `0x26` bytes | `9771` | walk a pointer list (RC) of RD entries, require target *i* to equal `M(00F7 + i)`; on mismatch write `0x00` to `F000` and return `0xFF`. See §10am — an earlier reading had the expected value as the single constant `M(00F7)`, but the `IRX` at `977F` advances `R6` every pass, so it is a **list** |
 
 Ghidra also shows functions at `910B`, `9421`, `95BF`, `96F9`, `9708`,
 `9733` (`proc_from_040D`) and `9771` (`proc_from_3011`).
@@ -3739,13 +5077,49 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 `proc_7572` → **`flush_output_latches`** (§10u);
 `FUN_74a7` → **`init_comm_session`** (§10v);
 `proc_728a` → **`service_tick`**; `FUN_3900` →
-**`service_card_reader_link`** (§10w).
+**`service_card_reader_link`** (§10w); `FUN_533e` →
+**`get_scaled_credit`**; `FUN_38e3` → **`divide_by_3`**;
+`FUN_52f7` → **`credit_times_interval_ge_1000`**; `FUN_389a` →
+**`compare_words16`** (§10aa); `FUN_5426` →
+**`parse_config_record`**; `FUN_54b5` → **`parse_digits_into`** (§10ab);
+`proc_5370` → **`test_dial_and_reader`** (§10ac);
+`FUN_524f` → **`update_low_credit_warning`** (§10ad);
+`FUN_5227` → **`step_state_machine`**; `FUN_328e` →
+**`classify_into_range`**; `FUN_3270` → **`next_state_from_table`** (§10ae);
+`proc_5000` → **`digits_to_binary16`**; `FUN_3876` →
+**`shift_rc_left16`** (§10af); `FUN_3831` →
+**`wait_idle_then_blank_display`** (§10ag); `proc_3806` →
+**`increment_decimal_counter`** (§10ah); `FUN_420e` →
+**`meter_and_drive_line`** (§10ai).
+
+The timebase is worked out in §10aj: the slow timer tick is exactly 1 Hz.
 
 Renamed from an earlier, inaccurate name:
 `LoadEmptyLine_AND_8036_with_0xBF` → **`BlankDisplayAndClear8036Bit6`**
 (§10x).
 
 `proc_70ce` → **`arm_timer_set`** (§10y).
+
+`FUN_3866` → **`increment_word16`**; `FUN_3733` → **`detect_metering_pulse`**; `FUN_2D10` →
+**`apply_charge_and_refresh_display`**; `FUN_36C2` →
+**`account_one_unit_spent`**; `FUN_2E71` → **`render_credit_indicator`**
+(all §10ak).
+
+`FUN_5032` → **`store_reader_decimal_to_page80`**; `FUN_2ECD` →
+**`binary_to_ascii_digits`**; `FUN_746D` → **`clear_block_range`**; `FUN_7498`
+→ **`range_to_count`** (all §10al).
+
+`proc_0056` → **`rewrite_code_space`**; `proc_001e` →
+**`rewrite_code_space_if_requested`**; `FUN_1366` →
+**`relocate_1cb7_block_and_run`**; `proc_021b` → **`test_feature_flag`**;
+`proc_034b` → **`clear_feature_flag`** (all §10an).
+
+`proc_008f` → **`dialed_prefix_is_123`** (§10ao).
+
+**The full RAM inventory is in [`RAM-MAP.md`](RAM-MAP.md)** — all 399 cells the
+firmware points a register at, 122 named and 267 not, each with the signature
+the ROM shows for it. The counts in this file are generated, so prefer the
+tally at the foot of the map if the two ever disagree.
 
 ### Data named
 
@@ -3768,8 +5142,9 @@ Renamed from an earlier, inaccurate name:
 | `8069` | `card_session_status` | 10l |
 | `8074` | `hardware_version` | 10k |
 | `8139` | `card_permission_bits` | 10p |
-| `811A` | `buf8119_ptr` | 10g |
-| `811B` | `buf8119_end` | 10g |
+| `8514` | `credit_divisor` | 10aa |
+| `811A` | `dial_buf_ptr` | 10g, 10ao |
+| `811B` | `dial_buf_end` | 10g, 10ao |
 | `8185` | `port3_readback` | 10k |
 | `840A` | `fault_log` | 10e, 10i |
 | `8448` | `cleaning_event_record` | 10o |
@@ -3778,25 +5153,117 @@ Renamed from an earlier, inaccurate name:
 | `850F`–`8512` | `accept_list_0` … `accept_list_3` | 10p, 10q |
 | `867B` | `coldstart_sentinel_867b` | 10q |
 | `89FA` | `stack_top` | 10q |
+| `805E` | `credit_value` | 10aa |
+| `8078` | `pulse_prev_sample` | 10ai |
+| `811D` | `minute_meter_timer` | 10ai, 10aj |
+| `8122` | `metering_interval_ticks` | 10aa, 10ak |
+| `8124` | `metering_interval_prev` | 10aa, 10ak |
+| `8130` | `timer_prescaler` | 10aj |
+| `814A` | `low_credit_display_arm` | 10ad |
+| `8167` | `mode_flags_8167` | 10ag |
+| `8184` | `low_credit_warned` | 10ad |
+| `8190` | `config_parse_result` | 10ab |
+| `845A` | `pulse_count_event` | 10ah, 10ai |
+| `885D` | `pulse_count_report` | 10ah, 10ai |
+| `8866` | `sm_change_shadow` | 10ae |
+| `8867` | `sm_change_current` | 10ae |
+| `886A` | `sm_input_value` | 10ae |
+| `886B` | `sm_bracket` | 10ae |
+| `886C` | `sm_state` | 10ae |
+| `801A`–`8020` | `reader_tx_queue`, `reader_tx_digit0`–`2` | 8, 10al |
+| `8022`/`8023` | `reader_msg_prefix0`/`1` | 10al |
+| `8027` | `reader_rx_ptr` | 10al |
+| `8028` | `reader_tx_countdown` | 10al |
+| `8029` | `reader_link_flags` | 10al |
+| `802A`/`802B` | `reader_tg_latch` / `reader_ok_latch` | 10al |
+| `802C`–`802F` | `card_measure_802c`…`802f` | 10m |
+| `8030` | `mode_select_8030` | 10al |
+| `8032` | `call_in_progress` | 10ak |
+| `8036` | `timer_and_display_flags` | 10y |
+| `803D`–`8051` | `bufDisplayString_*` (the 32-byte display frame) | 10al |
+| `805F` | `reader_ne_value` | 10al |
+| `8061` | `card_accepted_flag` | 10m |
+| `8065` | `credit_dirty_flag` | 10ak |
+| `8066` | `settle_resume_point` | 10ak |
+| `8067` | `settle_request_shift` | 10ak |
+| `806B` | `settle_done_flag` | 10ak |
+| `807B` | `saved_8183` | 10al |
+| `807D` | `port1_readback` | 10al |
+| `8128`, `8131`, `8133`, `8134`, `8136`, `8137`, `888E` | `slow_timer_*` — membership proven by the 1 Hz tables at `40D6`/`40E7` | 10aj |
+| `812A`, `8132`, `8180` | `fast_timer_*` — decremented on the 50 Hz pass | 10ak |
+| `812D` | `wait_timer_812d` | 10y |
+| `8144` | `charge_phase` | 10ak |
+| `8147`–`8149` | `linedrive_count_8147`, `linedrive_dwell_8148`, `linedrive_state_8149` | 10ai |
+| `814D` | `measurement_step_bits` | 7 |
+| `813E` | `dial_resume_point` | 10ao |
+| `8191` | `port1_bit0_latch` | 10l |
+| `818D` | `burn_ack_retry_count` | 10ak |
+| `818E` | `reader_z_reply_count` | 10ak |
+| `88BB` | `optical_reader_fault_flag` | 10n |
+| `88BD` | `units_spent_marker` | 10ak |
+| `8117`–`8119` | `dial_digit_3`, `dial_digit_2`, `dial_digit_1` | 10ao |
+| `813B` | `dial_digit_count` | 10ao |
+| `00DF` | `secret_prefix_digits` | 10ao |
+| `8183` | `permission_valid_8183` | 10al |
+| `8DAC` | `feature_flags_8dac` — a 30-entry array, tested by `021B` and cleared by `034B`, both taking the index in `D` | 10an |
+| `00F7` | `integrity_magic_bytes` | 10am |
+| `845D`, `8545`, `867D`, `87D0`, `88C4`, `8A00`, `8EFB` | `ram_sentinel_*` — the seven cells the `30E3` list names | 10am |
+| `0048` | `rom_integrity_addr_list` *(comment only — no data item)* | 10am |
+| `30E3` | `ram_sentinel_addr_list` *(comment only — no data item)* | 10am |
+| `8E0A` | `code_shadow_mode` | 10an |
+| `97A1` | `code_shadow_job_state` | 10an |
+| `8031` | `link_resume_point` | 10ak |
+| `805C` | `credit_bulk_pool` | 10ak |
+| `805D` | `credit_drain_pool` | 10ak |
+| `8063` | `burn_watchdog_units` | 10ak |
+| `8064` | `burn_units_pending` | 10ak |
+| `806A` | `card_units_shadow` | 10ak |
+| `806C` | `burn_watchdog_ticks` | 10ak |
+| `8070` | `metering_high_count` | 10ak |
+| `8071` | `metering_low_count` | 10ak |
+| `8138` | `charge_step` | 10ak |
+| `8143` | `charge_event_pending` | 10ak |
+| `8145` | `debit_pending` | 10ak |
+
+**Corrected:** `811A`/`811B` were `buf8119_ptr`/`buf8119_end`, named on the
+assumption that `8119` was the buffer base. `25DC` shows otherwise — `RLDI
+R8,8119` only sets the high byte, and `PLO R8` from `M(811A)` is what indexes.
+They are now `dial_buf_ptr` / `dial_buf_end`. `8117`–`8119` were briefly called
+a key history; **§10ao retracts that** — they are the first three digits of the
+dial buffer, which fills *downward* from `8119`, and are now `dial_digit_1`
+through `dial_digit_3`.
 
 Names reflect what the code **does** with a cell, not an assumed purpose:
 `card_value_7_minus_popcount` records the computation at `33D4` rather than
 claiming the byte is a credit balance, and `strap_drive_and_flags` avoids
 calling `8033` a port latch, which §10k shows is unproven.
 
-**Still unnamed, meaning not established:** `8030` (the mode byte tested
-against `0x10` at `45CD`), the timers and flags `812F`, `8131`, `8149`,
-`8165`, `816C` (§10e), `845D` (cleared before the reset shortcut,
-§10j), `97A6` (set when a fault counter hits its threshold, §10i), the
-three flags the idle selector reads at `8191`, `8501` and `81B5` (§10l), and
-the config bytes `850D`, `8500`, `8513`–`8515` (§10q) — of which only `8513`
-has a known consumer, `M(813A) = M(8513) - 1` at `1A52`.
+**Still unnamed, meaning not established:** `812F`, `8165`, `816C` (§10e),
+`97A6` (set when a fault counter hits its threshold, §10i), the idle selector's
+`8501` and `81B5` (§10l), and the config bytes `850D`, `8500`, `8513`–`8515`
+(§10q) — of which only `8513` has a known consumer, `M(813A) = M(8513) - 1` at
+`1A52`. [`RAM-MAP.md`](RAM-MAP.md) is the complete list; this paragraph is only
+the cells with a known *context* and no known meaning.
+
+(An earlier version of this paragraph also listed `8030`, `8131`, `8149`,
+`845D` and `8191`, all of which the table above now names.)
 
 A caveat on the MCP: `rename_data` always answers "Rename data attempted",
 which says nothing. Verify by decompiling a function that references the cell
 and checking the symbol appears — `read_hardware_straps` shows
 `hardware_version`, `strap_drive_and_flags` and `port3_readback`, and
-`LoadStringForDisplay` shows `LCD_next_descriptor`.
+`LoadStringForDisplay` shows `LCD_next_descriptor`. `list_data_items` is the
+cheaper check: it is address-ordered, so one page covers a whole RAM block.
+
+**The totalizer bank cannot be named over the MCP.** `851A`, `8516`, `8520`
+and `8526` (§10ah) have no defined data and no label, because the only way the
+code names them is as the inline-argument bytes of an
+`increment_decimal_counter` call — Ghidra sees instruction-stream bytes, not an
+operand, so it never creates a reference or a label there. `rename_data`
+answers "Rename data attempted" and changes nothing, and `list_data_items`
+skips straight from `8515` to `852C`. These four need labelling by hand in the
+GUI; the names the notes use are `minute_meter` (`851A`), `counter4_8516`,
+`counter6_8520` and `counter6_8526`.
 
 Commented: `6E03` (the P switch), `28D8` (vector, prologue, epilogue),
 `5071` (ISR body and flag map), `50DD` (character classifier), `514B`
@@ -3823,15 +5290,23 @@ The reversed template storage is also confirmed, but by the reader's command
 parser rather than by the menu-string argument this file first used — see the
 superseded-reasoning note in §8.
 
-**Inferred, plausible, not proven:** `36C2` as the stepper step pulse; `EJ` as
-eject; the popcount-against-7 reading as remaining card credit (strongly
+**Inferred, plausible, not proven:** `EJ` as eject; the popcount-against-7 reading as remaining card credit (strongly
 supported by the reader being an optical-card device, but the card format was
 not independently verified); `0x8029` bit 0 as a busy/inhibit flag.
 
-**On `0xF000` (§10a):** that it is a write-only register shadowed at `0x8E10`
-is established, by the same shadow-and-recommit pattern the reader uses. That
-it **gates the ROM** is inference from the RAM-residency of the two payloads
-that poke it — strong, but not proven, and no bit has been identified.
+**On `0xF000` (§10a, §10an):** that it is a write-only register shadowed at
+`0x8E10` is established, by the same shadow-and-recommit pattern the reader
+uses. That it **gates the code space** is strongly supported, by
+`rewrite_code_space` rewriting all 32 KB through it (§10an). **Bit 0's polarity
+is inference, not proof** — it rests on every site that *sets* bit 0 living
+inside the block relocated to RAM, and on `0056` executing from ROM while bit 0
+is clear. Bit 1 is unidentified.
+
+**Settled since this section was first written:** `36C2` is
+`account_one_unit_spent`, not a stepper pulse (§7, §10ak). `851A` is a minute
+meter, `8520` counts charged periods and `8526` counts card units burned
+(§10ah). The card is debited **during** the call, on the exchange's metering
+pulse (§10ak).
 
 **Unknown:** what the mnemonics actually *do* — the parser gives each one a
 handler address, but those handlers are not yet read; why four templates have

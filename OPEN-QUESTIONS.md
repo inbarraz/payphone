@@ -34,16 +34,19 @@ an open question without a next action tends to stay open.
       site — `399D` covers only `8034`/`8035`. `flush_output_latches` is the
       best candidate, but it has not been shown to run from the interrupt path.
       *Settle by:* finding what calls `7572`, or scoping the strap lines.
+- [ ] **Find the ÷4096 divider chip** feeding EF1, and scope EF1 to confirm
+      600 Hz (§10aj). The ÷12 and ÷50 are in the ROM; the divider is not.
+      **Needs hardware.**
 - [ ] **UART pin 4 (CS2)** — the remaining enable. If tied low the UART
       answers ports 6/7 unconditionally; if driven, something can gate it off
       the bus. (§6) **Needs hardware.**
 - [ ] **What drives the U230 select line** (§6a). Parked. Suggested checks:
       whether the Y throws (pins 3, 1, 13) are wired at all, and the DC
       voltage on pin 9 with the board powered. **Needs hardware.**
-- [ ] **`SCM1` vs `SCM2` for opcode `68 05`.** The Ghidra module says `SCM2`;
-      the RCA table has `68 03` = SCM2 and `68 05` = SCM1. One is wrong.
-      *Settle by:* checking `Documentation/Datasheets/CDP1805AC.PDF`. Cheap,
-      and it affects the EF1 counter reading at `05DD` (§7).
+- [x] **`SCM1` vs `SCM2` for opcode `68 05`** — `68 05` is **SCM1**. The
+      module's own comment said so while the constructor was named `SCM2`;
+      review finding M6, now fixed. Confirms the EF1 counter reading at
+      `05DD` (§7).
 
 ## The DLC link
 
@@ -71,6 +74,19 @@ an open question without a next action tends to stay open.
 
 ## The card reader link
 
+- [ ] **What does the reader do with `F` (`0CD9`) and `EF` (`10E6`)?** The
+      phone's side is settled — `?F` for one unit, `?EF0NN` for N, with N taken
+      straight from `M(8064)` (§10ak) — and the reader's TE menu ties the
+      letter `F` to erasure power. Reading the two handlers would turn that
+      from strong inference into proof.
+      *Settle by:* adding the BSK31 ROM to the repo; it is not here.
+- [ ] **What does `CC` (`139F`) do?** The phone sends `?CC` once, from the
+      low-credit flush at `3924`, after collapsing the whole remaining balance
+      into the drain pool (§10ak). The pre-burn reading fits but is not proven.
+- [ ] **Why `?CD007` and `?CD012`, and what is the `007`?** `?CD007` goes out
+      on card insertion and `?CD012` (selector `0x50`) is never sent at all.
+      `?CE007` has no branch in the reader's parser. The card read computes
+      `7 − popcount`, which makes `007` suggestive, but nothing connects them.
 - [ ] **What writes `M(88BB)`**, the flag that raises fault 23 "optical
       reader" ahead of the log (§10n). It has **no write cross-reference**, so
       it is set through a pointer register.
@@ -125,6 +141,11 @@ an open question without a next action tends to stay open.
       codes are never logged, or it is a real firmware bug present in all
       three builds.
       *Settle by:* provoking fault 43 on a live unit. **Needs hardware.**
+- [ ] **Does `M(8074)` have two uses?** `read_hardware_straps` builds a
+      5-bit strap value there and `show_version_and_comm` prints it as the
+      hardware version, but `test_dial_and_reader` clears it and tests it
+      for `0xAA` — not a 5-bit value. Either the test reuses the cell as a
+      scratch flag, or the `hardware_version` name is too confident (§10ac).
 - [ ] **What `M(8030)` means**, and therefore what condition routes to
       `wait_and_triage_state` rather than the normal path at `45D6` (§10e).
 - [ ] **What `M(845D)` holds** that is worth clearing before the "1 then 3"
@@ -148,6 +169,39 @@ an open question without a next action tends to stay open.
 
 ## Naming and tooling
 
+- [ ] **267 RAM cells are still unnamed**, out of the 399 the firmware points a
+      register at, after dropping the cells a bad `SCAL`-pointer heuristic had
+      invented. [`phone/RAM-MAP.md`](phone/RAM-MAP.md) has all of them with
+      the signature the ROM shows — stores, immediates, `ANI` masks, comparison
+      values — which is what is actually known about each. Naming them would
+      mean inventing meanings.
+      *Attack in this order,* highest site count first, because a cell touched
+      from a dozen places has a dozen chances to give itself away: `8165` (11
+      sites, all in the idle loop), `812F` (13, walked by the `4F19`–`4FC2`
+      block), `8169`, `8183`, `81B5`, `8186`, `8182`.
+- [ ] **Label the fifteen cells Ghidra still has no data item for.**
+      `rename_data` silently does nothing without one, and the only way the code
+      names any of these is as an inline-argument byte or a pointer-list entry,
+      so Ghidra never created a reference. `0048`, `8000` and `8019` are now
+      done. Still outstanding, with the name each should get:
+
+      | Address | Name |
+      |---|---|
+      | `8001` | `dial_buf_aux` |
+      | `8026` | `reader_digit2` |
+      | `8054` | `bufDisplayString_8054_bulk_digits` |
+      | `8059` | `bufDisplayString_8059_drain_digits` |
+      | `805B` | `bufDisplayString_805B_end` |
+      | `8516` | `totalizer4_8516` |
+      | `851A` | `minute_meter` |
+      | `8520` | `charged_period_counter` |
+      | `8526` | `units_burned_counter` |
+      | `867D`, `87D0`, `88C4`, `8A00`, `8EFB` | `ram_sentinel_<addr>` |
+      | `30E3` | `ram_sentinel_addr_list` |
+
+      `89FA` (`stack_top`) has a different blocker: it is the second byte of the
+      existing word at `89F9`, so that item has to be cleared first.
+
 - [ ] **Name the soft-timer bank.** `arm_timer_set` (§10y) revealed the whole
       set: `888E`, `8131`, `8133`, `8134`, `8136`, `8128`, `8137`, `811D`.
       Several were previously unnamed for lack of a role; now they have one.
@@ -165,11 +219,6 @@ an open question without a next action tends to stay open.
       argued from the cell itself; the §10t reading was taken from the module
       title. The §1a citation also points at `3A0B`, which reads `813E` and
       `8127`, not `8144`.
-- [ ] **Does anything actually gate the `845A`/`885D` increments on a
-      completed call?** §10s says they count calls, but the increments at
-      `4252`/`425A` run when bit 7 of `INP 3` is set and the previous sample
-      at `8078` was zero — the `ANI 0x96` on `card_permission_bits` is a mask
-      whose branches all rejoin, so it does not guard them.
 - [ ] **`KEY_*` may be off by one.** The enum puts `*` at `0x0C`, but the
       matrix table at `2400` gives index `0x0B` = `*` and `0x0C` = `#`
       (§10f). Worth settling — it changes how every `XRI 0x0C` reads.
@@ -195,8 +244,12 @@ an open question without a next action tends to stay open.
       convention separate from SCRT (`card-reader/`, §idioms): `178E` reads
       its byte with `LDA R0 / PHI RE`. Same shape as the existing options — a
       register plus a byte count. Worth counting the sites before deciding.
-- [ ] **Duplicate constructor name in the `.slaspec`** — `0x6805` is defined
-      at both L248 and L250.
+- [ ] **Give `P` a context register so `RET` can terminate flow** (review
+      gaps G1/G2, mistake M10). Until then `RET` must fall through, because
+      this firmware uses `RET 0x24` to set `X` with `P` unchanged.
+- [ ] **The nine 1806 BCD instructions are empty stubs** (G3), the
+      counter/timer is unmodelled (G4), and the `X == P` inline-operand
+      idiom the whole ROM is built on has no model (G1).
 - [ ] **Mark the reader's phase table at `2428`–`242B` as data.** It sits
       between `clear_byte_at_0x81xx` and `port7_release`, so Ghidra
       disassembles it as code.
@@ -215,9 +268,60 @@ Collected separately because they are not worth static effort:
       provisioned card values (§10q). The ROM only gives the defaults, `0x0F`
       and `0x78`.
 - [ ] **Dump `840A`–`8441`** for that unit's fault history (§10e).
+- [ ] **Dump `8516`–`852B`**, the four decimal totalizers (§10ah) — 4, 6, 6
+      and 6 digits. Three now have a reading from the ROM (`851A` minutes,
+      `8520` charged periods, `8526` card units burned, §10ah/§10ak); `8516`
+      does not, and none of the four has known *units*. Readings from a unit
+      with known history would settle both.
 - [ ] **Read the hardware straps** — five drive lines and a sense on port 3
       bit 6 (§10k) — to learn what revision a given board reports.
 - [ ] **Capture the reader's reply with no card**, settling `M(8062) == 5`.
+- [ ] **Why is the ROM integrity check dormant?** `0048` holds seven ROM
+      addresses whose bytes match `integrity_magic_bytes` exactly, and the
+      `9771` verifier takes its list pointer inline, so pointing it there would
+      make the firmware self-verifying. The constant `0048` occurs nowhere in
+      the image, so nothing invokes it (§10am). Dropped in V2.8, reserved for a
+      variant, or reached some way the search missed?
+      *Settle by:* diffing another TAMAC-18 ROM version, if one can be found.
+- [ ] **Is there a second 32 KB RAM over `0000`–`7FFF`?** §10an argues `F000`
+      bit 0 maps a writable shadow there in place of the AT29C256: every site
+      that *sets* bit 0 lives in code relocated to RAM at `9100`, and
+      `rewrite_code_space` runs from ROM with bit 0 clear while rewriting all
+      32 KB. The reasoning is internal to the firmware; the chip is the proof.
+      *Settle by:* looking at the board. **Needs hardware** — but only a glance
+      at the part numbers.
+- [ ] **What is the code shadow actually for?** Reset writes `F000 = 0x00`, and
+      nothing in the image reaches the `0x03` entry point at `000F`, so the
+      phone boots and runs from the **ROM**, not the shadow (§10an — this
+      corrects an earlier claim). The shadow is filled on request and switched
+      in only transiently by RAM-resident code. Runtime patching is the obvious
+      guess and no more than that.
+- [ ] **Where do inbound reader digits get converted from ASCII?** The wire
+      carries ASCII and the dispatcher compares `8022`/`8023` against ASCII
+      prefixes, but `digits_to_binary16` adds `8024`–`8026` as raw values with
+      no `0x30` subtracted (§10al). Something between the two converts them;
+      the link ISR at `5071`/`514B` is the candidate.
+- [ ] **What does `F000` bit 1 do?** Set in `0x03` and `0x02`, cleared in
+      `0x01`, `0x00`, and by a failed integrity check (§10a, §10am, §10an).
+- [ ] **What does the relocated `1CB7`–`2330` block do?** 1658 bytes copied to
+      RAM `9100` from two call sites, entered at `9421` with `D = 0x13` and
+      `R9 = 8DD2`, holding twelve of the image's `F000` writes (§10an). It is
+      the largest piece of this firmware with no described purpose.
+- [ ] **What did `123…` reach?** `dialed_prefix_is_123` (`008F`) suppresses the
+      on-screen echo once four or five digits are in and the number starts
+      `1 2 3`, which reads as a calling-card or PIN prefix (§10ao). The
+      mechanism is settled; the service is not, and it is a question about the
+      Israeli network rather than the ROM.
+      *Settle by:* period Bezeq payphone or calling-card documentation.
+- [ ] **Why does the dial buffer have two extents?** `25DC` wraps `M(811A)`
+      `1 → 0x15`, bounding the index at `8101`–`8115`, while `1A26` clears
+      `8101`–`8119` and `3B0D` sets the top index to `0x19`. The four slots
+      `8116`–`8119` sit inside the cleared region but outside the wrap
+      (§10ao).
+- [ ] **Scope port 1 bit 3.** Three consecutive high ticks raise `M(8067)`
+      bit 0 (`4AB9`), which is what lets the `?CC` flush run. It is the third
+      sense line found on port 1 and the only one with no candidate meaning
+      (§10ak).
 
 ---
 
@@ -241,4 +345,50 @@ Kept as a record of what the method looks like when it works.
       `M(8069)` is a card status byte written only by reader handlers (§10l).
 - [x] **What writes the `8060` buffer** parsed by the card-data handler —
       `PackCardNibbles` (`36B0`), via a 2-byte inline pointer (§10m).
+- [x] **What `845A` and `885D` count** — **pulses**, not calls. `4243`
+      edge-detects port 3 bit 7 against the previous sample in `M(8078)`
+      (§10ai). So the periodic report fires every 45 pulses.
+- [x] **What the timer tick rate is** — the slow tick is **exactly 1 Hz**.
+      The 2.4576 MHz crystal ÷ 4096 gives EF1 at 600 Hz, the 1806 counter
+      ÷ 12 gives a 50 Hz base tick, and the `40F4` prescaler ÷ 50 gives 1 Hz.
+      So `M(811D) = 60` is one minute and `851A` is a minute meter (§10aj).
+- [x] **What the two words at `8122`/`8124` are** — not a tariff pair but the
+      **metering period**: `4155` increments `8122` every base tick via
+      `increment_word16`, and `37A1` latches it into `8124` and zeroes it on
+      each accepted pulse. So `credit_times_interval_ge_1000` computes
+      credit × ticks-per-unit, an estimate of remaining talk time, and takes
+      the larger interval as the conservative one (§10aa, §10ak).
 - [x] **What bit 6 of `M(8036)` means** — "the timer set is running" (§10y).
+- [x] **Whether the card is debited during the call or only on eject** —
+      **during the call**, within one tick of each charge. The debit at `2D88`
+      sets `M(8064)`, and `service_card_reader_link` at `3103` sends `?F` for
+      one unit or `?EF0NN` for N on the next tick; the `?EF` digits are built
+      from `M(8064)` itself at `3686`–`36A9` (§10ak).
+- [x] **What triggers a charge** — the **exchange's metering pulse** on port 3
+      bit 0, not any timer. `detect_metering_pulse` accepts a high of 80–480 ms
+      confirmed by 40 ms of release; `M(8143)`/`M(8145)` are written from
+      nowhere else, and the 60-second `851A` meter is a duration statistic
+      (§10ak).
+- [x] **What `8526` counts** — card units burned.
+      `account_one_unit_spent` (`36C2`) is its only bump, and `MO`'s
+      once-per-unit-of-difference call pattern proves the argument is units,
+      not stepper steps as §7 first guessed (§10ak).
+- [x] **What `M(8031)` is** — the link layer's **resume-address low byte**.
+      `3989`/`398D`/`3100` fall through only for `0xFF`, the resting state;
+      anything else is jumped to by `PLO R4` at `3102` inside page `31`. The
+      whole reader link is a coroutine (§10ak).
+- [x] **What `746D` does** — `clear_block_range`: `range_to_count` (`7498`)
+      makes the count `RC − RD + 1`, so it clears an **inclusive** range
+      downward. That fixes three buffer extents: the reader receive buffer is
+      `8022`–`8026`, the LCD line-2 buffer `804C`–`805C`, and the credit and
+      link working set `805C`–`8067` (§10al).
+- [x] **What loads the card's credit into `805C`/`805D`** —
+      `store_reader_decimal_to_page80` (`5032`), from the `MO` reply's three
+      decimal digits, with the destination cell given as an **inline argument
+      byte**. That is why no search for a store to `805C` found it. It also
+      explains `card_units_shadow`: `5032` leaves `X = R8 = 805C`, so `MO`'s
+      `SM` at `348E` yields the units consumed since the last report (§10al).
+- [x] **Whether the firmware uses port 4** — **no.** The two apparent `OUT 4`
+      sites, `2EA8` and `2EC5`, are the inline digit weights 100/10/1 that
+      `binary_to_ascii_digits` reads through `X = R3`. §10k's port list should
+      drop port 4 (§10al).

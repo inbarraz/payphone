@@ -52,6 +52,22 @@ program TAMAC-18
 # 04f0: increments a saturating 16-bit counter at an inline pointer.
 04f0  p
 
+# 5000: digits_to_binary16 - the inline word is a digit COUNT, not an
+# address, so b,b rather than w. Both sites pass a small number (3 at 5039,
+# 4 at 52e9) which falls in ROM range, and 'w' references any target in
+# initialized memory. Same reasoning as 290a below.
+5000  b,b
+
+# 5227: step_state_machine - a 2-byte pointer to a two-word descriptor
+# {range table, state table}. SEX R3 / RLXA RE at 5227-5228.
+5227  p
+
+# 54b5: parse_digits_into - takes a 2-byte destination pointer, read by
+# SEX R3 / RLXA R8 at 54b5. Without this the argument bytes disassemble as
+# code; at 54ae they render as GLO R5 / LDN R1. The tell is the call at
+# 549f: a four-byte SCAL whose next real instruction is the LBNZ at 54a5.
+54b5  p
+
 # 290a: memset, but DOWNWARD - its loop is STXD/DBNZ, so the pointer is the
 # TOP of the region filled. Args are dest pointer, fill byte, count word.
 #
@@ -65,6 +81,33 @@ program TAMAC-18
 # so b,b models the two halves and leaves the listing clean. Same dodge the
 # 038d notes below use for a little-endian word.
 290a  p,b,b,b
+
+# 2ecd: binary_to_ascii_digits - takes its DIGIT WEIGHTS inline. SEX R3 at
+# 2ecf, then SM against M(R3) and IRX once per digit, three times, so three
+# bytes are consumed: 100, 10, 1. Auto-detection cannot see it because the
+# bytes are never loaded as operands, only subtracted through X.
+#
+# Without this the weights disassemble as code, and at both call sites the
+# result is plausible enough to mislead: 2ea8 and 2ec5 render as
+# OUT 4 / LDN RA / LDN R1, inventing a PORT 4 WRITE inside the credit renderer,
+# which does not touch any port.
+#
+# An earlier version of this comment went on to claim those were the only OUT 4
+# sites in the image and that port 4 is unused. That was wrong - the search was
+# never done. Instruction-aligned OUT 4 (0x64) occurs at 75ab and 75b5 in
+# flush_output_latches, at 5530, and at 6df3/6df9 in the reset block's X==P
+# region.
+2ecd  b,b,b
+
+# 5032: store_reader_decimal_to_page80 - converts the reader's three decimal
+# digits at 8024..8026 and stores the result into a page-80 cell named by one
+# inline byte (LDA R3 / PLO R8 at 5042, after PHI R8 = 0x80). Auto-detection
+# declines because the byte is consumed through R8 rather than used as an
+# operand. Without this the argument decodes as code and the listing loses the
+# single most important write in the credit path: at 346d the 0x5C reads as
+# STR R6 and at 34c9 the 0x5F as LDN R7, both plausible enough to pass
+# unnoticed inside a reader-message handler.
+5032  b
 
 # 75c6: a stub - INC R3 / SEX R2 / SRET R3. It does nothing but SKIP one
 # inline byte, so a call to it is disabled functionality whose argument still
