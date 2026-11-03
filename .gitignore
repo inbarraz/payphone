@@ -7,3 +7,7 @@
 cdp1806/.gradle/
 cdp1806/build/
 cdp1806/dist/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
