@@ -197,11 +197,41 @@ overrides the file.
 `Ctrl`-`Shift`-`Z` is the only one worth checking for a clash on your setup; if
 it collides, rebind it there.
 
-**Tip for the `6DD5` reset block.** Setting `XP = 1` on an address where no
-`OUT`/`RET`/`DIS` starts is harmless — no constructor consults it — so you can
-select the whole block, press `Ctrl`-`Shift`-`X` once, and let every `OUT` in it
-take its inline byte in one go. `SEX 0` at `6DD5` makes `X == P` for the whole
-run, so that is exactly right there.
+### Do not blanket-set `XP` over a range without checking
+
+An earlier version of this file said that setting `XP = 1` across a whole block
+was harmless because "no constructor consults it" on other addresses. **That is
+wrong, and the way it is wrong is quiet.** It is harmless on an address where no
+`OUT`/`RET`/`DIS` starts — but on one where such an instruction *does* start and
+`X` is *not* equal to `P`, it silently turns a one-byte instruction into two and
+everything after it shifts.
+
+The counter-example is in the TAMAC-18 image at `2419`:
+
+```
+242D  e4      SEX R4     X := 4 == P, so the next instruction is the inline form
+242E  71 54   DIS 0x54   inline operand - and it sets X := 5, P := 4
+                         *** X IS NO LONGER P ***
+2430  65      OUT 5      normal 1-byte form: outputs M(R5), R5++
+2431  c4 c4   NOP NOP
+2433  63      OUT 3      normal 1-byte form
+2436  e4      SEX R4     X := 4 == P again
+2437  70 24   RET 0x24   inline operand
+```
+
+`DIS` and `RET` **load both `X` and `P` from their operand byte**, so a `SEX R4`
+earlier in a block does not mean the block is in the inline form. Here two
+genuine inline instructions bracket two `OUT`s that are not, within nine bytes.
+Blanket-setting that range corrupts both `OUT`s.
+
+**So: set `XP` one instruction at a time, and only where `X == P` holds at that
+instruction.** Trace forward from the last `SEX`, and treat every `DIS` and
+`RET` as resetting `X`.
+
+The `6DD5` reset block is the one place a range is safe, and only because it has
+been checked: `SEX 0` at `6DD5` with `P = 0` at reset, and **no `DIS` or `RET`
+anywhere in it** (verified by scanning the block for `0x70`/`0x71`), so `X == P`
+really does hold throughout.
 
 Order matters inside the scripts and is worth knowing if you ever do it by hand:
 **clear first, then set the context, then disassemble.** The context value is

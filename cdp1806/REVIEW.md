@@ -219,6 +219,13 @@ fall-through, which suits an idiom used at isolated sites.
 That order is not optional. The context value is read when the instruction is
 created, so setting it under a live instruction has no visible effect.
 
+**Set it one instruction at a time.** `DIS` and `RET` load *both* `X` and `P`
+from their operand, so a `SEX R4` earlier in a block does not put the whole
+block in the inline form — see the `2419` counter-example in the README, where
+two real inline instructions bracket two `OUT`s that are not, inside nine bytes.
+Blanket-setting a range quietly turns those one-byte `OUT`s into two and shifts
+everything after them.
+
 Same mechanism ARM uses for `TMode` and MIPS for its 16-bit mode.
 
 **Built and verified.** `support/sleigh cdp1806.slaspec` against Ghidra 12.2
