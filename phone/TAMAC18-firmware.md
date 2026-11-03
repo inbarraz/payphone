@@ -3110,6 +3110,79 @@ its counters and any provisioned card values. Conversely, **reading
 that unit's provisioning and its fault history**, neither of which is
 derivable from the ROM.
 
+## 10r. `build_report_template` (`0x2C97`) and two stubs
+
+Lays out a 40-byte ASCII record template at `81BA`–`81E1` and arms a flag.
+Returns `0xFF` on success, `0` if any precondition fails.
+
+```
+2C97  M(81B5) != 0    -> fail
+2CA3  M(8191) != 0    -> fail
+2CAC  M(8859) != 0xA5 -> fail        the caller's request token
+2CB1  SCAL 6FFF                      a tone, via play_toggle_pattern
+2CB6  SCAL 290A(81E1, 0x30, 0x0028)  fill 40 bytes with ASCII '0'
+2CBF  M(81BA) = ';'
+2CC6  M(81CB) = '='
+2CCD  M(81E0) = '?'
+2CD5  SCAL 75C6(0x44)                a STUB - see below
+2CDA  M(845C) = 0x80
+2CE1  return 0xFF  /  2CE6  M(8859) = 0, return 0
+```
+
+### `290A` is a *downward* memset
+
+Its loop is `STXD` / `DBNZ`, so `memset(81E1, '0', 40)` covers `81E1` **down
+to** `81BA`. That is why the base of the record is `81BA`, and why the three
+separators are written after the fill rather than before. Signature: dest
+word, fill byte, count word.
+
+| Offset | Content |
+|---|---|
+| `81BA` | `;` |
+| `81BB`–`81CA` | 16 × `'0'` |
+| `81CB` | `=` |
+| `81CC`–`81DF` | 20 × `'0'` |
+| `81E0` | `?` |
+| `81E1` | `'0'` |
+
+### Three routines at `75C0` that are easy to confuse
+
+| Address | Body | Meaning |
+|---|---|---|
+| `75C0` | `SEX R4 / DIS 0x24 / LBR 75C3` | **halt** — interrupts off, spin |
+| `75C6` | `INC R3 / SEX R2 / SRET R3` | **stub that skips one inline byte** |
+| `75C7` | `SEX R2 / SRET R3` | no-op (`empty_75c7`) |
+
+So `SCAL 75C6(0x44)` is a **disabled call whose argument still sits in the
+ROM**. A call to `75C6` anywhere means functionality was removed and the
+call site left behind — worth recognising. `75BB` next door is the
+`LDI 0xFF / SRET` that makes `46AE` dead code (§10l).
+
+### The caller
+
+Only `769C`, which runs it on a counter threshold:
+
+```
+769C  M(885D) >= 45 ?
+76A6  M(885D) = 0
+76A9  M(97A8) = M(97AC) = M(97B0) = 0
+76BA  M(8859) = 0xA5         arm the request
+76C2  SCAL 2C97
+76C6  separately, M(845A) >= 45 -> store_byte_84xx(0x46, 0x71)
+```
+
+### What it is for — inference, not proof
+
+The ASCII `;` `=` `?` separators, the periodic trigger, and `M(845C)` —
+which is also touched throughout the `build_dlc_record` neighbourhood at
+`1C1A`–`1C41` and at `2F30` in `DLC_Comm` — all point at a report destined
+for the DLC link.
+
+But **nothing in the image loads `81BA`–`81E1` by absolute address**: the
+three writes here are the only `RLDI` references to them. The buffer must be
+reached through a pointer computed elsewhere, so the claim that this record
+is transmitted is unproven. Find the reader before relying on it.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -3153,7 +3226,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 (§10m); `FUN_5e8b` → **`show_fault_entry`**;
 `proc_29e7` → **`show_optical_reader_fault`** (§10n);
 `FUN_2a0c` → **`detect_cleaning_card`**; `FUN_5e6e` →
-**`store_byte_84xx`** (§10o).
+**`store_byte_84xx`** (§10o); `FUN_2c97` →
+**`build_report_template`** (§10r).
 
 ### Data named
 
