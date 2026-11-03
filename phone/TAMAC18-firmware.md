@@ -3254,10 +3254,12 @@ Both are incremented at a single site, together, inside `FUN_420E`:
 4268  SCAL R3,77AD
 ```
 
-and `FUN_420E` opens with `SCAL 0100` — sampling **EF3, the hook switch** —
-then checks `card_permission_bits` against `0x96`. So these count completed
-call events: **every 45 calls the phone prepares a report record and logs an
-event**. (`FUN_420E` is never reached by `SCAL`; it is branched to.)
+**They count PULSES, not calls.** §10ai decodes the site: `4243` reads
+**port 3 bit 7** and compares it against the previous sample in `M(8078)`,
+so the increments happen on a **rising edge**. The `SCAL 0100` at the top of
+`FUN_420E` belongs to an earlier job in that stage, and every branch out of
+the `ANI 0x96` test rejoins at `4238`, before the detector. So
+`periodic_report_check` fires every **45 pulses**.
 
 ### The `97xx` counter records
 
@@ -4164,6 +4166,72 @@ next to the provisioning block suggest meters a technician or the DLC link
 would read out, but nothing here says which is which — another reason to
 dump `8500`–`852B` from a live unit.
 
+## 10ai. `meter_and_drive_line` (`0x420E`) — and what the counters count
+
+**Not a called function.** Entered by `LBR 420E` from `415B`, leaving by
+`LBR 4A12` at `43E5` — one segment of a straight-line per-tick chain. Four
+jobs.
+
+### 1. Duration meter (`420F`–`4237`)
+
+```
+420F  SCAL 0100             sample EF3, the hook switch
+4216  M(8139) == 0          -> skip
+421E  ANI 0x96 / LBZ        -> skip
+4223  M(811D) != 0          -> skip, still counting down
+422B  M(811D) = 0x3C (60)   reload
+422E  increment_decimal_counter(851A, 6 digits)
+```
+
+`M(811D)` is one of the eight cells in the soft-timer table at `40D6`
+(§10y), so the tick decrements it. **The `851A` counter advances once per
+60 timer units of off-hook time with a valid card** — a duration meter.
+
+### 2. Pulse counter (`4238`–`4276`) — this settles §10s
+
+```
+4240  LDN R7 / PLO RD       RD.0 = M(8078), the PREVIOUS sample
+4243  INP3 / ANI 0x80       read PORT 3, BIT 7
+4246  STR R7                M(8078) = the new sample
+4247  LBZ 426F              clear -> clear bit 7 of M(8033)
+424E  GLO RD / LBNZ 4273    previous non-zero -> no edge
+4252  M(845A) += 1
+425A  M(885D) += 1
+4263  SCAL 1C5F             bumps the 97xx varC counters
+```
+
+A **rising-edge detector on port 3 bit 7**. So `845A` and `885D` count
+**pulses, not completed calls**.
+
+§10s guessed "completed calls" from the `SCAL 0100` at the top of this
+stage — but that call belongs to job 1, and **every branch out of the
+`ANI 0x96` test rejoins at `4238`**, before the detector. The pulse reading
+is what the code shows. So `periodic_report_check` fires every **45
+pulses**.
+
+**Port 3 bit 7 is therefore a pulse input**, alongside bit 6 which
+`read_hardware_straps` uses as the strap sense (§10k).
+
+### 3. Second meter (`4277`–`42A4`)
+
+Gated on the hook, `M(8144)`, `M(8139) & 0x96` and `M(811F)`, it bumps the
+**4-digit** counter at `8516` and latches `M(811F) = 1`, so it counts once
+per arming rather than once per tick.
+
+### 4. Output sequencer (`42B2`–`43E5`)
+
+With `R7 = 8033`, `R8 = 8032`, `R5 = 8149`, `R6 = 8132`, it switches on the
+low three bits of `M(8149)` and on bits 3–5 against `0x28`, writing
+patterns into the **low six bits of `M(8033)`** while preserving the top
+two with `ANI 0xC0` — values `0x01`, `0x08`, `0x0A`, `0x0C`. It loads
+`M(8132)` with 100 or 10 as a dwell and clears the group at
+`8147`–`8149`.
+
+That is the same `M(8033)` low field `read_hardware_straps` drives (§10k)
+and `test_dial_and_reader` walks (§10ac). A state machine driving it during
+call progress is the strongest evidence yet that the field is a genuine
+output — though what it reaches is still unknown.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -4227,7 +4295,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 `proc_5000` → **`digits_to_binary16`**; `FUN_3876` →
 **`shift_rc_left16`** (§10af); `FUN_3831` →
 **`wait_idle_then_blank_display`** (§10ag); `proc_3806` →
-**`increment_decimal_counter`** (§10ah).
+**`increment_decimal_counter`** (§10ah); `FUN_420e` →
+**`meter_and_drive_line`** (§10ai).
 
 Renamed from an earlier, inaccurate name:
 `LoadEmptyLine_AND_8036_with_0xBF` → **`BlankDisplayAndClear8036Bit6`**

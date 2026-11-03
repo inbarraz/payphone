@@ -170,11 +170,6 @@ an open question without a next action tends to stay open.
       argued from the cell itself; the §10t reading was taken from the module
       title. The §1a citation also points at `3A0B`, which reads `813E` and
       `8127`, not `8144`.
-- [ ] **Does anything actually gate the `845A`/`885D` increments on a
-      completed call?** §10s says they count calls, but the increments at
-      `4252`/`425A` run when bit 7 of `INP 3` is set and the previous sample
-      at `8078` was zero — the `ANI 0x96` on `card_permission_bits` is a mask
-      whose branches all rejoin, so it does not guard them.
 - [ ] **`KEY_*` may be off by one.** The enum puts `*` at `0x0C`, but the
       matrix table at `2400` gives index `0x0B` = `*` and `0x0C` = `#`
       (§10f). Worth settling — it changes how every `XRI 0x0C` reads.
@@ -253,4 +248,7 @@ Kept as a record of what the method looks like when it works.
       `M(8069)` is a card status byte written only by reader handlers (§10l).
 - [x] **What writes the `8060` buffer** parsed by the card-data handler —
       `PackCardNibbles` (`36B0`), via a 2-byte inline pointer (§10m).
+- [x] **What `845A` and `885D` count** — **pulses**, not calls. `4243`
+      edge-detects port 3 bit 7 against the previous sample in `M(8078)`
+      (§10ai). So the periodic report fires every 45 pulses.
 - [x] **What bit 6 of `M(8036)` means** — "the timer set is running" (§10y).
