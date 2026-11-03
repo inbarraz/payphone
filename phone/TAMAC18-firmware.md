@@ -1307,7 +1307,7 @@ pointer. Fields in order:
 | 0 | 1 | literal | `01` record type |
 | 1 | 4 | ROM `13E8` | **`"DLCA"`** tag |
 | 5 | 4 | literal | zeros |
-| 9 | 11 | RAM `8501` | identifier, **zero bytes replaced by `'A'`** |
+| 9 | 11 | RAM `8501` | **the phone's own telephone number** (§10ap), zero bytes replaced by `'A'` |
 | 20 | 4 | RAM `8EFD` | |
 | 24 | 2 | ROM `7BFA` | `04 30` |
 | 26 | 2 | ROM `7BFE` | `7A AE` |
@@ -5024,6 +5024,72 @@ region but outside that wrap. Not resolved — it may be two paths with differen
 ideas of the buffer, or `8116`–`8119` may be reserved for the prefix the match
 above reads.
 
+## 10ap. `own_phone_number` (`0x8501`) — and how big the field is
+
+`8501` holds **the payphone's own telephone number**, and the ROM labels it
+itself. `572B` displays the Hebrew string at `69BD` — **`מס' טלפון:`**, "Phone
+number:" — and calls `number_field_dialog` (`5751`) with the inline pointer
+`8501`. Its sibling `573E` shows `69AC`, **`מס' יש"מ:`**, with the pointer
+`844E`.
+
+Digits are stored as **keypad values** — `1`–`9` for the digits and `0x0A` for
+`'0'`, the same encoding as the dial buffer (§10ao).
+
+### The field is `byte[12]`, and three sources agree
+
+| Source | What it shows |
+|---|---|
+| `validate_number_field` (`58C4`) | `RLDI R6,000B` then eleven `LDA RD` iterations under `DBNZ R6`, reading `B+0`…`B+10`, and `58F7` writes a terminator at `B+11` |
+| `build_dlc_record` (§8a) | copies **exactly 11 bytes** from `8501` into the record at offset 9 |
+| the memory map | `8501 + 12 = 850D`, where the provisioning block starts; `844E + 12 = 845A`, which is `pulse_count_event` |
+
+So: **eleven digit slots plus a terminator.** The sibling field goes through the
+same validator, so it is the same size, and **both fill their gap exactly** with
+nothing in the image referencing either interior. Worth declaring as an array in
+Ghidra rather than twelve loose bytes.
+
+### What the validator enforces
+
+```
+58C4  R7 == 8501 -> SCAL 591B     an extra check for THIS field only
+58E3  first digit must be 0x0A    a leading '0'
+58E9  a zero byte terminates
+58ED  every digit must be < 0x0B
+58F3  at most eleven
+58FE  at least EIGHT digits, or reject
+```
+
+It returns the digit count, or `0` if any of that fails. Note the compare at
+`58C4`–`58CD` on both halves of `R7`: the phone's own number is held to a
+stricter rule than `844E` is.
+
+### An off-by-one in the display
+
+`Hex2ASC_8501_to_RA` (`564D`) emits a literal `'0'`, then one or two digits, then
+`'-'`, then the rest, then a trailing space — twelve characters, e.g.
+`"03-12345678 "`. Because the validator forces a leading `0x0A`, the test at
+`565C` normally takes the skip path, so the stored `'0'` is consumed by the
+literal and one area digit follows.
+
+But it reads at most through `850A`: **ten digits of output against the eleven
+slots the validator accepts.** Slot `850B` is storable, is sent in the DLC
+record, and is never rendered on the LCD. A digit byte of `0` prints as `'A'`
+(`0x41`), which is what an unset trailing slot shows — the same substitution
+§8a noticed in the DLC record.
+
+### Who else reads it
+
+| Site | Use |
+|---|---|
+| `2E36` | the idle display selector — `M(8501) == 0` picks descriptor `6696` over the insert-card prompt `66BA`, so an **unprovisioned phone shows a different idle screen** (§10l) |
+| `9139` | `build_dlc_record` — the phone identifies itself by its number |
+| `1CF0`, `3B01`, `5B72` | further reads |
+
+**Not established:** what `יש"מ` stands for. It is reproduced here as the ROM
+writes it. Given `844E` sits in the battery-backed block beside the fault log
+and is sent nowhere this file has traced, a site or terminal identifier would
+fit, but nothing shows it.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -5116,6 +5182,9 @@ Renamed from an earlier, inaccurate name:
 
 `proc_008f` → **`dialed_prefix_is_123`** (§10ao).
 
+`FUN_58c4` → **`validate_number_field`**; `FUN_5751` → **`number_field_dialog`**
+(both §10ap).
+
 **The full RAM inventory is in [`RAM-MAP.md`](RAM-MAP.md)** — all 399 cells the
 firmware points a register at, 122 named and 267 not, each with the signature
 the ROM shows for it. The counts in this file are generated, so prefer the
@@ -5201,6 +5270,8 @@ tally at the foot of the map if the two ever disagree.
 | `818E` | `reader_z_reply_count` | 10ak |
 | `88BB` | `optical_reader_fault_flag` | 10n |
 | `88BD` | `units_spent_marker` | 10ak |
+| `8501`–`850C` | `own_phone_number`, `byte[12]` | 10ap |
+| `844E`–`8459` | `ysm_number`, `byte[12]` | 10ap |
 | `8117`–`8119` | `dial_digit_3`, `dial_digit_2`, `dial_digit_1` | 10ao |
 | `813B` | `dial_digit_count` | 10ao |
 | `00DF` | `secret_prefix_digits` | 10ao |
@@ -5240,7 +5311,7 @@ calling `8033` a port latch, which §10k shows is unproven.
 
 **Still unnamed, meaning not established:** `812F`, `8165`, `816C` (§10e),
 `97A6` (set when a fault counter hits its threshold, §10i), the idle selector's
-`8501` and `81B5` (§10l), and the config bytes `850D`, `8500`, `8513`–`8515`
+and `81B5` (§10l), and the config bytes `850D`, `8500`, `8513`–`8515`
 (§10q) — of which only `8513` has a known consumer, `M(813A) = M(8513) - 1` at
 `1A52`. [`RAM-MAP.md`](RAM-MAP.md) is the complete list; this paragraph is only
 the cells with a known *context* and no known meaning.

@@ -206,7 +206,7 @@ an open question without a next action tends to stay open.
       set: `888E`, `8131`, `8133`, `8134`, `8136`, `8128`, `8137`, `811D`.
       Several were previously unnamed for lack of a role; now they have one.
 - [ ] **Cells still unnamed because the meaning is unknown:** `8030`, `812F`,
-      `8149`, `8165`, `816C`, `845D`, `97A6`, `8191`, `8501`, `81B5`, `850D`,
+      `8149`, `8165`, `816C`, `845D`, `97A6`, `8191`, `81B5`, `850D`,
       `8500`, `8513`–`8515`. Only `8513` has a known consumer
       (`M(813A) = M(8513) − 1` at `1A52`).
 - [ ] **Reconcile the four statements about `CA`, `CB`, `TG`, `MN`.** The
@@ -318,6 +318,12 @@ Collected separately because they are not worth static effort:
       `8101`–`8119` and `3B0D` sets the top index to `0x19`. The four slots
       `8116`–`8119` sit inside the cleared region but outside the wrap
       (§10ao).
+- [ ] **What does `יש"מ` stand for?** It is the ROM's own label (`69AC`) for the
+      12-byte number field at `844E`, the sibling of `own_phone_number`
+      (§10ap). A site or terminal identifier would fit — `844E` sits in the
+      battery-backed block beside the fault log — but nothing in the image
+      shows it, and it is a question about Bezeq's terminology rather than the
+      firmware.
 - [ ] **Scope port 1 bit 3.** Three consecutive high ticks raise `M(8067)`
       bit 0 (`4AB9`), which is what lets the `?CC` flush run. It is the third
       sense line found on port 1 and the only one with no candidate meaning

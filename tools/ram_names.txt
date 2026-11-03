@@ -116,8 +116,10 @@
 840a fault_log
 8448 cleaning_event_record
 844d coldstart_sentinel_844d
+844e ysm_number
 845a pulse_count_event
 845d ram_sentinel_845d
+8501 own_phone_number
 850e accept_list_count
 850f accept_list_0
 8510 accept_list_1

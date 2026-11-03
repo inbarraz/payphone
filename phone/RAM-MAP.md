@@ -233,7 +233,7 @@ dozen places has a dozen chances to give itself away.
 | `844B` | — | 3 — `3e50` `3fc2` `5da4` | st=2 imm=00,05 cmp=04 |
 | `844C` | — | 1 — `5de4` | st=0 |
 | `844D` | `coldstart_sentinel_844d` | 1 — `306f` | st=1 imm=aa |
-| `844E` | — | 4 — `3ae4` `3af8` `5b7b` `54a3` | st=0 |
+| `844E` | `ysm_number` | 4 — `3ae4` `3af8` `5b7b` `54a3` | st=0 |
 | `845A` | `pulse_count_event` | 6 — `23ae` `2f4c` `3f5f` `4252` `4cee` `76c6` | st=4 imm=00 cmp=2d |
 | `845C` | — | 19 — `1c1a` `1c26` `1c35` `1c41` `2cda` `2f30` +13 | st=10 imm=00,80,c0 mask=01,f0,fc cmp=c0,ca |
 | `845D` | `ram_sentinel_845d` | 1 — `6112` | st=1 imm=00 |
@@ -243,7 +243,7 @@ dozen places has a dozen chances to give itself away.
 | Addr | Name | Sites | Signature |
 |---|---|---|---|
 | `8500` | — | 2 — `3084` `3bf0` | st=1 |
-| `8501` | — | 7 — `1cec` `2e36` `3ae8` `3afd` `5655` `5b6e` +1 | st=0 |
+| `8501` | `own_phone_number` | 7 — `1cec` `2e36` `3ae8` `3afd` `5655` `5b6e` +1 | st=0 |
 | `850D` | — | 4 — `2f26` `5437` `55ab` `308e` | st=1 cmp=40 |
 | `850E` | `accept_list_count` | 2 — `33f0` `5ce0` | st=0 |
 | `850F` | `accept_list_0` | 2 — `568e` `5ce9` | st=0 |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **124 named**, 265 still unnamed.
+389 anchored cells, **126 named**, 263 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.
