@@ -53,8 +53,10 @@ program TAMAC-18
 04f0  p
 
 # 290a: memset, but DOWNWARD - its loop is STXD/DBNZ, so the pointer is the
-# TOP of the region filled. Args are dest word, fill byte, count word.
-290a  p,b,p
+# TOP of the region filled. Args are dest pointer, fill byte, count word.
+# The count is a NUMBER, not an address: typing it 'p' would manufacture a
+# reference to 0x0028 from the call at 2cb6.
+290a  p,b,w
 
 # 75c6: a stub - INC R3 / SEX R2 / SRET R3. It does nothing but SKIP one
 # inline byte, so a call to it is disabled functionality whose argument still
