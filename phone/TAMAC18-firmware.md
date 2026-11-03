@@ -3382,6 +3382,50 @@ is a latch-enable whose data the hardware ignores, or the two routines drive
 different devices. **`8033` should not be called "the port 5 shadow" on this
 evidence** — which is why it stays named `strap_drive_and_flags` (§10k).
 
+## 10v. `init_comm_session` (`0x74A7`)
+
+Prepares a DLC communication session: sets a timeout, optionally displays
+בתקשורת (*in communication*), clears two working buffers, and saves the
+stack and link registers.
+
+### `M(845C)` is a mode argument, not a persistent flag
+
+The caller writes it immediately before calling, and clears it after:
+
+```
+1C1A  M(845C) = 0xC0 / SCAL 74A7     full setup
+1C35  M(845C) = 0x80 / SCAL 74A7     buffers only
+1C45  M(845C) = 0
+```
+
+```
+74A7  LDN R6 / XRI 0xC0 / LBNZ 74CB  not 0xC0 -> straight to the clear
+74B1  M(8167) & 0x20 ?
+74BB    clear -> M(8167) = 0x0E, LBR 74CB      no message
+74C1    set   -> M(8167) = 0x28, display 664E  "     בתקשורת    "
+74CB  SCAL EraseBlock(8600, 862A)    43 bytes
+74D5  SCAL EraseBlock(8700, 8794)    149 bytes
+74DD  RLDI RA,8794 / SEX RA / RSXD R2 / RSXD R3
+74E6  RLDI RA,755C                   a continuation address
+74EA  RLDI R9,8629 / RLDI RD,0006 / fill
+```
+
+So the `0xC0` path is the one that touches user-visible state — the timeout
+and the message — while `0x80` only resets the buffers. Both share
+everything from `74CB`.
+
+The two timeout values `0x0E` and `0x28` are selected by **bit 5 of
+`M(8167)`**, the same bit the main idle loop saves to `81FB` and clears at
+`4B05`.
+
+### Context
+
+Both callers sit in the `build_dlc_record` neighbourhood (`PerformComm` at
+`1ABE`, `build_dlc_record` at `1CC2`), and the message says *in
+communication*, so this is the **DLC link**, not the card reader. The
+buffers at `8600`–`862A` and `8700`–`8794` are session working space and are
+**not** the 70-byte DLC record at `8D26` (§8a).
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -3430,7 +3474,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 **`register_cleaning_event`** (§10o); `FUN_769c` →
 **`periodic_report_check`**; `FUN_04f0` → **`increment_counter16`**
 (§10s); `proc_75f9` → **`flush_nopulse_fault_counter`** (§10t);
-`proc_7572` → **`flush_output_latches`** (§10u).
+`proc_7572` → **`flush_output_latches`** (§10u);
+`FUN_74a7` → **`init_comm_session`** (§10v).
 
 ### Data named
 
