@@ -324,6 +324,12 @@ Collected separately because they are not worth static effort:
       battery-backed block beside the fault log — but nothing in the image
       shows it, and it is a question about Bezeq's terminology rather than the
       firmware.
+- [ ] **Trace `number_field_dialog`'s own renderer.** `5751` is the LCD path for
+      `own_phone_number` and `ysm_number`, and its formatting lives in `57B6`,
+      `586C` and `5909`, none of them read. `Hex2ASC_8501_to_RA` is *not* it —
+      that one feeds the report builder at `55A7` (§10ap). So what the
+      technician screen actually shows for a nine-digit number is still open,
+      including whether it carries the same trailing `'A'` pad.
 - [ ] **Scope port 1 bit 3.** Three consecutive high ticks raise `M(8067)`
       bit 0 (`4AB9`), which is what lets the `?CC` flush run. It is the third
       sense line found on port 1 and the only one with no candidate meaning

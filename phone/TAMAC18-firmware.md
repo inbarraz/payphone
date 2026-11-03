@@ -5063,19 +5063,52 @@ It returns the digit count, or `0` if any of that fails. Note the compare at
 `58C4`–`58CD` on both halves of `R7`: the phone's own number is held to a
 stricter rule than `844E` is.
 
-### An off-by-one in the display
+### Period numbers were `0X-ABCDEFG`, which explains the `'A'`
 
-`Hex2ASC_8501_to_RA` (`564D`) emits a literal `'0'`, then one or two digits, then
-`'-'`, then the rest, then a trailing space — twelve characters, e.g.
-`"03-12345678 "`. Because the validator forces a leading `0x0A`, the test at
-`565C` normally takes the skip path, so the stored `'0'` is consumed by the
-literal and one area digit follows.
+Israeli landlines of the era were `0X-ABCDEFG` — a single-digit area code — so
+**a real stored number is nine digits**: `0`, `X`, `A`…`G` at `8501`–`8509`,
+with the terminator at `850A`. Two of the eleven slots are never used, and both
+consumers of the field pad them the same way.
 
-But it reads at most through `850A`: **ten digits of output against the eleven
-slots the validator accepts.** Slot `850B` is storable, is sent in the DLC
-record, and is never rendered on the LCD. A digit byte of `0` prints as `'A'`
-(`0x41`), which is what an unset trailing slot shows — the same substitution
-§8a noticed in the DLC record.
+**`Hex2ASC_8501_to_RA` (`564D`).** Emits a literal `'0'`, then `R6` digits, then
+`'-'`, then `R5` more, then a space. Because the validator forces a leading
+`0x0A` the test at `565C` takes the skip path, giving `R6 = 1` — so the stored
+`'0'` is consumed by the literal and one area digit follows, which is exactly
+the `0X` shape. But `R5` reaches the subscriber loop at **8**, one more than the
+seven digits a period number has, so the eighth read lands on the terminator.
+Traced with `03-1234567` in place:
+
+```
+stored    0a 03 01 02 03 04 05 06 07 00 00 00
+output    "03-1234567A "
+```
+
+**`build_dlc_record`.** Copies eleven raw bytes, `8501`–`850B`, substituting
+`'A'` for each zero (§8a), giving `031234567AA`.
+
+So the `'A'` is not a quirk — it is **fixed-width padding for an eleven-wide
+field holding a nine-digit number**, and the same substitution serves both
+consumers. `0x41` sorts after the digits, which is what you would pick for a
+pad that must not be mistaken for one.
+
+### Which renderer feeds which output
+
+Worth being precise, because it is easy to assume the formatter above drives the
+LCD. It does not. **`Hex2ASC_8501_to_RA` has exactly one caller**, `SCAL` at
+`55A7`, inside a field-by-field report builder:
+
+```
+55A0  SCAL 56C3, args 8500, 0x20
+55A7  SCAL Hex2ASC_8501_to_RA
+55AB  render M(850D)
+55BE  SCAL 56C3, args 850E, 0x20
+```
+
+`RA` is the output cursor throughout, so that `"03-1234567A "` goes into a
+report, not onto the display. The LCD path is `number_field_dialog` (`5751`),
+whose own renderer — reached through `57B6`, `586C` and `5909` — **has not been
+traced**, so what the technician screen shows for a nine-digit number is still
+open.
 
 ### Who else reads it
 
