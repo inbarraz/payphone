@@ -648,6 +648,41 @@ this problem — see §7.
 `SEP Rn`. Consecutive `SEP RB / SEP RD` are therefore two **calls**, not a jump
 followed by dead code.
 
+**`SEP RD` also takes an inline argument byte.** `178E` opens with
+`LDA R0 / PHI RE` — reading from the caller's instruction stream, because
+`R0` is the PC, and parking it in `RE.1`, the same convention SCRT uses. So
+in `1620` the `01` at `1647` and the `00` at `165F` are **data**, which
+Ghidra renders as `LDN R1` and `IDL`.
+
+That makes **a second inline-argument convention in this firmware, separate
+from SCRT**. The analyzer models `SEP R4` only, so every `SEP RD` site has
+to be read by eye. It is the same shape the analyzer's options already take
+— a register plus a byte count — so it could be supported if the sites turn
+out to be numerous.
+
+### The stepper motor driver
+
+| Address | What it is |
+|---|---|
+| `0x2428`–`0x242B` | Phase table `00 10 30 20` — upper nibble `0,1,3,2`, i.e. **2-bit Gray code** |
+| `0x8034` | current phase index (`RA.0`, walked as a ring `2B→2A→29→28→2B`) |
+| `0x8035` | live phase pattern, rotated one bit per step |
+| `0x8111` | direction — rotate left or right |
+| `21DA` (`RB`) | rotate `0x8035` one bit in the direction `0x8111` says — **one motor step** |
+| `178E` (`RD`) | step the phase pointer round the ring; **takes an inline byte** |
+
+Gray code is the giveaway: one bit changes per step, which is exactly what a
+two-phase winding needs, and it reads as valid Gray in both directions.
+
+`1436` and `23F7` are the **step-up and step-down primitives**, used by
+`seek_to_position` (`20FB`) to converge on `M(0x8031)` and by
+`read_card_bit` (`1E1C`) to advance one position per bit sampled. So
+position tracking, stepping and phase generation are all accounted for.
+
+**The phase table is data wedged between two routines** — immediately after
+`clear_byte_at_0x81xx` and immediately before `port7_release` — so Ghidra
+will disassemble it as code unless it is marked.
+
 ### Shared `SRET`
 
 "No `SRET R3`" can mean two adjacent functions share one epilogue that physically

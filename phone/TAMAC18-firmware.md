@@ -3237,11 +3237,15 @@ event**. (`FUN_420E` is never reached by `SCAL`; it is branched to.)
 
 ### The `97xx` counter records
 
-`1C5F` calls `increment_counter16` (`04F0`) on `97A6`, `97AA` and `97AE` —
-three counters four bytes apart. The three cells this routine clears,
-`97A8`, `97AC` and `97B0`, are the `+2` byte of each. So each record is
-{16-bit count, byte}, and the byte is zeroed when a report is prepared —
-read-and-clear, the same discipline `build_dlc_record` uses (§8a).
+`1C5F` calls `increment_counter16` (`04F0`) on `97A6`, `97AA` and `97AE`.
+Those are the **`varC`** fields of the three `SupervisedOpDesc` channel
+records (§10z), and the cells this routine clears — `97A8`, `97AC`, `97B0`
+— are their **`varB`** fields, the ones the engine range-checks against
+`limitB`. The record is 4 bytes: `varA`, a 16-bit `varC`, then `varB`.
+
+So the discipline is read-and-clear, as `build_dlc_record` uses (§8a), but
+the two cells play different roles in the supervised-operation engine rather
+than being a count and a spare byte.
 
 `increment_counter16` saturates rather than wrapping:
 
@@ -3559,6 +3563,103 @@ touching `M(8134)`, which is why the two routines are not symmetrical.
 
 Nine callers: `37CD`, `4542`, `457F`, `4601`, `4F44`, `4F9B`, `4FBE`,
 `59A6`, `7420`.
+
+## 10z. The supervised-operation engine and its three channels
+
+Recovered from the session transcript — this was worked out earlier and
+never written down, and it **corrects the `97xx` layout given in §10s**.
+
+### `proc_4bd7` is a thin driver
+
+```
+4BD7  SCAL 1ABE ; inline 1C7E    channel 0
+4BDE  SCAL 1ABE ; inline 1C91    channel 1
+4BE5  SCAL 1ABE ; inline 1CA4    channel 2
+```
+
+Three calls, nothing else. Each inline argument is a `0x13`-byte parameter
+block.
+
+### `SupervisedOpDesc` — 19 bytes, no padding
+
+| Off | Size | Field | ch0 `1C7E` | ch1 `1C91` | ch2 `1CA4` |
+|---|---|---|---|---|---|
+| `00` | 1 | `channel` | `00` | `01` | `02` |
+| `01` | 2 | `varA` | `97A5` | `97A9` | `97AD` |
+| `03` | 2 | `varB` | `97A8` | `97AC` | `97B0` |
+| `05` | 1 | `limitB` | `28` (40) | `08` | `24` (36) |
+| `06` | 2 | `count` | `0006` | `0000` | `000B` |
+| `08` | 2 | `varC` | `97A6` | `97AA` | `97AE` |
+| `0A` | 2 | **`handler`** | **`1C1A`** | **`1C30`** | **`1C57`** |
+| `0C` | 2 | `varD` | `97A5` | `97A9` | `97AD` |
+| `0E` | 1 | `value` | `05` | `01` | `03` |
+| `0F` | 2 | `varE` | `97A8` | `97AC` | `97B0` |
+| `11` | 1 | `limitE` | `28` | `08` | `24` |
+| `12` | 1 | `trailer` | `14` | `14` | `14` |
+
+The layout was verified from both ends: Ghidra's own reference engine puts
+`1C1A`'s referrer at `1C88` = `1C7E + 0x0A`, and `1C57`'s at `1CAE` =
+`1CA4 + 0x0A`, matching the hand-traced `RLXA` consumption order.
+
+A caveat if you rebuild the type: `channel` is a byte at `00` followed by a
+pointer at `01`, so a C parser will pad to 20 bytes. Build it in the
+Structure Editor with packing **disabled**, and check the size reads `0x13`.
+
+### The three handlers
+
+Each descriptor names **its own handler**, reached from `1B2C` by
+`SEX RE / RLXA R4` — an `RLXA`-into-PC jump (§9). Each handler ends in
+`LBR 1B2E`, jumping *back into* `1ABE`, so the two are **co-routines**, not
+caller and callee.
+
+| Ch | Handler | What it does |
+|---|---|---|
+| 0 | `1C1A` | `M(845C) = 0xC0`, `SCAL 74A7`, expects `0xCA` back |
+| 1 | `1C30` | `SCAL 6FFF`, `M(845C) = 0x80` then `0x00`, `SCAL 74A7`, expects `M(81B5) == 0x42` |
+| **2** | `1C57` | **`SCAL 06BA` — the DLC session entry** |
+
+**So this is where a DLC session starts automatically**, as against
+`DLC_Comm` (§9a), where an operator starts one from the keypad.
+
+It also sharpens §10v: `init_comm_session`'s two call sites are not two
+points in one routine but **channel 0's and channel 1's handlers**.
+
+### `1ABE` — what the `PerformComm?` name is worth
+
+It is a **generic supervised-operation engine**: take a descriptor,
+range-check counters, jump to the handler it names, then retry and time out
+until success or one of four error codes.
+
+**For the name:** retries (counter at `97A4`), a timeout at `8136`, four
+error codes, `DisplayCommStatus` on both paths, hook polling while waiting,
+display descriptor `664E` shared with `DLC_Comm`, and channel 2 genuinely
+running a DLC session.
+
+**Against it:** **no `INP` or `OUT` anywhere in the routine** — it drives
+nothing. Two of its three uses are not obviously communication, and the
+engine is entirely generic.
+
+`run_supervised_op` would be more honest. The `?` in the existing name is
+doing real work and the name should not be read as *"this is the comm
+driver"*: the link layer is the UART ISR at `5071` and `dlc_uart_service` at
+`0A61`, well below this.
+
+### Correction to §10s
+
+§10s described the `97xx` cells as "three counters four bytes apart" with
+"each record {16-bit count, byte}". The descriptors give the real layout —
+a 4-byte record per channel, three named fields:
+
+| Ch | `varA`/`varD` | `varC` (16-bit) | `varB`/`varE` | limit |
+|---|---|---|---|---|
+| 0 | `97A5` | `97A6`–`97A7` | `97A8` | 40 |
+| 1 | `97A9` | `97AA`–`97AB` | `97AC` | 8 |
+| 2 | `97AD` | `97AE`–`97AF` | `97B0` | 36 |
+
+That reconciles both observations: `increment_counter16` (§10s) bumps
+**`varC`**, and `periodic_report_check` clears **`varB`** — the byte the
+engine range-checks against `limitB`. `97A4`, just below the array, is
+`1ABE`'s retry counter.
 
 ## 10. Code executed from RAM
 
