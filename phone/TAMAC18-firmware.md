@@ -2788,7 +2788,7 @@ identifies the test; the module identifies the part.
 
 ### The priority fault at `29E7`
 
-Not every fault comes from the log. `show_fault_log` calls `proc_29e7` at
+Not every fault comes from the log. `show_fault_log` calls `show_optical_reader_fault` (`29E7`) at
 `6006` — after the `670B` label is drawn and **before** the log walk at
 `600D` — and that routine hard-codes one:
 
@@ -2870,7 +2870,8 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 **`GuardOrAbortCaller`** (§10h); `FUN_609c` →
 **`show_version_and_comm`** (§10j); `FUN_6173` →
 **`read_hardware_straps`** (§10k); `FUN_36b0` → **`PackCardNibbles`**
-(§10m); `FUN_5e8b` → **`show_fault_entry`** (§10n).
+(§10m); `FUN_5e8b` → **`show_fault_entry`**;
+`proc_29e7` → **`show_optical_reader_fault`** (§10n).
 
 ### Data named
 
