@@ -337,11 +337,11 @@ dozen places has a dozen chances to give itself away.
 | `8B11` | — | 1 — `0d96` | st=0 |
 | `8C1B` | — | 1 — `0db1` | st=1 |
 | `8C1D` | — | 1 — `0a90` | st=1 imm=01 |
-| `8C1F` | — | 1 — `0af4` | st=0 |
+| `8C1F` | `uart_tx_ptr` | 1 — `0af4` | st=0 |
 | `8C20` | — | 2 — `0be5` `0c30` | st=0 |
-| `8C21` | — | 4 — `077b` `0ad6` `0ae1` `0bc5` | st=2 imm=00 |
+| `8C21` | `uart_tx_count` | 4 — `077b` `0ad6` `0ae1` `0bc5` | st=2 imm=00 |
 | `8C22` | — | 1 — `0c20` | st=0 |
-| `8C23` | — | 4 — `0afb` `0bd5` `0c27` `0b0f` | st=2 imm=00 |
+| `8C23` | `uart_tx_index` | 4 — `0afb` `0bd5` `0c27` `0b0f` | st=2 imm=00 |
 | `8C25` | — | 2 — `0e2e` `0f2a` | st=0 |
 | `8C26` | — | 1 — `0949` | st=0 |
 | `8C27` | `dlc_tx_frame` | 3 — `039e` `03e9` `0bec` | st=1 imm=cc |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **136 named**, 253 still unnamed.
+389 anchored cells, **139 named**, 250 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.

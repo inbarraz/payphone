@@ -169,7 +169,7 @@ an open question without a next action tends to stay open.
 
 ## Naming and tooling
 
-- [ ] **253 RAM cells are still unnamed**, out of the 399 the firmware points a
+- [ ] **250 RAM cells are still unnamed**, out of the 399 the firmware points a
       register at, after dropping the cells a bad `SCAL`-pointer heuristic had
       invented. [`phone/RAM-MAP.md`](phone/RAM-MAP.md) has all of them with
       the signature the ROM shows — stores, immediates, `ANI` masks, comparison
@@ -344,11 +344,14 @@ Collected separately because they are not worth static effort:
       is a tag — `0x0A` for "nothing to report", `0x0F` for a two-value report
       (§10ar). The other four wrappers' tags, and whatever the receive side
       expects, are unread.
-- [ ] **Read `1A7C`, the DLC session script driver.** Both the transmit step at
-      `2372` and the two login steps at `0C44`/`0C57` set state `0x0E` on
-      entry, a result code on the way out, and end `LBR 1A7C` (§10ar, §10as).
-      So `1A7C` sequences the script and consumes those codes, and it is now
-      the single most informative unread routine on the DLC side.
+- [ ] **Read the serial ISR around `5071`.** `1A7C` turned out to be an `IDL`
+      park loop, not a driver (§10at), so there is no sequencer in the main
+      thread: the ISR is what advances the DLC session, and it also holds the
+      answer to how `uart_tx_count` maps to the strings it sends. It still has
+      no function boundary, which is why it has never been decompiled.
+- [ ] **What is `131`, and what is `34011503`?** The phone dials `131` and then
+      sends `34011503` to an X.25 PAD (§10at). Both are questions about the
+      Israeli network of the period rather than the ROM.
 - [ ] **Create function boundaries at `0C44` and `0C57`.** Neither login step
       has one, so the decompiler cannot render them (§10as). Same problem as
       `5071`/`514B`/`5FB1` on the reader link.

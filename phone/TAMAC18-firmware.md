@@ -5370,11 +5370,12 @@ array at `8DAC`, then returns to the shared `1A7C` — **the same shape as the
 transmit step at `2372`** (§10ar), which marks `0x0E`, then `0x0D` or `0x09`,
 and also ends `LBR 1A7C`.
 
-So `1A7C` is the DLC **session script driver**, and the steps are script
-elements. `TERMINAL=` followed by `@` is a terminal-server or X.25 PAD login, so
-the picture is: dial a data centre, wait for each prompt in turn, then send the
-70-byte record. That makes the flag array at `8DAC` the script's state, which is
-the first solid account of what it is for.
+So the steps are elements of one session script, the flag array at `8DAC` is its
+state, and `TERMINAL=` followed by `@` is a terminal-server or X.25 PAD login.
+
+**`1A7C` is not the driver, though** — §10at reads it, and it turns out to be an
+`IDL` park loop. Each step records its result and *sleeps*; the serial ISR is
+what moves the session along.
 
 ### Cells named
 
@@ -5396,6 +5397,103 @@ render either step. Creating them would help; suggested names
 
 **Not established:** what `1A7C` does with the result codes, how the script is
 sequenced, or what `8B0F` is a base for.
+
+## 10at. `1A7C` is a park loop — and the DLC session end to end
+
+```
+1A7C  00 00      IDL ; IDL
+1A7E  C0 1A 7C   LBR 1A7C
+```
+
+`IDL` halts the processor until an I/O request, so this spins until an interrupt
+or DMA. **Twenty-four sites across the ROM end with `LBR 1A7C`**, every one a DLC
+session step: the step does its work, records a result code in the flag array at
+`8DAC`, and parks here.
+
+**That corrects §10as**, which called `1A7C` the session script driver on the
+strength of everything branching to it. It is the opposite — the place steps go
+to *stop*. There is no driver in the main thread at all; the serial ISR is what
+advances the session.
+
+`wait_until_dialling_done` (`2C6E`) proves the idiom:
+
+```
+2C6E  IDL                         park
+2C6F  SCAL 729E
+2C74  R6 = 811A / LDA R6 / XOR    M(811A) ^ M(811B)
+2C7B  LBNZ 2C6E                   not equal yet -> park again
+```
+
+It idles until `dial_buf_ptr` reaches `dial_buf_end` — until every digit has gone
+out. Same shape: `IDL`, let the ISR advance the state, re-test.
+
+`1A6A`–`1A7B` is **six consecutive `LBR 1A7C` instructions with no inbound
+references anywhere in the image** — dead, and most likely a jump table whose
+entries were all stubbed to the park loop.
+
+### The session, end to end
+
+Chasing the park loop's callers assembles the whole thing.
+
+**1. Dial.** At `19DA`–`19E8`:
+
+```
+19DA  SCAL 1A26                     clear the 25-byte dial buffer
+19DE  RC = 1A81
+19E3  SCAL load_dial_buffer_from_string
+19E8  SCAL wait_until_dialling_done
+```
+
+`load_dial_buffer_from_string` (`2C81`) copies a NUL-terminated string into the
+dial buffer **downward** from `8119` — the same idiom as `3B0D` (§10ao) — and
+then sets `dial_buf_ptr` to where it stopped. The string at `1A81` is
+`01 03 01 00`, keypad digit values, so **the phone dials `131`.**
+
+**2. Wait for the login prompt**, then send the dialogue. The three transmit
+steps share a tail at `0C20`:
+
+```
+0C20  uart_tx_count = R5           at 8C21/8C22
+0C27  uart_tx_index = 0            at 8C23/8C24
+0C30  uart_tx_ptr   = RD           at 8C1F/8C20
+0C37  SEX RD / DEC RD / OUT 6      prime the UART with the first byte
+0C3A  set_feature_flag(0x11)       "transmitting"
+0C41  LBR 1A7C                     park while the ISR drains the rest
+```
+
+Note the `DEC RD` before the `OUT`: `OUT` sends `M(R(X))` *then* increments, so
+the byte sent is `M(RD − 1)` and the pointers in the callers are one past the
+string's first byte. The strings:
+
+| Address | Bytes | Reads as |
+|---|---|---|
+| `1A86` | `0D 2E 0D` | `"\r.\r"` — an X.25 PAD attention sequence |
+| `1A89` | `44 31 0D` | `"D1\r"` — a PAD command |
+| `1A8C` | `33 34 30 31 31 35 30 33 0D` | `"34011503\r"` — the address to call |
+
+Only the first byte leaves here; `uart_tx_ptr`, `uart_tx_count` and
+`uart_tx_index` are the ISR's working set for the remainder — the same
+shadow-pointer-and-count arrangement the reader link uses at `801A` (§8).
+
+**3. Send the record.** `0891` builds it and ships 70 bytes (§10ar).
+
+So the DLC side reads: **dial `131`, wait for `TERMINAL=`, send `D1`, wait for
+`@`, send the address `34011503`, then send the 70-byte record** — a payphone
+calling a data centre over an X.25 PAD.
+
+### Cells named
+
+| Address | Name |
+|---|---|
+| `8C1F` | `uart_tx_ptr` |
+| `8C21` | `uart_tx_count` |
+| `8C23` | `uart_tx_index` |
+
+**Not fully pinned:** how the counts map to the strings. `R5` is 2 for both
+short strings and `0x0A` for the address, while the strings are 3, 3 and 9 bytes,
+so the count is not a plain byte length. Reading the ISR's use of
+`uart_tx_count` would settle it — and that is the same ISR, around `5071`, that
+still has no function boundary.
 
 ## 10. Code executed from RAM
 
@@ -5496,7 +5594,9 @@ Renamed from an earlier, inaccurate name:
 **`test_EF4_inverted`**; `proc_010d` → **`test_and_clear_XI`**; `proc_0113` →
 **`test_and_clear_CI`** (all §10aq).
 
-`proc_023d` → **`rx_contains_pattern`** (§10as). `proc_038d` →
+`proc_023d` → **`rx_contains_pattern`** (§10as). `FUN_2c6e` →
+**`wait_until_dialling_done`**; `FUN_2c81` →
+**`load_dial_buffer_from_string`** (both §10at). `proc_038d` →
 **`build_dlc_frame`**; `proc_01fb` →
 **`send_dlc_nothing_to_report`**; `proc_020a` →
 **`send_dlc_pending_record`**; `proc_02cf` →
@@ -5600,6 +5700,9 @@ tally at the foot of the map if the two ever disagree.
 | `8B0B` | `dlc_rx_count` | 10as |
 | `8B0D` | `dlc_rx_base` | 10as |
 | `8B0F` | `dlc_rx_base2` | 10as |
+| `8C1F` | `uart_tx_ptr` | 10at |
+| `8C21` | `uart_tx_count` | 10at |
+| `8C23` | `uart_tx_index` | 10at |
 | `8117`–`8119` | `dial_digit_3`, `dial_digit_2`, `dial_digit_1` | 10ao |
 | `813B` | `dial_digit_count` | 10ao |
 | `00DF` | `secret_prefix_digits` | 10ao |

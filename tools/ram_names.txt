@@ -148,6 +148,9 @@
 8b0b dlc_rx_count
 8b0d dlc_rx_base
 8b0f dlc_rx_base2
+8c1f uart_tx_ptr
+8c21 uart_tx_count
+8c23 uart_tx_index
 8c27 dlc_tx_frame
 8d26 dlc_record
 8da6 dlc_tx_frame_len
