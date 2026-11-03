@@ -187,14 +187,21 @@ cursor, or over the selection if there is one:
 | `SetXPInline` | `XP = 1`, the inline form | `Ctrl`-`Shift`-`X` | *Tools ▸ CDP1806 ▸ Set XP inline form* |
 | `SetXPNormal` | `XP = 0`, back to one byte | `Ctrl`-`Shift`-`Z` | *Tools ▸ CDP1806 ▸ Set XP normal form* |
 
-The key comes from the `//@keybinding` line in each script, so Ghidra picks it
-up as soon as the script directory is on its list — *Window ▸ Script Manager ▸
-Manage Script Directories*, then add this `ghidra_scripts` folder. To use a
-different key, either edit that line or set it in the Script Manager's
-**Key Binding** column, which overrides the file.
+**Installing the extension is enough** — the scripts ship inside the zip under
+`cdp1806/ghidra_scripts/`, and Ghidra scans an extension's script folder
+automatically. There is nothing to add in *Manage Script Directories*. The key
+comes from the `//@keybinding` line in each file. To use a different one, either
+edit that line or set it in the Script Manager's **Key Binding** column, which
+overrides the file.
 
-`Ctrl`-`Shift`-`Z` is the only one worth checking for a clash on your setup;
-if it collides, rebind it there.
+`Ctrl`-`Shift`-`Z` is the only one worth checking for a clash on your setup; if
+it collides, rebind it there.
+
+**Tip for the `6DD5` reset block.** Setting `XP = 1` on an address where no
+`OUT`/`RET`/`DIS` starts is harmless — no constructor consults it — so you can
+select the whole block, press `Ctrl`-`Shift`-`X` once, and let every `OUT` in it
+take its inline byte in one go. `SEX 0` at `6DD5` makes `X == P` for the whole
+run, so that is exactly right there.
 
 Order matters inside the scripts and is worth knowing if you ever do it by hand:
 **clear first, then set the context, then disassemble.** The context value is
@@ -240,6 +247,22 @@ on macOS that is `~/Library/ghidra/ghidra_<version>_PUBLIC/Extensions`.
 Each Ghidra release keeps its own extensions directory, so the module needs reinstalling
 after a Ghidra upgrade. A missing or stale `cdp1806.sla` is rebuilt from the `.slaspec`
 automatically on first use.
+
+### Language versions and existing programs
+
+`cdp1806.ldefs` carries a `version`, and Ghidra records it in every program
+imported with the module. **Changing the register or context layout without
+bumping that version leaves an already-imported program on the old layout** —
+the new register silently does not exist for it, which looks exactly like the
+module not having been installed.
+
+The `XP` context register went in at **1.1**. On opening a program saved under
+1.0, Ghidra reports that it needs a language upgrade and performs it
+automatically; a minor-version increment needs no `LanguageTranslator`, and
+names, comments and data all survive. **Archive the project first anyway** —
+*File ▸ Archive Current Project* — because the upgrade rewrites the program.
+
+Bump the minor version for any future layout change, for the same reason.
 
 ## Known issues
 
