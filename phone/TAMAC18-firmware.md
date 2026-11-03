@@ -4164,7 +4164,12 @@ on the same event as the every-45 counters.
 **Not established:** what each one counts. Their widths and their position
 next to the provisioning block suggest meters a technician or the DLC link
 would read out, but nothing here says which is which — another reason to
-dump `8500`–`852B` from a live unit.
+dump `8500`–`852B` from a live unit. §10ai does settle `851A`: the `4233`
+site fires once per 60 ticks of off-hook time with a valid card, so it is a
+**duration** meter, and §10aj makes the tick exactly one second, which makes
+`851A` a six-digit minute meter.
+
+None of the four can be renamed over the MCP — see the caveat in §11.
 
 ## 10ai. `meter_and_drive_line` (`0x420E`) — and what the counters count
 
@@ -4389,6 +4394,23 @@ Renamed from an earlier, inaccurate name:
 | `850F`–`8512` | `accept_list_0` … `accept_list_3` | 10p, 10q |
 | `867B` | `coldstart_sentinel_867b` | 10q |
 | `89FA` | `stack_top` | 10q |
+| `805E` | `credit_value` | 10aa |
+| `8078` | `pulse_prev_sample` | 10ai |
+| `811D` | `minute_meter_timer` | 10ai, 10aj |
+| `8122` | `rate_word_a` | 10aa |
+| `8124` | `rate_word_b` | 10aa |
+| `8130` | `timer_prescaler` | 10aj |
+| `814A` | `low_credit_display_arm` | 10ad |
+| `8167` | `mode_flags_8167` | 10ag |
+| `8184` | `low_credit_warned` | 10ad |
+| `8190` | `config_parse_result` | 10ab |
+| `845A` | `pulse_count_event` | 10ah, 10ai |
+| `885D` | `pulse_count_report` | 10ah, 10ai |
+| `8866` | `sm_change_shadow` | 10ae |
+| `8867` | `sm_change_current` | 10ae |
+| `886A` | `sm_input_value` | 10ae |
+| `886B` | `sm_bracket` | 10ae |
+| `886C` | `sm_state` | 10ae |
 
 Names reflect what the code **does** with a cell, not an assumed purpose:
 `card_value_7_minus_popcount` records the computation at `33D4` rather than
@@ -4407,7 +4429,18 @@ A caveat on the MCP: `rename_data` always answers "Rename data attempted",
 which says nothing. Verify by decompiling a function that references the cell
 and checking the symbol appears — `read_hardware_straps` shows
 `hardware_version`, `strap_drive_and_flags` and `port3_readback`, and
-`LoadStringForDisplay` shows `LCD_next_descriptor`.
+`LoadStringForDisplay` shows `LCD_next_descriptor`. `list_data_items` is the
+cheaper check: it is address-ordered, so one page covers a whole RAM block.
+
+**The totalizer bank cannot be named over the MCP.** `851A`, `8516`, `8520`
+and `8526` (§10ah) have no defined data and no label, because the only way the
+code names them is as the inline-argument bytes of an
+`increment_decimal_counter` call — Ghidra sees instruction-stream bytes, not an
+operand, so it never creates a reference or a label there. `rename_data`
+answers "Rename data attempted" and changes nothing, and `list_data_items`
+skips straight from `8515` to `852C`. These four need labelling by hand in the
+GUI; the names the notes use are `minute_meter` (`851A`), `counter4_8516`,
+`counter6_8520` and `counter6_8526`.
 
 Commented: `6E03` (the P switch), `28D8` (vector, prologue, epilogue),
 `5071` (ISR body and flag map), `50DD` (character classifier), `514B`
