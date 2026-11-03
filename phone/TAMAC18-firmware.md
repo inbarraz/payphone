@@ -3289,7 +3289,7 @@ Added to `cdp1806/data/inline_args.txt`:
 | Callee | Signature | Why |
 |---|---|---|
 | `04f0` | `p` | the counter pointer |
-| `290a` | `p,b,w` | memset — and **downward**, so the pointer is the *top* of the region (§10r) |
+| `290a` | `p,b,b,b` | memset — **downward**, so the pointer is the *top* of the region (§10r). The count is `b,b` because both word kinds would reference it: `w` references any target in initialized memory, and every count here lies in ROM |
 | `75c6` | `b` | a stub that only steps over its byte; **auto-detection cannot infer this**, since the routine never loads it |
 
 ## 10t. `flush_nopulse_fault_counter` (`0x75F9`) — a fault counter end to end

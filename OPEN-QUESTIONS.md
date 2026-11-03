@@ -185,6 +185,12 @@ an open question without a next action tends to stay open.
       all** and is entirely generic — `run_supervised_op` would be more
       honest (§10z). The `?` is doing real work either way; this is a
       judgement call, not a finding.
+- [ ] **Add an immediate-word kind to the inline-argument analyzer.** There
+      is no way to declare a 16-bit inline value that is a *number*: `p`
+      references any mapped target and `w` references any target in
+      initialized memory, so a count in ROM range gets a spurious data
+      reference either way. `290a` works around it with `b,b`, which costs
+      the word view in the listing.
 - [ ] **Teach the analyzer `SEP RD` inline arguments.** It is a second
       convention separate from SCRT (`card-reader/`, §idioms): `178E` reads
       its byte with `LDA R0 / PHI RE`. Same shape as the existing options — a
