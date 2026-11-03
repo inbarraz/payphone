@@ -276,7 +276,7 @@ dozen places has a dozen chances to give itself away.
 | `8780` | — | 3 — `62d6` `6379` `640e` | st=1 |
 | `8781` | — | 2 — `370c` `3df7` | st=0 |
 | `8783` | — | 1 — `5a6f` | st=1 |
-| `8785` | — | 5 — `3b84` `3d74` `4006` `509d` `6e32` | st=4 imm=00,80 |
+| `8785` | `uart_owner_select` | 5 — `3b84` `3d74` `4006` `509d` `6e32` | st=4 imm=00,80 |
 | `8786` | — | 5 — `3cca` `50b0` `5ab3` `5b0b` `5b29` | st=1 mask=01,0f,80 |
 | `8787` | — | 1 — `3d8b` | st=1 imm=00 |
 | `8788` | — | 2 — `636e` `63de` | st=1 imm=00 |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **145 named**, 244 still unnamed.
+389 anchored cells, **146 named**, 243 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.

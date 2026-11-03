@@ -133,6 +133,7 @@
 8545 ram_sentinel_8545
 867b coldstart_sentinel_867b
 867d ram_sentinel_867d|NOLABEL
+8785 uart_owner_select
 87d0 ram_sentinel_87d0|NOLABEL
 885d pulse_count_report
 8866 sm_change_shadow

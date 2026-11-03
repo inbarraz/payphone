@@ -342,11 +342,15 @@ Collected separately because they are not worth static effort:
       is a tag — `0x0A` for "nothing to report", `0x0F` for a two-value report
       (§10ar). The other four wrappers' tags, and whatever the receive side
       expects, are unread.
-- [ ] **Read the serial ISR around `5071`.** `1A7C` turned out to be an `IDL`
-      park loop, not a driver (§10at), so there is no sequencer in the main
-      thread: the ISR is what advances the DLC session, and it also holds the
-      answer to how `uart_tx_count` maps to the strings it sends. It still has
-      no function boundary, which is why it has never been decompiled.
+- [ ] **Read the DLC half of the shared ISR.** `5071` now has a function
+      boundary and decompiles (§10av), and it turns out to be ONE handler for
+      both UART owners, split on bit 7 of `uart_owner_select` (`8785`). The
+      card-reader half is understood; the DLC half — the fall-through at `50A6`
+      that calls `test_and_clear_XI` and does nibble arithmetic on `8786` — is
+      not, and it is where the session sequencing and the NUA send's two-byte
+      over-run must live.
+      *Also open:* who sets bit 7 of `8785`, and how that branch reaches the
+      DLC transmit engine at `0AD6`–`0B2A`.
 - [ ] **Find Isranet PAD documentation, circa the early 1990s.** Two questions
       hang on it (§10at):
       **(a) Is `D1` a terminal type or a login identifier?** The ROM shows it is
@@ -373,7 +377,8 @@ Collected separately because they are not worth static effort:
       string — so `1A95`/`1A96`, both `FF`, go out after the CR (§10at).
 - [ ] **Create function boundaries at `0C44` and `0C57`.** Neither login step
       has one, so the decompiler cannot render them (§10as). Same problem as
-      `5071`/`514B`/`5FB1` on the reader link.
+      `514B`/`5FB1` on the reader link — both fall-through labels with no
+      inbound reference, so Ghidra has nothing to anchor on. (`5071` is done.)
 - [ ] **Scope port 1 bit 3.** Three consecutive high ticks raise `M(8067)`
       bit 0 (`4AB9`), which is what lets the `?CC` flush run. It is the third
       sense line found on port 1 and the only one with no candidate meaning
@@ -414,6 +419,12 @@ Kept as a record of what the method looks like when it works.
       each accepted pulse. So `credit_times_interval_ge_1000` computes
       credit × ticks-per-unit, an estimate of remaining talk time, and takes
       the larger interval as the conservative one (§10aa, §10ak).
+- [x] **How the ISR resumes a parked session step** — it does not always. At
+      `51AD` it tests `GHI RD & 0x21` and branches to `4071`, straight into the
+      base tick's `test_and_clear_CI` poll, so the handler carries on into the
+      per-tick work instead of returning to the thread it interrupted. That is
+      the mechanism §10at inferred for the `IDL` park loop and could not show
+      (§10av).
 - [x] **What checksum the DLC frame carries** — **CRC-16/Modbus**: init
       `0xFFFF`, reflected polynomial `0xA001`, eight bit iterations, computed
       from the frame's own length field at `8C29` with that byte as the count

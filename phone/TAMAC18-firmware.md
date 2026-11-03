@@ -5676,6 +5676,80 @@ side are visibly interlocked.
 renames (§10aq); both were on the RAM map's "attack first" list, and both are
 now at least characterised, if not explained.
 
+## 10av. `ISR_Card_Reader_Link` (`0x5071`) — extent, exits, and the owner split
+
+A function now exists at `5071` and the decompiler renders it, which retires the
+"no function boundary" note in §11. Three things came out of reading it.
+
+### Where it actually ends
+
+The body is registered as `5071`–`51B5`. **The real end is `51B2`:**
+
+```
+51AD  c2 40 71   LBZ 4071     the other exit - see below
+51B0  e4         SEX R4       makes X == P
+51B1  70 24      RET          inline 0x24 -> X=2, P=4, the interrupt return
+51B3  c0 28 b7   LBR 28B7     <- not part of it
+```
+
+**Nothing in the image branches to `51B3`** — checked across every long branch,
+short branch, `SCAL` and `RLDI`. It is dead, most likely the remains of an exit
+path the `RET` replaced; `28B7` is the register-restore tail the vector prologue
+uses, and `28B4`, `4076` and `4151` all still reach it legitimately. So the body
+can be trimmed by three bytes.
+
+The next real routine is `proc_51e8` (`51E8`–`5226`), called from the tick chain
+at `40A3`, which leaves `51B6`–`51E7` as the gap between them.
+
+### Two exits, and one of them explains the park loop
+
+`51B1` is the normal interrupt return. But `51AD` tests `GHI RD & 0x21` and, when
+clear, **branches to `4071`** — one instruction before the base tick's
+`test_and_clear_CI` poll (§10aq). The decompiler proves this is a real control
+path: it inlines the whole tick chain into this function, down through the
+`40D6`/`40E7` timer tables and `meter_and_drive_line`.
+
+So the ISR does not always return to what it interrupted. **It can jump straight
+into the per-tick work** — which is exactly the mechanism §10at inferred for the
+`IDL` park loop at `1A7C` but could not show. A step parks, the interrupt fires,
+and the handler carries on into the tick chain rather than resuming the parked
+thread.
+
+### `M(8785)` bit 7 selects which owner the interrupt belongs to
+
+```
+509C  RLDI R8,8785
+50A1  LDA R8        D = M(uart_owner_select), R8 -> 8786
+50A2  SHL           DF = bit 7
+50A3  LBNF 50CB     bit 7 CLEAR -> the card reader path
+                    bit 7 SET   -> falls through to the other owner
+```
+
+The clear path is everything §7–§8 describe: the classifier at `50DD`, the
+receive buffer `8022`–`8026` with its index at `8027`, the transmit queue
+`801A`–`8021`, and the `'?'`/`'>'` handshake at `51A7` using the `X == P`
+inline-operand idiom. The set path calls `test_and_clear_XI` at `50A8` and works
+on `M(8786)`, storing the received byte there on one arm and adding `8786`'s low
+nibble to it on the other.
+
+**This is the software half of what U230 does in hardware** (§6a, "One UART, two
+owners"). It also corrects a vagueness in §10at and §10au, which spoke of "the
+serial ISR around `5071`" as though the DLC session had a handler of its own. It
+does not: **there is one interrupt handler and the DLC half is this fall-through
+branch.**
+
+### Confirmed in passing
+
+The decompilation independently confirms several names from this project:
+`reader_rx_ptr` (`8027`) really is the receive write index, `reader_link_flags`
+(`8029`) carries bit 0 busy / bit 3 `'?'` / bit 5 message-complete / bit 6
+`'>'`, `reader_tx_queue` is `801A`–`8021`, and port 6 is the UART data register
+with port 7 its status register.
+
+**Not established:** what the `8786` nibble arithmetic assembles, who sets bit 7
+of `8785`, or how that branch connects to the DLC transmit engine at
+`0AD6`–`0B2A`, which also does `OUT 6`.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -5954,10 +6028,12 @@ Commented: `6E03` (the P switch), `28D8` (vector, prologue, epilogue),
 (dispatcher), `3300` (dispatch table), all 13 handlers, `34FE` (return
 convention), `3600` (command table), `365C` (`send_reader_command`).
 
-**No function boundary exists at `0x5071`, `0x514B` or `0x5FB1`.** The Ghidra
-MCP cannot create functions. Creating them by hand would let the decompiler
-render the link layer properly; suggested names `cardreader_link_isr`,
-`cardreader_tx`, `cardreader_link_reset`.
+**`0x5071` now has one** — `ISR_Card_Reader_Link`, body `5071`–`51B5` — and it
+decompiles. §10av has its extent and what the decompilation showed. `514B` and
+`5FB1` still have none; they are fall-through labels inside and beside that
+function rather than separate entry points, so neither has an inbound reference
+and Ghidra has nothing to anchor on. The MCP cannot create functions, so these
+are hand jobs in the GUI.
 
 ## 12. Confidence
 
