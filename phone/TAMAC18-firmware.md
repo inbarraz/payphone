@@ -3750,18 +3750,8 @@ to a file offset.
 
 ## 13. Next steps
 
-1. Create functions at `5071`, `514B`, `5FB1` so the decompiler can render the
-   link layer.
-2. **Confirm the second link's peer** (§9a). The handler, its physical layer
-   and its entry point are known; what travels over it is not. The RAM code
-   copied from ROM `040D` and `3011`, and the chained vector at `8E0D`, are
-   the next things to read.
-3. Read the fourteen reader-side command handlers listed in §8 to find out
-   what each mnemonic actually does.
-3a. Identify the bits of `0xF000` from the dense block of accesses between
-   `1DC5` and `22A6`, and declare a memory block for it in Ghidra.
-4. Chase the computed selector that reaches `?TE01` / `?TE02`: that drives the
-   reader into factory adjustment mode, the most powerful thing the phone can
-   ask of it.
-4. Record the `RLXA`-into-PC gap in `cdp1806/REVIEW.md`.
-5. Identify what writes the `8060` buffer parsed by the card-data handler.
+Moved to [`OPEN-QUESTIONS.md`](../OPEN-QUESTIONS.md) at the repo root, so
+there is one queue rather than two that drift apart. It carries every open
+item from this file — what is unknown, where the evidence is, and what would
+settle it — and separates the questions the ROM can answer from the ones
+that need a live phone.

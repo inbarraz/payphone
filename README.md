@@ -15,6 +15,8 @@ The repo includes the ROMs, the Ghidra CPU definition and (soon) the Ghidra proj
 - [`card-reader/BSK31-firmware.md`](card-reader/BSK31-firmware.md) — reverse
   engineering notes for the Landis & Gyr BSK31-202 optical phonecard reader
   (CDP1802) used by the payphone, including its wire protocol.
+- [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) — the running queue of what is
+  still unknown, what evidence bears on it, and what would settle it.
 - [`tools/dump_strings.py`](tools/dump_strings.py) — dumps the firmware's
   Hebrew and Latin strings, and walks LCD descriptor chains. Handles the
   ROM's `0xA0`-based Hebrew encoding and its per-string byte order.
