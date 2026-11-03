@@ -3180,6 +3180,12 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 | `811B` | `buf8119_end` | 10g |
 | `8185` | `port3_readback` | 10k |
 | `840A` | `fault_log` | 10e, 10i |
+| `8448` | `cleaning_event_record` | 10o |
+| `844D` | `coldstart_sentinel_844d` | 10q |
+| `850E` | `accept_list_count` | 10p, 10q |
+| `850F`–`8512` | `accept_list_0` … `accept_list_3` | 10p, 10q |
+| `867B` | `coldstart_sentinel_867b` | 10q |
+| `89FA` | `stack_top` | 10q |
 
 Names reflect what the code **does** with a cell, not an assumed purpose:
 `card_value_7_minus_popcount` records the computation at `33D4` rather than
@@ -3187,10 +3193,12 @@ claiming the byte is a credit balance, and `strap_drive_and_flags` avoids
 calling `8033` a port latch, which §10k shows is unproven.
 
 **Still unnamed, meaning not established:** `8030` (the mode byte tested
-against `0x10` at `45CD`), the timers and flags `812F`, `8131`, `8139`,
-`8149`, `8165`, `816C` (§10e), `845D` (cleared before the reset shortcut,
-§10j), `97A6` (set when a fault counter hits its threshold, §10i), and the
-three flags the idle selector reads at `8191`, `8501` and `81B5` (§10l).
+against `0x10` at `45CD`), the timers and flags `812F`, `8131`, `8149`,
+`8165`, `816C` (§10e), `845D` (cleared before the reset shortcut,
+§10j), `97A6` (set when a fault counter hits its threshold, §10i), the
+three flags the idle selector reads at `8191`, `8501` and `81B5` (§10l), and
+the config bytes `850D`, `8500`, `8513`–`8515` (§10q) — of which only `8513`
+has a known consumer, `M(813A) = M(8513) - 1` at `1A52`.
 
 A caveat on the MCP: `rename_data` always answers "Rename data attempted",
 which says nothing. Verify by decompiling a function that references the cell
