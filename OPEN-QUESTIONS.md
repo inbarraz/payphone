@@ -337,6 +337,12 @@ Kept as a record of what the method looks like when it works.
       The 2.4576 MHz crystal ÷ 4096 gives EF1 at 600 Hz, the 1806 counter
       ÷ 12 gives a 50 Hz base tick, and the `40F4` prescaler ÷ 50 gives 1 Hz.
       So `M(811D) = 60` is one minute and `851A` is a minute meter (§10aj).
+- [x] **What the two words at `8122`/`8124` are** — not a tariff pair but the
+      **metering period**: `4155` increments `8122` every base tick via
+      `increment_word16`, and `37A1` latches it into `8124` and zeroes it on
+      each accepted pulse. So `credit_times_interval_ge_1000` computes
+      credit × ticks-per-unit, an estimate of remaining talk time, and takes
+      the larger interval as the conservative one (§10aa, §10ak).
 - [x] **What bit 6 of `M(8036)` means** — "the timer set is running" (§10y).
 - [x] **Whether the card is debited during the call or only on eject** —
       **during the call**, within one tick of each charge. The debit at `2D88`

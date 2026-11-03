@@ -78,8 +78,8 @@
 811a dial_buf_ptr
 811b dial_buf_end
 811d minute_meter_timer
-8122 rate_word_a
-8124 rate_word_b
+8122 metering_interval_ticks
+8124 metering_interval_prev
 8128 slow_timer_8128
 812a fast_timer_812a
 812d wait_timer_812d

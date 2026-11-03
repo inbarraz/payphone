@@ -3740,7 +3740,7 @@ as `NBR`'s operand and as an instruction.
 `8*(v div 24) + ((v mod 24) div 3)` **is** `v div 3`. Splitting it that way
 caps the loop at about 18 iterations instead of 85.
 
-### `credit_times_rate_ge_1000` (`0x52F7`) — the other half of the test
+### `credit_times_interval_ge_1000` (`0x52F7`) — the other half of the test
 
 The same caller takes a second route to "enough credit", and it is a
 multiply:
@@ -3774,10 +3774,28 @@ So `FUN_524F` has **two independent routes to "enough credit"** — scaled
 credit ≥ 100, or product ≥ 1000 — and only failing both reaches `528B`, the
 low-credit path.
 
-**Not established:** what the two rate words at `8122` and `8124` are, why
-there are two, or why the **larger** is chosen. A day/night or local/trunk
-tariff pair would fit, but nothing here shows it. Nor are the units of 1000
-shown.
+**Settled — and they are not a tariff pair.** An earlier version of this
+section said "not established … a day/night or local/trunk tariff pair would
+fit". Two sites decide it:
+
+| Site | What it does |
+|---|---|
+| `4155` | `SCAL increment_word16` with the inline pointer `8122`, on the per-tick chain that ends in `LBR 420E` — so **`8122` counts base ticks** |
+| `37A1` | on an accepted metering pulse, copies `word@8122` up to `8124` and zeroes `8122` (§10ak) |
+
+So `8122` is **how long the current charging period has run** and `8124` **how
+long the last one did** — `metering_interval_ticks` and
+`metering_interval_prev`. The product is therefore **credit × ticks-per-unit**,
+an estimate of remaining talk time, and the **larger** interval is chosen
+because it is the conservative estimate. Two words exist so that a period still
+in progress cannot collapse the estimate to zero.
+
+Note that immediately after a charge event `8122` is zero, so until the next
+tick increments it the larger of the pair is always `8124`.
+
+**Still not established:** the units behind the `1000`. It is ticks × card
+units, so with §10aj's figure that would be "unit-seconds" — resting on the
+inferred divider.
 
 ### What `M(805E)` holds
 
@@ -3933,7 +3951,7 @@ update — so it runs on **every** `service_tick`.
 525E  M(8144) bit 7 clear   -> 52B8
 5263  SCAL get_scaled_credit        result also left in RC.0 by PLO at 5267
 5268  SMI 0x64 / LBDF 5277          scaled credit >= 100  -> ENOUGH
-526E  SCAL credit_times_rate_ge_1000
+526E  SCAL credit_times_interval_ge_1000
 5272  SMI 0x14 / LBNF 528B          0 -> NOT ENOUGH, 20 -> ENOUGH
 ```
 
@@ -4391,9 +4409,11 @@ So **the word at `8122` is copied up to `8124`, and `8122` is then zeroed** — 
 one-deep shift that destroys `8124`'s previous value. `8122` must be refilled
 each tick, and it is: `4155` does `SCAL 3866` with the inline pointer `8122`.
 
-That has a consequence for §10aa: `credit_times_rate_ge_1000` picks the
-**larger** of the two words, and after any charge event `8122` is zero, so until
-`3866` refills it the larger is always `8124`.
+And `3866` turns out to be `increment_word16`, called from `4155` with the
+inline pointer `8122` on the per-tick chain. So **`8122` is a tick counter**,
+this site latches the completed interval into `8124`, and the pair is the
+metering period — not the tariff pair §10aa first guessed at. §10aa has the
+consequences for `credit_times_interval_ge_1000`.
 
 ### 2. Two pools, and only one of them costs a card write
 
@@ -5037,7 +5057,7 @@ Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
 `proc_728a` → **`service_tick`**; `FUN_3900` →
 **`service_card_reader_link`** (§10w); `FUN_533e` →
 **`get_scaled_credit`**; `FUN_38e3` → **`divide_by_3`**;
-`FUN_52f7` → **`credit_times_rate_ge_1000`**; `FUN_389a` →
+`FUN_52f7` → **`credit_times_interval_ge_1000`**; `FUN_389a` →
 **`compare_words16`** (§10aa); `FUN_5426` →
 **`parse_config_record`**; `FUN_54b5` → **`parse_digits_into`** (§10ab);
 `proc_5370` → **`test_dial_and_reader`** (§10ac);
@@ -5058,7 +5078,7 @@ Renamed from an earlier, inaccurate name:
 
 `proc_70ce` → **`arm_timer_set`** (§10y).
 
-`FUN_3733` → **`detect_metering_pulse`**; `FUN_2D10` →
+`FUN_3866` → **`increment_word16`**; `FUN_3733` → **`detect_metering_pulse`**; `FUN_2D10` →
 **`apply_charge_and_refresh_display`**; `FUN_36C2` →
 **`account_one_unit_spent`**; `FUN_2E71` → **`render_credit_indicator`**
 (all §10ak).
@@ -5114,8 +5134,8 @@ tally at the foot of the map if the two ever disagree.
 | `805E` | `credit_value` | 10aa |
 | `8078` | `pulse_prev_sample` | 10ai |
 | `811D` | `minute_meter_timer` | 10ai, 10aj |
-| `8122` | `rate_word_a` | 10aa |
-| `8124` | `rate_word_b` | 10aa |
+| `8122` | `metering_interval_ticks` | 10aa, 10ak |
+| `8124` | `metering_interval_prev` | 10aa, 10ak |
 | `8130` | `timer_prescaler` | 10aj |
 | `814A` | `low_credit_display_arm` | 10ad |
 | `8167` | `mode_flags_8167` | 10ag |

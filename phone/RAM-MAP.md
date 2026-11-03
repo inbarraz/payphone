@@ -130,8 +130,8 @@ dozen places has a dozen chances to give itself away.
 | `811B` | `dial_buf_end` | 6 — `1a5f` `2c23` `3b1a` `45f1` `7054` `72aa` | st=4 imm=19 cmp=17 |
 | `811D` | `minute_meter_timer` | 1 — `4223` | st=1 imm=3c |
 | `811F` | — | 1 — `4290` | st=1 imm=01 |
-| `8122` | `rate_word_a` | 4 — `37a1` `530a` `4159` `52fc` | st=0 |
-| `8124` | `rate_word_b` | 1 — `5303` | st=0 |
+| `8122` | `metering_interval_ticks` | 4 — `37a1` `530a` `4159` `52fc` | st=0 |
+| `8124` | `metering_interval_prev` | 1 — `5303` | st=0 |
 | `8127` | — | 2 — `3a1f` `7424` | st=2 imm=c8 |
 | `8128` | `slow_timer_8128` | 3 — `25a4` `72d0` `76f4` | st=1 imm=04 |
 | `8129` | — | 6 — `44e9` `48ce` `4b58` `6ff5` `7623` `7649` | st=1 imm=64 cmp=32 |
