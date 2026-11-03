@@ -10,6 +10,16 @@ Last updated: 2026-10-29.
 
 ## 1. Hardware identification
 
+> **Addresses here are the reader's.** The phone is a separate CPU with its
+> own 32 KB space, and both put working state at `80xx`, so the same number
+> means different things in the two documents — `8034` is the **stepper
+> phase index** here and `PORT5_shadow` in
+> [`phone/TAMAC18-firmware.md`](../phone/TAMAC18-firmware.md); `8035` is the
+> **live phase pattern** here and `PORT2_shadow` there. Never carry a bare
+> address between the two.
+
+
+
 From the physical labels and photographs of the unit:
 
 | Field | Value |

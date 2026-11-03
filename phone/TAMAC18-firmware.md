@@ -381,6 +381,15 @@ firmware line diverged.
 
 ## 2. Memory map
 
+> **Addresses here are the phone's.** The card reader is a separate CPU with
+> its own 32 KB space, and both put working state at `80xx`, so the same
+> number means different things in the two documents — `8034` is
+> `PORT5_shadow` here and the **stepper phase index** in
+> [`card-reader/BSK31-firmware.md`](../card-reader/BSK31-firmware.md);
+> `8035` is `PORT2_shadow` here and the **live phase pattern** there. Never
+> carry a bare address between the two.
+
+
 | Range | Contents |
 |---|---|
 | `0x0000`–`0x7FFF` | ROM (`code` segment) |
