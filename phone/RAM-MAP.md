@@ -172,11 +172,11 @@ dozen places has a dozen chances to give itself away.
 | `8167` | `mode_flags_8167` | 26 — `1ace` `1af2` `1b19` `1b3d` `1b67` `1bb4` +20 | st=12 imm=00,0e,20,2c,80,c0 mask=20,80,fa,fd cmp=20 |
 | `8168` | — | 2 — `475f` `47bb` | st=1 imm=aa cmp=aa |
 | `8169` | — | 9 — `4b6d` `4b8c` `4bb0` `4cac` `4d07` `5951` +3 | st=2 imm=55 cmp=55 |
-| `816B` | — | 7 — `19bc` `19f2` `270c` `374f` `3b43` `4025` +1 | st=4 imm=00,55 cmp=55 |
+| `816B` | `internal_busy_816b` | 7 — `19bc` `19f2` `270c` `374f` `3b43` `4025` +1 | st=4 imm=00,55 cmp=55 |
 | `816C` | — | 1 — `4942` | st=1 imm=00 |
 | `816D` | — | 1 — `273d` | st=0 |
 | `816F` | — | 1 — `2782` | st=1 |
-| `8170` | — | 2 — `4084` `7716` | st=2 imm=05 |
+| `8170` | `oneshot_countdown_8170` | 2 — `4084` `7716` | st=2 imm=05 |
 | `8172` | — | 1 — `711e` | st=0 |
 | `8173` | — | 1 — `711a` | st=0 |
 | `8174` | `bufDisplayString_8174` | 1 — `713f` | st=1 |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **151 named**, 238 still unnamed.
+389 anchored cells, **153 named**, 236 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.

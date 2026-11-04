@@ -112,6 +112,8 @@
 8165 port1_bit5_debounce
 8166 port2_bit0_counter
 8167 mode_flags_8167
+816b internal_busy_816b
+8170 oneshot_countdown_8170
 8174 bufDisplayString_8174
 8180 fast_timer_8180
 8183 permission_valid_8183

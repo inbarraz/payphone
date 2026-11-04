@@ -5858,6 +5858,41 @@ With the tables enumerated, every cell in `8128`–`8138` is accounted for:
 a 50 Hz countdown. So is `8129`, and `812B`, `812C`, `812E` and `8135` were
 unnamed before this.
 
+### Two more cells the tables brought out
+
+**`8170` — `oneshot_countdown_8170`, a deferred call.** The one tick countdown
+that is *not* in any of the three tables; it is decremented inline at `4088`:
+
+```
+4088  LDN RE / LBZ 409B     zero: nothing pending
+408C  SMI 0x01 / STR RE     M(8170) -= 1
+408F  LBNZ 409B             not there yet
+4093  SCAL 7792             <- fires at zero
+```
+
+So it means "call `7792` in N base ticks". Its one arming site, `771C`, loads 5
+— about 100 ms.
+
+**`816B` — `internal_busy_816b`, a `0x55` sentinel.** Set while the phone is off
+doing something of its own rather than handling a call:
+
+| | Site | What |
+|---|---|---|
+| set `0x55` | `19BC` | just before the Isranet dial-out (§10at) |
+| | `3B43` | just before `read_hardware_straps` |
+| cleared | `19F2` | once dialling has finished |
+| | `4029` | the abort path, alongside `M(812D) = 0` cancelling any pending `delay_base_ticks` |
+| tested | `374F` | **no metering while set** (§10ak) |
+| | `270C` | keypad ignored while set |
+| | `72B6` | |
+
+It is the coarse-grained twin of `dlc_session_active` (`8DC5`): that covers the
+whole Isranet session, this covers the narrower window in which the phone is
+dialling or probing its own hardware. Both gate `detect_metering_pulse`, which
+is why that routine has three inhibits — and the metering one matters, because a
+pulse arriving mid-dial-out would otherwise be charged to whatever card was in
+the reader.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
