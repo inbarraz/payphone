@@ -176,9 +176,10 @@ an open question without a next action tends to stay open.
       values — which is what is actually known about each. Naming them would
       mean inventing meanings.
       *Attack in this order,* highest site count first, because a cell touched
-      from a dozen places has a dozen chances to give itself away: `8165` (11
-      sites, all in the idle loop), `812F` (13, walked by the `4F19`–`4FC2`
-      block), `8169`, `8183`, `81B5`, `8186`, `8182`.
+      from a dozen places has a dozen chances to give itself away: `8169`,
+      `81B5`, `8186`, `8182`, `8168`, `816C`, `813A`, `813C` — §10ax records
+      what each one's reference sites actually show, which is the head start.
+      (`8165`, `812F` and `8183` are done.)
 - [ ] **Label the fifteen cells Ghidra still has no data item for.**
       `rename_data` silently does nothing without one, and the only way the code
       names any of these is as an inline-argument byte or a pointer-list entry,
@@ -205,8 +206,8 @@ an open question without a next action tends to stay open.
 - [ ] **Name the soft-timer bank.** `arm_timer_set` (§10y) revealed the whole
       set: `888E`, `8131`, `8133`, `8134`, `8136`, `8128`, `8137`, `811D`.
       Several were previously unnamed for lack of a role; now they have one.
-- [ ] **Cells still unnamed because the meaning is unknown:** `8030`, `812F`,
-      `8149`, `8165`, `816C`, `845D`, `97A6`, `8191`, `81B5`, `850D`,
+- [ ] **Cells still unnamed because the meaning is unknown:** `816C`,
+      `97A6`, `81B5`, `850D`,
       `8500`, `8513`–`8515`. Only `8513` has a known consumer
       (`M(813A) = M(8513) − 1` at `1A52`).
 - [ ] **Reconcile the four statements about `CA`, `CB`, `TG`, `MN`.** The
@@ -437,8 +438,9 @@ Kept as a record of what the method looks like when it works.
 - [x] **What bit 6 of `M(8036)` means** — "the timer set is running" (§10y).
 - [x] **What the DLC link connects to** — **Isranet**, the Israeli X.25
       gateway, dialled on `131`. The phone wakes the PAD with `\r.\r`, answers
-      `TERMINAL=` with the terminal type `D1`, and at the `@` prompt calls NUA
-      `34011503` before uploading its 70-byte record (§10at, §10ar).
+      `TERMINAL=` with `D1` — terminal type or login identifier, undetermined
+      (§10at) — and at the `@` prompt calls NUA `34011503` before uploading its
+      70-byte record (§10at, §10ar).
 - [x] **Whether the card is debited during the call or only on eject** —
       **during the call**, within one tick of each charge. The debit at `2D88`
       sets `M(8064)`, and `service_card_reader_link` at `3103` sends `?F` for

@@ -46,6 +46,24 @@ public class SetXPInline extends GhidraScript {
         // Work over the selection if there is one, otherwise the cursor address.
         Address start, end;
         AddressSetView sel = currentSelection;
+        // A selection is almost always a mistake here. XP must hold at the
+        // *instruction*, and DIS/RET reload X from their operand, so a SEX
+        // earlier in a block does not put the block in the inline form - see
+        // the 2419 counter-example in README.md. Refuse a range unless the
+        // caller insists.
+        if (sel != null && !sel.isEmpty() && !sel.getMinAddress().equals(sel.getMaxAddress())) {
+            if (!askYesNo("Set XP over a whole range?",
+                    "The selection spans " + sel.getMinAddress() + ".." + sel.getMaxAddress()
+                  + ".\n\nXP must hold at each instruction, and DIS/RET reload X from their\n"
+                  + "operand - so a SEX earlier in a block does NOT make the block inline.\n"
+                  + "Blanket-setting a range silently turns one-byte OUT/RET/DIS into two\n"
+                  + "and shifts everything after them.\n\n"
+                  + "Only the 6DD5 reset block is known to be range-safe.\n\nProceed anyway?")) {
+                println("Cancelled; nothing changed.");
+                return;
+            }
+        }
+
         if (sel != null && !sel.isEmpty()) {
             start = sel.getMinAddress();
             end = sel.getMaxAddress();
