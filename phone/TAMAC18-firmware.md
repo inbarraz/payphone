@@ -5463,9 +5463,33 @@ steps share a tail at `0C20`:
 0C41  LBR 1A7C                     park while the ISR drains the rest
 ```
 
-Note the `DEC RD` before the `OUT`: `OUT` sends `M(R(X))` *then* increments, so
-the byte sent is `M(RD − 1)` and the pointers in the callers are one past the
-string's first byte. The strings:
+### Why the callers' pointers are at the string's *second* character
+
+`uart_tx_ptr` is **the ISR's cursor, not the string.** The order in the tail is
+the whole explanation:
+
+```
+0C35  RSXD RD    uart_tx_ptr = RD     <- stored UNDECREMENTED
+0C37  SEX RD
+0C38  DEC RD                          <- only now, and only for the OUT
+0C39  OUT 6      sends M(R(X)), then increments R(X)
+```
+
+The store happens **before** the decrement, so `uart_tx_ptr` keeps the caller's
+value and the `DEC` exists only so the immediate `OUT 6` reaches back one byte
+for the *first* character. The ISR then resumes at
+`uart_tx_ptr + uart_tx_index` with the index at zero — at the pointer itself,
+the second character.
+
+It has to be this way round. A UART needs one byte written to it to start
+transmitting at all, so the firmware primes it with character 1 and the
+interrupt-driven remainder needs a cursor to the *next* byte. Had the pointer
+held the string start, the ISR would re-send character 1 and the wire would
+carry `DD1\r`.
+
+So in Ghidra the `DAT_1A87` / `DAT_1A8A` / `DAT_1A8D` labels are cursor
+positions. Define the strings at `1A86`, `1A89` and `1A8C` and read those
+references as interior pointers one byte in. The strings:
 
 | Address | Bytes | Reads as | Role |
 |---|---|---|---|
@@ -5587,16 +5611,23 @@ it back. `0B09` sends `M(uart_tx_ptr + uart_tx_index)` one byte per interrupt an
 
 The primed byte at `0C37` is *outside* the count, so total sent = 1 + count:
 
-| Start | Count | Total | Bytes |
-|---|---|---|---|
-| `1A86` | 2 | 3 | `"\r.\r"` ✓ |
-| `1A89` | 2 | 3 | `"D1\r"` ✓ |
-| `1A8C` | `0x0A` | 11 | `"34011503\r"` is 9 — **then two `0xFF` filler bytes** |
+`uart_tx_count` is therefore **what the ISR still owes** — the length minus the
+primed byte:
 
-Two of three close exactly. The NUA step over-runs its string by two bytes and
-sends `1A95`/`1A96`, which are `FF FF`. Either the firmware really does trail two
-filler bytes after the CR — harmless to a PAD — or there is something about that
-step's count still unaccounted for. Flagged rather than explained away.
+| String | Length | Primed | Count passed | |
+|---|---|---|---|---|
+| `"\r.\r"` | 3 | `M(1A86)` | 2 | ✓ |
+| `"D1\r"` | 3 | `M(1A89)` | 2 | ✓ |
+| `"34011503\r"` | 9 | `M(1A8C)` | `0x0A` = 10 | ✗ |
+
+Two of three fall out exactly, which is what makes the third properly anomalous
+rather than merely unexplained: 1 + 10 = 11 bytes against a nine-character
+string, so `1A95`/`1A96` — both `FF` — go out after the CR.
+
+One speculation, flagged as exactly that: `0xFF` on an async line is all-mark,
+i.e. idle, so two of them after the CR amount to a brief idle gap. That could be
+a deliberate flush before the PAD processes the command, or an off-by-two nobody
+noticed because a PAD discards it. The ROM does not say.
 
 ## 10au. The UART transmit engine, the frame CRC, and what gates metering
 
