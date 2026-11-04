@@ -133,13 +133,13 @@ dozen places has a dozen chances to give itself away.
 | `8124` | `metering_interval_prev` | 1 — `5303` | st=0 |
 | `8127` | — | 2 — `3a1f` `7424` | st=2 imm=c8 |
 | `8128` | `slow_timer_8128` | 3 — `25a4` `72d0` `76f4` | st=1 imm=04 |
-| `8129` | — | 6 — `44e9` `48ce` `4b58` `6ff5` `7623` `7649` | st=1 imm=64 cmp=32 |
+| `8129` | `fast_timer_8129` | 6 — `44e9` `48ce` `4b58` `6ff5` `7623` `7649` | st=1 imm=64 cmp=32 |
 | `812A` | `fast_timer_812a` | 2 — `31c3` `4a49` | st=1 imm=96 |
-| `812B` | — | 5 — `1a44` `53bd` `72b2` `73d5` `73dc` | st=2 imm=00 |
-| `812C` | — | 4 — `454a` `4569` `461d` `4633` | st=2 imm=64 |
-| `812D` | `wait_timer_812d` | 5 — `36e6` `3ab3` `401e` `5ef5` `6fa5` | st=5 imm=00,96 |
-| `812E` | — | 1 — `2656` | st=1 imm=0a |
-| `812F` | — | 13 — `3834` `493b` `4f19` `4f2b` `4f48` `4f5e` +7 | st=6 imm=00,0f,64,96 |
+| `812B` | `fast_timer_812b` | 5 — `1a44` `53bd` `72b2` `73d5` `73dc` | st=2 imm=00 |
+| `812C` | `fast_timer_812c` | 4 — `454a` `4569` `461d` `4633` | st=2 imm=64 |
+| `812D` | `delay_timer_812d` | 5 — `36e6` `3ab3` `401e` `5ef5` `6fa5` | st=5 imm=00,96 |
+| `812E` | `fast_timer_812e` | 1 — `2656` | st=1 imm=0a |
+| `812F` | `fast_timer_812f` | 13 — `3834` `493b` `4f19` `4f2b` `4f48` `4f5e` +7 | st=6 imm=00,0f,64,96 |
 | `8130` | `timer_prescaler` | 1 — `40f4` | st=2 imm=00 |
 | `8131` | `slow_timer_8131` | 1 — `491a` | st=1 imm=1e |
 | `8132` | `fast_timer_8132` | 1 — `42be` | st=0 |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **146 named**, 243 still unnamed.
+389 anchored cells, **151 named**, 238 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.

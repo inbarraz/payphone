@@ -5781,6 +5781,83 @@ with port 7 its status register.
 of `8785`, or how that branch connects to the DLC transmit engine at
 `0AD6`–`0B2A`, which also does `OUT 6`.
 
+## 10aw. `delay_base_ticks` (`0x6FA5`) and the three timer tables
+
+### The routine
+
+Was `setWaitFor812d_Zero`, which named the mechanism but hid both that it
+**blocks** and what the unit is.
+
+```
+6FA5  RLDI RA,812D
+6FA9  LDA R3                D = the inline byte, R3 steps over it
+6FAA  STR RA                M(812D) = that count
+6FAB  IDL                   park until an I/O request
+6FAC  LDN RA / LBNZ 6FAB    not zero yet -> park again
+6FB0  SEX R2 / SRET R3
+```
+
+It loads a countdown and **sleeps** until something else runs it down — the same
+`IDL`-park idiom as `wait_until_dialling_done` (§10at) and the `1A7C` loop
+(§10av). The processor is halted between ticks, not spinning.
+
+### Which makes the argument base ticks, because of where `812D` lives
+
+The tick chain walks **three** tables, and now all three are enumerated:
+
+| Table | When | Entries |
+|---|---|---|
+| `40AE` | **every pass** | `8135` `8132` `812D` `812C` `812B` `812A` `8129` `812E` `812F` |
+| `40D6` | once per 50 passes, if `M(8134) != 0xAA` | `888E` `8131` `8133` `8134` `8136` `8128` `8137` `811D` |
+| `40E7` | once per 50 passes, if `M(8134) == 0xAA` | `888E` `8131` `8133` `8136` `8137` `811D` |
+
+`812D` is the third entry of `40AE`, so it is decremented on **every** base
+tick. The `40D6`/`40E7` pair is only touched once the prescaler at `8130` passes
+`0x31` — the ÷50 of §10aj — which is what makes one set 50 Hz and the other 1 Hz.
+
+Note what the two slow variants differ by: `40E7` drops `8134` and `8128`. And
+`8134` **is the selector** — so when it holds the sentinel `0xAA` rather than a
+count, the table that excludes it is used, and a flag does not get decremented
+as though it were a timer. A small piece of care worth seeing.
+
+### The call sites corroborate the tick rate
+
+Seventeen of them, spanning a hundred milliseconds to four seconds:
+
+| Arg | Sites | At 20 ms |
+|---|---|---|
+| `0x05` | `23EB`, `701C` | 100 ms |
+| `0x08` | `5D5B` | 160 ms |
+| `0x0A` | `44FE` | 200 ms |
+| `0x0F` | `4191`, `419F` | 300 ms |
+| `0x19` | `41E2` | 500 ms |
+| `0x32` | `0CC9`, `4CC6` | 1 s |
+| `0x46` | `4C32` | 1.4 s |
+| `0x64` | `0CB4`, `19ED`, `2A86`, `41B3`, `4BFD`, `4C67` | 2 s |
+| `0xC8` | `4062` | 4 s |
+
+That spread is exactly what display dwells and protocol turnarounds want, which
+is **independent corroboration that the base tick is tens of milliseconds** and
+not seconds. The solid part remains the tick *count*; the millisecond figures
+still rest on §10aj's inferred off-chip divider.
+
+### The `812x` block is entirely the timer bank
+
+With the tables enumerated, every cell in `8128`–`8138` is accounted for:
+
+| Cells | Role |
+|---|---|
+| `8129`, `812A`, `812B`, `812C`, `812E`, `812F`, `8132`, `8135` | `fast_timer_*` — the 50 Hz set |
+| `812D` | `delay_timer_812d` — the 50 Hz cell `delay_base_ticks` owns |
+| `8130` | `timer_prescaler` — the ÷50 |
+| `8128`, `8131`, `8133`, `8134`, `8136`, `8137` | `slow_timer_*` — the 1 Hz set |
+| `811D` | `minute_meter_timer`, also in the 1 Hz set (§10ai) |
+| `888E` | `slow_timer_888e`, the one 1 Hz member outside page `81` |
+
+`812F` was on the RAM map's "attack first" list with thirteen sites; it is simply
+a 50 Hz countdown. So is `8129`, and `812B`, `812C`, `812E` and `8135` were
+unnamed before this.
+
 ## 10. Code executed from RAM
 
 `0x026A` (`CopyCodeTo9733AndJump`) does
@@ -5880,6 +5957,7 @@ Renamed from an earlier, inaccurate name:
 **`test_EF4_inverted`**; `proc_010d` → **`test_and_clear_XI`**; `proc_0113` →
 **`test_and_clear_CI`** (all §10aq).
 
+`setWaitFor812d_Zero` → **`delay_base_ticks`** (§10aw).
 `proc_023d` → **`rx_contains_pattern`** (§10as). `FUN_2c6e` →
 **`wait_until_dialling_done`**; `FUN_2c81` →
 **`load_dial_buffer_from_string`** (both §10at). `proc_038d` →
