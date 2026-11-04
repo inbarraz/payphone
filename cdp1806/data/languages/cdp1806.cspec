@@ -20,9 +20,11 @@
           <register name="D"/>
         </pentry>
       </output>
-      <unaffected>
-        <register name="RF"/>
-      </unaffected>
+      <!-- RF is deliberately NOT listed as unaffected. RF.0 is this firmware's
+           STATUS-CODE register: routines set it on purpose and return without
+           restoring it - SCAL 4CEE from 4B78 can run 4D04 LDI 00 / 4D06 PLO RF
+           and return through 4D1A SRET R3. Promising preservation here hid
+           caller-visible state changes in the decompiled output. -->
     </prototype>
   </default_proto>
 </compiler_spec>

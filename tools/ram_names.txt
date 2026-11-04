@@ -100,6 +100,7 @@
 8138 charge_step
 8139 card_permission_bits
 813b dial_digit_count
+813c dial_digit_limit
 813e dial_resume_point
 8143 charge_event_pending
 8144 charge_phase

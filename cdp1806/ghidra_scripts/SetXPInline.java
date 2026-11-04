@@ -78,9 +78,30 @@ public class SetXPInline extends GhidraScript {
         // Order matters. The context value is read when the instruction is
         // created, so an existing code unit has to go first; setting the value
         // under a live instruction changes nothing you can see.
-        clearListing(start, end);
+        // Clear one byte PAST the end as well. At a single address,
+        // clearListing(start,start) removes only the code unit holding the
+        // opcode; if the operand byte is already its own instruction - which is
+        // exactly the 51B2 DEC R4 case this exists to fix - it survives, the new
+        // two-byte instruction overlaps it, and disassembly is rejected.
+        Address clearEnd = end;
+        try {
+            clearEnd = end.add(1);
+        } catch (Exception e) {
+            // end of address space; clearing just `end` is the best we can do
+        }
+        clearListing(start, clearEnd);
         ctx.setValue(xp, start, end, BigInteger.ONE);
-        disassemble(start);
+
+        // disassemble() returns false when it could not lay an instruction
+        // down. Reporting success regardless is how a silent failure looks.
+        if (!disassemble(start)) {
+            popup("Set XP at " + start + ", but disassembly FAILED there.\n\n"
+                + "Usually a neighbouring instruction still overlaps. Clear a few\n"
+                + "bytes by hand and disassemble again.");
+            println("XP set over " + start + ".." + end + " but disassemble(" + start
+                    + ") returned false.");
+            return;
+        }
 
         println("XP = 1 (inline form) over " + start + ".." + end
                 + "; re-disassembled from " + start + ".");

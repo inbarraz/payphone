@@ -4819,9 +4819,13 @@ Choosing ordinary instruction bytes scattered through the code — rather than a
 dedicated signature block — is what makes it awkward to defeat, because the
 checked bytes are not distinguishable from the code around them.
 
-**Nothing invokes it.** The two-byte constant `0048` does not occur anywhere in
-the 32 KB image, so no `RLDI Rn,0048` and no inline argument can reach the
-table. The mechanism is present, the data is correct and consistent, and the ROM
+**Nothing in the image invokes it.** The two-byte constant `0048` does not occur
+anywhere in the 32 KB, so no `RLDI Rn,0048` and no inline argument can reach the
+table. **That is weaker than unconditional dormancy, though** — §10ay finds a
+memory-operation interpreter that takes addresses from its *input stream* and
+offers indirect execution, so an external message could in principle request
+accesses no constant search would reveal. "No invocation found in the image" is
+what the evidence supports. The mechanism is present, the data is correct and consistent, and the ROM
 check is simply never run in V2.8 — either dropped, or reserved for a variant.
 That makes `0048` the most interesting dead data in the image: it is the piece
 that would have made the firmware self-verifying.
@@ -5065,9 +5069,21 @@ Ghidra rather than twelve loose bytes.
 58FE  at least EIGHT digits, or reject
 ```
 
-It returns the digit count, or `0` if any of that fails. Note the compare at
-`58C4`–`58CD` on both halves of `R7`: the phone's own number is held to a
-stricter rule than `844E` is.
+It returns the digit count, or `0` if any of that fails.
+
+**Two overstatements corrected here.** The compare at `58C4`–`58CD` on both
+halves of `R7` does route `8501` through an extra check at `591B`, but that check
+only rejects eleven consecutive `0x09` bytes — and any field satisfying the
+mandatory leading `0x0A` passes it immediately. So **the two fields accept the
+same digit sequences**; the own-number rule is not effectively stricter.
+
+And the field does not enforce nine digits: the validator accepts **8 to 11**.
+The two consumers then disagree about width. For a leading `0x0A` the formatter
+consumes **ten** stored bytes — the leading zero, one area digit, eight
+subscriber slots — so an accepted eleven-digit number **loses its last digit in
+the report**, while `build_dlc_record` copies eleven raw slots regardless. The
+nine-digit example below is one case, not a policy, and "two slots are never
+used" was wrong.
 
 ### Period numbers were `0X-ABCDEFG`, which explains the `'A'`
 
@@ -5092,10 +5108,12 @@ output    "03-1234567A "
 **`build_dlc_record`.** Copies eleven raw bytes, `8501`–`850B`, substituting
 `'A'` for each zero (§8a), giving `031234567AA`.
 
-So the `'A'` is not a quirk — it is **fixed-width padding for an eleven-wide
-field holding a nine-digit number**, and the same substitution serves both
-consumers. `0x41` sorts after the digits, which is what you would pick for a
-pad that must not be mistaken for one.
+So the `'A'` is a substitution for a zero byte, and with a nine-digit number
+stored it reads as padding. But note it is the *consumers* that are
+fixed-width, not the stored value: the formatter always emits ten digit
+positions and `build_dlc_record` always copies eleven slots, whatever the
+validator accepted. `0x41` sorts after the digits, which is what you would pick
+for a pad that must not be mistaken for one.
 
 ### Which renderer feeds which output
 
@@ -5171,11 +5189,17 @@ So `LBNF` after `0100` means "EF3 high", while `LBNF` after `0113` means "no
 interrupt". `4076` and `4A17` are both `LBNF` and mean opposite things — worth
 knowing before reading any call site.
 
-**`BCI` and `BXI` are test-and-clear.** The 1805/1806 resets the flip-flop when
-the branch is taken, and `cdp1806.slaspec` models it — the `CI = 0` and `XI = 0`
-assignments are in the `BCI`/`BXI` constructor bodies. (An earlier draft cited
-lines 285–296, which are `SPM2` through `GEC`; the `BXI` header comment also
-omits `0→XI` although its pcode does it.) So calling `010D` or `0113` **consumes** the flag, and two callers
+**`BCI` is test-and-clear. `BXI` is not** — and an earlier draft of this section
+said both were. The counter interrupt request is **latched**, so `BCI` clears it;
+the external interrupt request is **not latched**, so there is nothing for `BXI`
+to clear. `cdp1806.slaspec` had the same error, assigning `XI = 0` in a
+constructor whose own header comment correctly omitted it; that assignment is
+now removed.
+
+The consequence for §10aq's table: `test_and_clear_CI` really does consume the
+flag, so two callers cannot both see one counter interrupt. **`test_and_clear_XI`
+does not consume anything** — the name is now a misnomer, kept only because
+renaming it would churn the listing; read it as `test_XI`. So calling `010D` or `0113` **consumes** the flag, and two callers
 cannot both observe it.
 
 ### What they are for
@@ -5685,11 +5709,25 @@ shape as the string sends, different source.
 | `0873` `XRI A0` and `086F` `XRI 01` | reflected polynomial `0xA001` |
 | `0841` `SDI A0` / `LBNF` | rejects a length above `0xA0` = 160 |
 
-It takes **two inline pointers**, and `03EE` passes `8C29` and `8E6D`. `8C29` is
-`dlc_tx_frame + 2` — the frame's own **length field** — so the CRC is computed
-over the frame from its length byte onward, using that byte as the count, and
-the two result bytes land at `dlc_frame_checksum`. That closes the open question
-on `0837`.
+It takes **two inline pointers**, and `03EE` passes `8C29` and `8E6D` — but
+reading those as "hash from `8C29`" was wrong, and an earlier draft did. The
+pointers are a **count source** and a **result slot**, not a data range:
+
+| Role | Where it comes from |
+|---|---|
+| the data | **`R9`, loaded with `8C27` at `03E9`** — the frame's *first* byte |
+| the count | `M(8C29)`, the frame's length field, fetched through `R8` and then overwritten with the value |
+| the result | `8E6D`, via `R7` |
+
+So the CRC covers **`CC 00 LEN ADDR ADDR TYPE FLAG payload`** — payload length
+plus seven bytes from `8C27` — and excludes the two CRC bytes and the trailing
+`0x84`. §10ar's claim that `build_dlc_frame` "never sets `R9`" is false in the
+same way: the *caller* sets it for the payload copy, and `03E9` re-sets it for
+the CRC.
+
+Worked example, with zero address bytes and the one-byte payload `0A`: the
+covered bytes are `CC 00 08 00 00 00 01 0A` and the CRC is `D1CC`, appended as
+`D1 CC`.
 
 ### `M(8DC5)` is why metering stops during a data call
 
@@ -6040,17 +6078,108 @@ the address list:
 | Cell | What the sites show |
 |---|---|
 | `8169` | `LDI 55 / STR` at `4CB0`; `XRI 55` at `4B6D`, `4B8C`, `4BB0`, `5951`, `5B88`, `5BB8`, `5E03`. Same shape as `internal_busy_816b` — **a `0x55` sentinel**, activity unknown |
-| `81B5` | a **state byte**: `XRI 42` at `1C48`, `2E3E`, `3FF5`, `4CD8`, `5968`; `XRI 43` at `3EC0`, `3EEB`; `XRI 44` at `5973`. `M(81B5) == 0x42` is what falls into the `8785 = 0` clear at `4006` |
+| `81B5` | a **selector** for the report/configuration protocol: `XRI 42` at `1C48`, `2E3E`, `3FF5`, `4CD8`, `5968`; `XRI 43` at `3EC0`, `3EEB`; `XRI 44` at `5973`; zero also meaningful. `0x42`/`0x43`/`0x44` are ASCII `B`/`C`/`D`. **Correction:** an earlier draft said `== 0x42` is what falls into the `8785 = 0` clear at `4006` — it is not. `3FFC: LBNZ 4006` sends the *unequal* case straight there, and the equal case runs an intervening display call and then reaches `4006` too. Both arms clear `8785`; the condition controls only the display |
 | `8186` | a `0x00`/`0xAA` flag: cleared at `6FCC`, set `0xAA` at `7039` beside a store through `8032`, tested non-zero at `4180`, `44DC` |
 | `8182` | a one-byte **counter**: 0 at `1A4F` and `4B16`, 1 at `2B37`, decremented if non-zero at `73CE` |
 | `8168` | `0xAA` at `47BF`, tested `XRI AA` at `475F`. Two sites only |
 | `813A` | the `oneshot_countdown_8170` gate at `7704` when `M(8128) == 0`; the `M(8513) − 1` store at `1A5D`; set 1 at `2C44`; bit 0 tested by `SHR` at `735F` |
-| `813C` | 0 at `37BD`; `0x14` at `45FD` followed by `SCAL arm_timer_set` |
+| `813C` | **nameable — now `dial_digit_limit`.** The reference at `2686` leads to `2594`, which compares `dial_digit_count` (`813B`) against this cell and rejects further processing once count ≥ limit. Zero bypasses the bound; `45FD` installs 20, which is the dial buffer's capacity |
 | `816C` | one site, `4942`, which stores 0 |
 
 None is named. A `0x55` sentinel and a three-valued state byte are real
 information about `8169` and `81B5`, but neither says *what*, and that is the
 part a name would have to claim.
+
+## 10ay. The `1CB7` block is a flash programmer — and that explains the shadow
+
+The largest undescribed piece of this firmware turns out to be a **memory-operation
+interpreter with an AT29C256 page programmer attached**. That single fact ties
+together three things this file had been carrying as separate puzzles: what the
+code shadow is *for*, what `F000` bit 1 does, and why a 1658-byte subsystem has
+to run from RAM.
+
+### The unlock sequence settles it
+
+Inside the common programmer at `2176`:
+
+| Address | What |
+|---|---|
+| `21A7` | target address `5555` |
+| `21A9` | `LDI AA` |
+| `21AE` | target address `2AAA` |
+| `21B0` | `LDI 55` |
+| `21B5` | target address `5555` |
+| `21B7` | `LDI A0` |
+
+`AA → 5555`, `55 → 2AAA`, `A0 → 5555` is the **JEDEC Software Data Protection
+program command** — precisely what an AT29C256 requires to write a sector while
+SDP is enabled. The routine then processes **64-byte pages** (the AT29C256's
+sector size), copies forward or backward, waits, and verifies.
+
+**So the phone can reprogram its own ROM.** The AT29C256 is not a mask ROM being
+read; it is flash being written in the field.
+
+### What that explains
+
+- **The code shadow** (§10an). `rewrite_code_space` copies all 32 KB of ROM into
+  a writable shadow, and nothing in the firmware normally runs from it. The
+  reason is now obvious: *you cannot execute from a flash part while programming
+  it.* The shadow is where the CPU runs while the ROM underneath is being
+  rewritten.
+- **`F000` bit 1.** The programming windows write `02` before saving a page,
+  `01` around the unlock-and-copy, and `00` to restore — and `rewrite_code_space`
+  holds `0x02` across its whole 32 KB loop. That is **write routing**, which is
+  what §10an guessed on much weaker grounds. The physical decode is still
+  unobserved, so "write-enable or bank-select" remains the honest phrasing.
+- **Why the block is relocated at all.** It programs the part it would otherwise
+  be executing from, so it must live at `9100` in RAM.
+
+### The interpreter
+
+The `9421` entry (ROM `1FD8`) takes a descriptor holding a stream pointer and a
+length. `16F2` validates the stream against the table at `16BF`; `17C5` executes
+it against the table at `1989`. Both dispatch on the stream byte, bounded at
+`0x15`. Operations established from their handler bodies:
+
+| Command | Operation |
+|---|---|
+| `01` | copy inline data to an explicit destination (`1E9C`) |
+| `05`, `07` | forward memory copy (`1EFC`) |
+| `06` | backward memory copy (`1F1F`) |
+| `08` | forward page programming, mode `01` (`2102`) |
+| `09`, `0A` | page programming, mode `00`, forward/backward (`212E`, `2118`) |
+| `0B` | indirect execution through an inline address (`1892`) |
+| `0C`, `0D` | select the ROM/shadow mapping and transfer through an inline address (`1EE3`, `1ECA`) |
+| `10` | repeated-block copying (`1F43`) |
+| `11` | append a computed checksum to the pending record (`1E39`) |
+| `12` | nested execution using context flag `0x14` (`18D9`) |
+| `13` | nested execution with `D = 0`, then set flag `0x16` (`1FAD`) |
+| `14` | copy four inline bytes into `8DF4` (`1907`) |
+
+**This is a remote firmware-update facility**, reached over the DLC link: copy,
+program, checksum, and *indirect execution through a caller-supplied address*.
+
+### Two corrections to §10ax
+
+- **`D` is not a command number.** §10ax said `D = 0x13` and `D = 0x14` were
+  commands. They are **execution-context flag indices**: the entry saves `D` at
+  `8EE0` and sets and clears the corresponding feature flag around the work,
+  while the actual commands come from the stream through the descriptor pointer.
+- **There is a third caller.** `1FC2` loads `D = 0` and calls `9421` recursively,
+  alongside `1375` (`D = 0x13`) and `18E3` (`D = 0x14`).
+
+### What this does to the dormant-`0048` question
+
+§10am argued the ROM integrity table is dormant because the constant `0048`
+occurs nowhere. That still holds as stated — but it is now a weaker claim than it
+looks. The interpreter accepts **addresses from its input stream** and offers
+indirect execution, so an external message could in principle request accesses no
+constant search would reveal. "No invocation found in the image" is defensible;
+**unconditional dormancy is not proved**, and §10am now says so.
+
+**Not established:** the stream's wire format, which external messages exercise
+which commands, and whether the update path was ever used in service. The
+hardware decode behind `F000` bit 1 also remains unobserved.
 
 ## 10. Code executed from RAM
 
@@ -6360,16 +6489,28 @@ were swept mechanically against the image. **All eleven held:**
 | `0891` sends exactly `0x46` = 70 bytes | inline `00 46` |
 | exactly two `SCAL 023D` | `0C50`, `0C63` |
 
-**Still unverified, and worth knowing:** the CRC-16/Modbus identification for
-`0837` rests on structural evidence — init `0xFFFF` at `084C`–`084F`, the
-polynomial split as `XRI 01` on the low byte at `086E` and `XRI A0` on the high
-at `0872`, a reflected shift-right via `SHR` then `RSHR`, and eight iterations
-from `RLDI R6,0009` with `DBNZ`. That is conclusive for the *algorithm*, but
-nobody has checked it is **bit-exact** against a reference implementation on a
-test vector, which would need either hardware or a careful emulation of the
-`R7`/`R9` pointer juggling. Treat the name as the algorithm's identity, not as a
-guarantee that a frame this ROM builds will validate against an off-the-shelf
-CRC-16/Modbus routine.
+**The CRC is now bit-exact verified, not just structurally identified.** The
+earlier caveat here is withdrawn. Transcribing `0837`'s loop —
+
+```python
+hi = lo = 0xff
+for byte in data:
+    lo ^= byte
+    for _ in range(8):
+        carry = lo & 1
+        lo = (lo >> 1) | ((hi & 1) << 7)
+        hi >>= 1
+        if carry:
+            lo ^= 0x01
+            hi ^= 0xa0
+```
+
+— and running it against an independent CDP-free implementation of the Modbus
+recurrence matches at every accepted length from 1 to 160, including the
+published check value **`"123456789"` → `0x4B37`** and the Modbus specification's
+own `02 07` → `0x1241`. So a frame this ROM builds *will* validate against an
+off-the-shelf CRC-16/Modbus routine, provided the covered range is right — which
+is the part §10au had wrong, see there.
 
 ## 12. Confidence
 

@@ -324,9 +324,13 @@ CalcAddr16: loc is epsilon [ loc = (inst_next); ] { local t:2 = loc; export t; }
 }
 
 # 683F / BXI / Short Branch on External Interrupt / 3 / If XI=1 Then M[RP]→RP.0 Else RP+1→RP
+# BXI only TESTS. The counter interrupt request is latched, so BCI above clears
+# it - but the EXTERNAL interrupt request is not latched, so there is nothing for
+# BXI to clear. An earlier version of this constructor assigned XI = 0, which
+# modelled a flip-flop the hardware does not have; the header comment was right
+# and the pcode was wrong.
 :BXI AbsAddr8 is opbyte=0x68; opbits1_7=0x1f & intline=1; AbsAddr8 {
 	if (XI != 1) goto inst_next;
-	XI = 0;
 	goto AbsAddr8;
 }
 

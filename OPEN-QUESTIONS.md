@@ -169,7 +169,7 @@ an open question without a next action tends to stay open.
 
 ## Naming and tooling
 
-- [ ] **234 RAM cells are still unnamed**, out of the 399 the firmware points a
+- [ ] **233 RAM cells are still unnamed**, out of the 399 the firmware points a
       register at, after dropping the cells a bad `SCAL`-pointer heuristic had
       invented. [`phone/RAM-MAP.md`](phone/RAM-MAP.md) has all of them with
       the signature the ROM shows — stores, immediates, `ANI` masks, comparison
@@ -426,6 +426,17 @@ Kept as a record of what the method looks like when it works.
       per-tick work instead of returning to the thread it interrupted. That is
       the mechanism §10at inferred for the `IDL` park loop and could not show
       (§10av).
+- [x] **What the 1658-byte `1CB7` block is** — a **memory-operation interpreter
+      with an AT29C256 page programmer**, i.e. a remote firmware-update facility
+      reached over the DLC link. The `AA`/`5555`, `55`/`2AAA`, `A0`/`5555`
+      unlock at `21A7`–`21B7` is the JEDEC SDP program command, and `2176`
+      handles 64-byte pages. That also explains the code shadow (you cannot
+      execute from flash while programming it) and supports the write-routing
+      reading of `F000` bit 1 (§10ay).
+- [x] **Whether the DLC frame CRC is really CRC-16/Modbus** — yes, bit-exact.
+      The transcribed loop matches a reference implementation at every length
+      1–160, including `"123456789"` → `0x4B37` (§11a). The *coverage* was wrong
+      and is fixed: `R9 = 8C27`, the frame's first byte, not `8C29` (§10au).
 - [x] **What checksum the DLC frame carries** — **CRC-16/Modbus**: init
       `0xFFFF`, reflected polynomial `0xA001`, eight bit iterations, computed
       from the frame's own length field at `8C29` with that byte as the count

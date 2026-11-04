@@ -151,7 +151,7 @@ dozen places has a dozen chances to give itself away.
 | `8139` | `card_permission_bits` | 29 — `0095` `2559` `26dc` `2723` `2814` `282b` +23 | st=5 imm=00,04 mask=02,04,06,08 cmp=41 |
 | `813A` | — | 7 — `1a59` `250c` `2c3d` `7048` `735a` `7389` +1 | st=3 imm=01 |
 | `813B` | `dial_digit_count` | 5 — `009f` `2741` `2a15` `742b` `7730` | st=0 cmp=01,03,04,0b |
-| `813C` | — | 3 — `2686` `37b9` `45f9` | st=2 imm=00,14 |
+| `813C` | `dial_digit_limit` | 3 — `2686` `37b9` `45f9` | st=2 imm=00,14 |
 | `813D` | — | 2 — `2421` `5d23` | st=2 |
 | `813E` | `dial_resume_point` | 17 — `00a3` `2500` `25c1` `267c` `26eb` `35be` +11 | st=11 imm=00,21,24,27,2a cmp=27,2a |
 | `813F` | — | 5 — `2663` `2a31` `4d53` `4da9` `5eee` | st=4 imm=00 cmp=0b |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **153 named**, 236 still unnamed.
+389 anchored cells, **154 named**, 235 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.
