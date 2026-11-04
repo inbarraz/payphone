@@ -6339,6 +6339,38 @@ function rather than separate entry points, so neither has an inbound reference
 and Ghidra has nothing to anchor on. The MCP cannot create functions, so these
 are hand jobs in the GUI.
 
+## 11a. Which absolute claims have been machine-verified
+
+Claims of the form *only*, *nothing*, *exactly N* have been this project's most
+reliable error class — three have already proved false (the `OUT 4` sites, the
+`0100` caller count, and `51B3` being unreachable). So the ones in §10am–§10as
+were swept mechanically against the image. **All eleven held:**
+
+| Claim | Check |
+|---|---|
+| the byte at each of the seven `0048` addresses equals its `00F7` entry | all seven match |
+| nothing branches or `SCAL`s to any of the seven | none |
+| the two-byte constant `0048` occurs nowhere | `find` → −1 |
+| `F000` bit 0 is set at exactly three places | `1ECA`→`03`, `2237`→`01`, `2282`→`01` |
+| the only transfer to `000C`/`000F` is `6E15: SCAL 000C` | one hit, none to `000F` |
+| `rewrite_code_space_if_requested`'s only caller is `6F07` | one hit |
+| `build_dlc_record` copies exactly 11 bytes from `8501` | `1CE8: RLDI R8,000B` |
+| nothing references `8502`–`850C` or `844F`–`8459` | none |
+| `Hex2ASC_8501_to_RA` has exactly one caller | `55A7` |
+| `0891` sends exactly `0x46` = 70 bytes | inline `00 46` |
+| exactly two `SCAL 023D` | `0C50`, `0C63` |
+
+**Still unverified, and worth knowing:** the CRC-16/Modbus identification for
+`0837` rests on structural evidence — init `0xFFFF` at `084C`–`084F`, the
+polynomial split as `XRI 01` on the low byte at `086E` and `XRI A0` on the high
+at `0872`, a reflected shift-right via `SHR` then `RSHR`, and eight iterations
+from `RLDI R6,0009` with `DBNZ`. That is conclusive for the *algorithm*, but
+nobody has checked it is **bit-exact** against a reference implementation on a
+test vector, which would need either hardware or a careful emulation of the
+`R7`/`R9` pointer juggling. Treat the name as the algorithm's identity, not as a
+guarantee that a frame this ROM builds will validate against an off-the-shelf
+CRC-16/Modbus routine.
+
 ## 12. Confidence
 
 **Confirmed by independent evidence:** `P = R4` (the `RLDI R4` / `SEP R4` pair
