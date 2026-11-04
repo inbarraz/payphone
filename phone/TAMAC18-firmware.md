@@ -5753,7 +5753,9 @@ the `RET` at `28D7` that restores the *interrupted* `(X,P)`. So the registered
 body `5071`–`51B5` is correct as it stands.
 
 **So `RET 0x24` is an "enable interrupts and set `X = 2`" idiom in this ROM, not
-a return.** It occurs the same way at `4081` and at `0CD5`/`0CDC`. That is also
+a return.** The same `SEX R4` + 2-byte-form pairing occurs at `4081`/`4082`, at
+`0CDC`/`0CDD`, and — as the `DIS` variant — at `0CD5`/`0CD6`. (Those first
+addresses are the `SEX R4`; the `RET` or `DIS` is the byte after.) That is also
 why `REVIEW.md` leaves M10 unapplied: giving `RET` a flow break in the SLEIGH
 module would truncate every one of these.
 
@@ -5988,12 +5990,16 @@ into that field (§10ai). Seven callers: `35A6`, `400E`, `4093`, `52C4`, `541A`,
 
 ### `uart_owner_select` is written as a whole byte, not a bit
 
-`8785` is never bit-manipulated. `0x80` is stored whole at `3B88` and `3D78`,
-both right after an `8033`-seize shape, and `0x00` at `400A` — immediately before
-`SCAL set_drive_field_to_1` — and at `6E32` on the reset path, where the `D = 0`
-being stored is `clear_block_range`'s return value from the `8000`–`8185` clear
-at `6E2A`. (`8785` itself sits outside that range, which is why the store is
-needed.) The only other reference is the read at `509F`.
+`8785` is never bit-manipulated. Every reference points a register at it with
+`RLDI`, at just five sites:
+
+| `RLDI` | Then | Effect |
+|---|---|---|
+| `3B84` | `LDI 0x80` at `3B88`, `STR R9` at `3B8A` | `0x80` stored whole, right after an `8033`-seize shape |
+| `3D74` | the same pair | `0x80` |
+| `4006` | `LDI 0x00` at `400A`, `STR R9` | `0x00`, immediately before `SCAL set_drive_field_to_1` |
+| `6E32` | `STR R5` | `0x00` on the reset path — the `D` being stored is `clear_block_range`'s return from the `8000`–`8185` clear at `6E2A`, and `8785` sits *outside* that range, which is why the store is needed |
+| `509D` | `LDA R8` | the only read — the owner split (§10av) |
 
 ### The DLC arm never reaches `0AD6`
 
