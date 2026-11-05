@@ -5211,12 +5211,23 @@ Reset executes `DIS`, and instead of taking vectored interrupts the firmware
 |---|---|---|
 | `0100` | **28** | EF3, the hook switch — by far the hottest routine in the ROM |
 | `0108` | `23B8`, `4A13` | EF4, sampled immediately before EF3 at both sites; `4A13` latches it into `RF.1` |
-| `010D` | `05B9`, `50A8` | XI — the standby loop and the serial ISR |
-| `0113` | `05C6`, `4072` | CI — the standby loop and the base tick |
+| `010D` | `05B9`, `50A8` | XI — the second-link handler and the reader ISR |
+| `0113` | `05C6`, `4072` | CI — the second-link handler and the base tick |
 
-`05B9`/`05C6` sit together in the standby loop, polling XI then CI in sequence:
-a hand-rolled interrupt dispatcher. The loop's halt arm is the `LBR 05B5` at
-`05B5`, a branch to itself.
+`05B9`/`05C6` sit together and poll XI then CI in sequence: a hand-rolled
+dispatcher. An earlier draft called the block holding them a *standby loop*.
+It is not — it is the **body of the second interrupt handler** (§2): `05A6` has
+exactly one inbound branch in the whole image, the `LBR 05A6` at `06B7` that
+ends the `0699` prologue, so it is only ever entered from an interrupt. The
+`LBR 05B5` above it is not that loop's halt arm either; it is the failure arm of
+the stack-page check at `05AA` (`R2.hi` must be `0x89`), five `NOP`s and then a
+deliberate hang.
+
+The two handlers mirror each other exactly here. `4072` polls CI for the reader
+handler; `05C6` polls CI for the second-link handler, and `05D7` — its CI-set
+path — opens with `STPC / LDI 0x0C / LDC / SCM1`, reloading the very same
+600 Hz ÷ 12 prescaler that §10aw derives from `4072`'s side. That is a second,
+independent site for the ÷ 12 divisor.
 
 ### `4072` closes a gap in §10aj
 
@@ -5800,21 +5811,75 @@ module would truncate every one of these.
 `proc_51e8` (`51E8`–`5226`) is the next routine, called from the tick chain at
 `40A3`, so `51B6`–`51E7` is the gap between them.
 
-### Two exits, and one of them explains the park loop
+### Two exits — but both of them return
 
-`51B1` is the normal interrupt return. But `51AD` tests `GHI RD & 0x21` and, when
-clear, **branches to `4071`** — one instruction before the base tick's
-`test_and_clear_CI` poll (§10aq). The decompiler proves this is a real control
+`51B1` is the normal interrupt return. But `51AA`–`51AD` — `GHI RD`, `ANI 0x21`,
+`LBZ 4071` — **branches to `4071`** when those two bits are clear: one
+instruction before the base tick's `test_and_clear_CI` poll (§10aq). The decompiler proves this is a real control
 path: it inlines the whole tick chain into this function, down through the
 `40D6`/`40E7` timer tables and `meter_and_drive_line`.
 
-So the ISR does not always return to what it interrupted. **It can jump straight
-into the per-tick work** — which is exactly the mechanism §10at inferred for the
-`IDL` park loop at `1A7C` but could not show. A step parks, the interrupt fires,
-and the handler carries on into the tick chain rather than resuming the parked
-thread.
+An earlier draft read that as the handler *abandoning* the thread it interrupted,
+and called it the mechanism §10at inferred for the `IDL` park loop at `1A7C`.
+**That was wrong**, and the epilogue bytes say so. Both exits converge on `28B7`,
+and `28B7` restores the interrupted context in full:
 
-### `M(8785)` bit 7 selects which owner the interrupt belongs to
+```
+28CD  RLDI R1,28D2 / SEP R1    hand the PC to R1 ...
+28D2  68 64   RLXA R4          ... because R4, the PC, is itself being restored
+28D6  42      LDA R2           the saved D/DF byte
+28D7  7E      RSHL             restore DF
+      42      LDA R2           the saved (X,P) byte
+      70      RET              reload X and P from it -> resume
+```
+
+The `SEP R1` is the tell: you cannot `RLXA R4` while executing from `R4`, so the
+epilogue borrows `R1` as its program counter for the five instructions it takes
+to put `R4` back. The second handler's epilogue at `067E` is byte-for-byte the
+same idea — `IRX`, `RLXA RE` down to `RLXA R4`, then `LDXA / RSHL / LDXA / RET`.
+
+So **neither handler replaces the saved continuation**. Branching into the tick
+chain is still interrupt-handler work; the handler reaches `28B7` either way and
+resumes exactly where it was interrupted. How a thread parked at `1A7C` ever
+proceeds is therefore open again, and is back on the queue.
+
+### What the `IDL` park *does* mean
+
+The vector swaps show the idiom plainly, and it needs no abandoned continuation.
+Both swaps are the same five steps:
+
+```
+06E1  SEX R4 / DIS 24       interrupts OFF
+06E4  RLDI R1,0699          swap the vector to the second handler
+06E8  SEX R4 / RET 24       interrupts ON
+06EB  IDL                   park
+06EC  LBR 147D              ... and carry on here
+
+0CD5  SEX R4 / DIS 24       interrupts OFF
+0CD8  RLDI R1,28D8          swap the vector back to the card reader
+0CDC  SEX R4 / RET 24       interrupts ON
+0CDF  IDL                   park
+0CE0  LBR 06EF              ... and carry on here
+```
+
+Because the handler returns, `RET` resumes at the byte *after* the `IDL` — so
+`IDL` followed by a forward branch is simply **"wait for exactly one
+interrupt"**. `1A7C` differs in one byte: its `LBR` points back at the `IDL`, so
+the thread wakes on each interrupt, tests nothing, and parks again. Those two
+sites are the whole mechanism, and they are also why `1A7C` stays a puzzle — a
+park whose continuation is restored and which tests nothing is a *terminal* park
+unless some handler rewrites the saved `R4` and `(X,P)` bytes on the stack at
+`M(R2)` before its epilogue runs. No such path has been found. Either `1A7C` is
+a deliberate halt awaiting the watchdog, or that rewrite exists and is unread.
+
+`RLDI R1` occurs at exactly ten sites, which is the complete census of vector
+handling: `6E0C` (reset arms the reader vector), `06E4` and `0CD8` (the swap and
+its reverse, above), `5071` and `05A6` (each handler re-arming its own vector on
+entry, before it goes on to use `R1` as a scratch pointer), `28CD` and `0679`
+(handing the PC to `R1` for the epilogues), and `05CD`/`065C`/`066F` (that
+scratch use, on `8E0D`/`8E0F`).
+
+### `M(8785)` bit 7 selects which owner the *reader* interrupt belongs to
 
 ```
 509D  RLDI R8,8785
@@ -5848,10 +5913,30 @@ then `OUT 6` from `8789`, and `5B0B` spins until `M(8786) & 0x01` (latched DA),
 takes the byte the ISR left at `8787`, and XORs it into `M(8788)`.
 
 **This is the software half of what U230 does in hardware** (§6a, "One UART, two
-owners"). It also corrects a vagueness in §10at and §10au, which spoke of "the
-serial ISR around `5071`" as though the DLC session had a handler of its own. It
-does not: **there is one interrupt handler and the DLC half is this fall-through
-branch.**
+owners").
+
+An earlier draft went on to say that this makes `5071` the only interrupt handler
+and the DLC "half" of the link this fall-through branch. **That was wrong on the
+second point**, and §2's own handler table already said so. The DLC session has a
+complete handler of its own, and the swap is explicit:
+
+| | vector | body | epilogue | serial service |
+|---|---|---|---|---|
+| card reader | `28D8` | `5071` | `28B7` → `28D2` | `5086 INP 7`, in-line |
+| **DLC / Isranet** | `0699` | `05A6` | `0679` → `067E` | `05C1 SCAL dlc_uart_service (0A61)` |
+
+`06E4` points `R1` at `0699` on session entry and `0CD8` points it back at
+`28D8` on the way out (both quoted above), so **only one of the two is armed at a
+time** — they are alternative handlers, not two halves of one. `0A61`, the
+routine that actually drains the DLC UART, is called from `05C1` and from nowhere
+else, and `05C1` lies inside `05A6`. It is unreachable from `5071`.
+
+So what *is* the bit-7 set path for? The consumers name it: `5AB3` and `5B0B`,
+the byte-at-a-time waits used by the mailbox transport under `5A8E`. Bit 7 of
+`8785` hands the reader's own handler over to that transport, which is a third
+consumer of the shared UART and unrelated to the Isranet session. Session
+sequencing and the NUA send's two-byte over-run must live in `05A6`/`0A61`, not
+here — which is where the open question now points.
 
 ### Confirmed in passing
 
@@ -6044,8 +6129,9 @@ into that field (§10ai). Seven callers: `35A6`, `400E`, `4093`, `52C4`, `541A`,
 Worth recording as a negative result, because §10au implied otherwise. Nothing
 in the image `SCAL`s, branches to, or even contains the word `0AD6`. The
 transmit engine there is **fall-through from `0A61`**, whose only caller is
-`05C1` — and only when the standby loop's `test_and_clear_XI` returns `DF` set
-(`05B9`, `LBNF 05C5` skips it otherwise). So bulk strings and frames go through
+`05C1` — and only when `test_and_clear_XI` returns `DF` set (`05B9`, `LBNF 05C5`
+skips it otherwise). That caller sits inside the **second interrupt handler**,
+not in a standby loop; see the correction in §10aq. So bulk strings and frames go through
 `0A61`, single bytes go through `5A8E`'s own `OUT 6` gated on the status the ISR
 latched, and the session order stays the `1A7C` steps (§10at).
 
@@ -6472,8 +6558,10 @@ are hand jobs in the GUI.
 
 Claims of the form *only*, *nothing*, *exactly N* have been this project's most
 reliable error class — three have already proved false (the `OUT 4` sites, the
-`0100` caller count, and `51B3` being unreachable). So the ones in §10am–§10as
-were swept mechanically against the image. **All eleven held:**
+`0100` caller count, and `51B3` being unreachable), and a fourth kind of absolute
+has since joined them: *"there is one interrupt handler"* in §10av, which §2's own
+table contradicted. So the ones in §10am–§10as were swept mechanically against the
+image, and the handler census was added on the same footing. **All fifteen held:**
 
 | Claim | Check |
 |---|---|
@@ -6488,6 +6576,10 @@ were swept mechanically against the image. **All eleven held:**
 | `Hex2ASC_8501_to_RA` has exactly one caller | `55A7` |
 | `0891` sends exactly `0x46` = 70 bytes | inline `00 46` |
 | exactly two `SCAL 023D` | `0C50`, `0C63` |
+| `RLDI R1` occurs at exactly ten sites | `05A6`, `05CD`, `065C`, `066F`, `0679`, `06E4`, `0CD8`, `28CD`, `5071`, `6E0C` |
+| `05A6` has exactly one inbound branch | `06B7` only — so it is reached only from the `0699` prologue |
+| `dlc_uart_service` (`0A61`) has exactly one caller | `05C1`, inside `05A6` — unreachable from `5071` |
+| both interrupt epilogues end in a context-restoring `RET` | `28D7` and `0698`, each preceded by the saved-`(X,P)` load |
 
 **The CRC is now bit-exact verified, not just structurally identified.** The
 earlier caveat here is withdrawn. Transcribing `0837`'s loop —

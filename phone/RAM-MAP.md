@@ -410,8 +410,8 @@ dozen places has a dozen chances to give itself away.
 | `8E0A` | `code_shadow_mode` | 3 — `1ed8` `1ef1` `30c3` | st=3 imm=00,01 |
 | `8E0B` | — | 2 — `0525` `0530` | st=2 imm=00 |
 | `8E0C` | — | 1 — `20de` | st=1 |
-| `8E0D` | — | 2 — `066f` `1003` | st=1 |
-| `8E0F` | — | 5 — `05cd` `065c` `0756` `100b` `1015` | st=4 imm=00,01 |
+| `8E0D` | `dlc_chained_vector` *(no Ghidra label)* | 2 — `066f` `1003` | st=1 |
+| `8E0F` | `dlc_chained_vector_armed` *(no Ghidra label)* | 5 — `05cd` `065c` `0756` `100b` `1015` | st=4 imm=00,01 |
 | `8E10` | `CTRL_F000_shadow` | 4 — `0011` `13a2` `1ed1` `1eea` | st=3 imm=02,03 |
 | `8E11` | — | 3 — `078d` `0a97` `0dd4` | st=2 imm=00,01 |
 | `8E12` | — | 1 — `097c` | st=0 |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **154 named**, 235 still unnamed.
+389 anchored cells, **156 named**, 233 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.

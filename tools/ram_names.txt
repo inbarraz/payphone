@@ -180,3 +180,5 @@
 8ec8 dlc_rx_count_saved
 8efb ram_sentinel_8efb|NOLABEL
 97a1 code_shadow_job_state
+8e0d dlc_chained_vector|NOLABEL
+8e0f dlc_chained_vector_armed|NOLABEL

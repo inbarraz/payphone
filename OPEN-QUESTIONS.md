@@ -338,20 +338,38 @@ Collected separately because they are not worth static effort:
       unaccounted for too.
       *Settle by:* tracing EF4 on the board, or following `RF.1`'s consumers.
 
+- [ ] **How does a thread parked at `1A7C` ever proceed?** Briefly recorded as
+      settled, and withdrawn: both interrupt handlers restore the interrupted
+      `R4` and `(X,P)` in full (`28D2` and `067E`), so entering the tick chain
+      from `51AD` is still handler work and replaces nothing. `IDL` plus a
+      forward branch is "wait for one interrupt" — the idiom at `06EB` and
+      `0CDF` — but `1A7C`'s branch points back at its own `IDL` and tests
+      nothing, which makes it terminal unless a handler rewrites the saved
+      continuation bytes on the stack at `M(R2)` before its epilogue. Find that
+      rewrite, or establish that `1A7C` is a deliberate halt (§10av).
+
 - [ ] **What do the DLC payload tags mean, and type 0 vs type 1?**
       `build_dlc_frame` accepts only types 0 and 1 and the first payload byte
       is a tag — `0x0A` for "nothing to report", `0x0F` for a two-value report
       (§10ar). The other four wrappers' tags, and whatever the receive side
       expects, are unread.
-- [ ] **Read the DLC half of the shared ISR.** `5071` now has a function
-      boundary and decompiles (§10av), and it turns out to be ONE handler for
-      both UART owners, split on bit 7 of `uart_owner_select` (`8785`). The
-      card-reader half is understood; the DLC half — the fall-through at `50A6`
-      that calls `test_and_clear_XI` and does nibble arithmetic on `8786` — is
-      not, and it is where the session sequencing and the NUA send's two-byte
-      over-run must live.
-      *Also open:* who sets bit 7 of `8785`, and how that branch reaches the
-      DLC transmit engine at `0AD6`–`0B2A`.
+- [ ] **Read the DLC interrupt handler — `0699` / `05A6`, not `5071`.** An
+      earlier version of this item pointed at `5071` and would have sent the
+      work into the wrong subsystem. `5071` is the **card-reader** handler; its
+      bit-7 fall-through is the `5A8E` mailbox transport's status latch, and
+      `dlc_uart_service` (`0A61`) is unreachable from it. The DLC has its own
+      vector: session entry swaps `R1` to `0699` at `06E4`, that prologue
+      branches to `05A6`, and `05A6` polls XI at `05B9` and calls `0A61` at
+      `05C1` (§10av). Session sequencing and the NUA send's two-byte over-run
+      must live in there.
+      *Specifically unread:* the CI-set path at `05D7`, a per-tick chain in the
+      DLC context distinct from `4071`'s, which reloads the ÷ 12 prescaler and
+      then calls `1415`, `046E`, `705E`, `7461`, `0331`, `034B`, `3733`, `7572`,
+      `279A` and `0F73`. (The `8E0D`/`8E0F` reads at `05CD`/`065C`/`066F` are
+      *not* part of the gap — §2 already has them as a RAM-resident chained
+      vector and its one-shot gate, installed at `1003`/`100B`/`1015`.)
+      *Also open:* who sets bit 7 of `8785`, and whether the transmit engine at
+      `0AD6`–`0B2A` is reached at all (§10au found no reference to `0AD6`).
 - [ ] **Find Isranet PAD documentation, circa the early 1990s.** Two questions
       hang on it (§10at):
       **(a) Is `D1` a terminal type or a login identifier?** The ROM shows it is
@@ -420,12 +438,6 @@ Kept as a record of what the method looks like when it works.
       each accepted pulse. So `credit_times_interval_ge_1000` computes
       credit × ticks-per-unit, an estimate of remaining talk time, and takes
       the larger interval as the conservative one (§10aa, §10ak).
-- [x] **How the ISR resumes a parked session step** — it does not always. At
-      `51AD` it tests `GHI RD & 0x21` and branches to `4071`, straight into the
-      base tick's `test_and_clear_CI` poll, so the handler carries on into the
-      per-tick work instead of returning to the thread it interrupted. That is
-      the mechanism §10at inferred for the `IDL` park loop and could not show
-      (§10av).
 - [x] **What the 1658-byte `1CB7` block is** — a **memory-operation interpreter
       with an AT29C256 page programmer**, i.e. a remote firmware-update facility
       reached over the DLC link. The `AA`/`5555`, `55`/`2AAA`, `A0`/`5555`
