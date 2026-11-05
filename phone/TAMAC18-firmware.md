@@ -6295,6 +6295,179 @@ and calls `DisplayCommStatus` (`0x4048`). This is the **line/modem side**, a
 separate subsystem from the card reader link. `DLC_Comm` (`0x2F65`) belongs
 with it.
 
+## 10az. The DLC tick chain at `05D7` — parallel housekeeping, and a sequencer
+
+§10av left this as the top open question: the DLC handler's CI-set path, a
+per-tick chain in the DLC context distinct from the main chain at `4071`. It is
+now read, and it answers a structural question the notes had been circling.
+
+### The two chains open identically
+
+```
+            main (4071)                     DLC (05D7)
+4072  SCAL test_and_clear_CI
+4076  LBNF 28B7  (no CI -> return)
+4079  STPC / LDI 0x0C / LDC / SCM1   05D7  STPC / LDI 0x0C / LDC / SCM1
+4081  SEX R4 / RET 0x24              05DF  SEX R4 / RET 0x24
+```
+
+Byte for byte the same prescaler reload and the same re-enable. That settles
+§10aw's ÷ 12 divisor with a second independent site, and it means **ticks may
+nest**: each chain re-enables interrupts as its second act, before doing any
+work.
+
+### What each chain calls
+
+| | main `4071` | DLC `05D7` |
+|---|---|---|
+| shared | `705E` | `705E` |
+| timers | the `40AE`/`40D6`/`40E7` tables (§10aw) | `1415`, a different table at `13EC` |
+| | `7792`, `51E8`, `77A6`, `4EFC` | — |
+| | — | `046E(0466)`, `7461`, `0331`/`034B`, `0F73` |
+| reached by both | `0100` (EF3), `detect_metering_pulse`, `flush_output_latches` | same |
+
+So the DLC chain is **not** a different job. It is a reduced re-implementation of
+the main chain's housekeeping, which is exactly what the two-vector architecture
+forces: while `R1` points at `0699` the `4071` chain cannot run at all, so the
+work that must not stop — the hook switch, metering pulses, the output latches,
+the LCD — is open-coded here instead.
+
+The timer tables prove it. `40AE` decrements nine cells; `13EC`'s first section
+decrements five; and the overlap is exactly two:
+
+| | cells |
+|---|---|
+| `40AE` only | `8129` `812A` `812C` `812E` `812F` `8132` `8135` |
+| **both** | **`812B` `812D`** |
+| `13EC` only | `8182` `8E02` `8ED9` |
+
+`812B` and `812D` are the two timers that must keep counting whichever vector is
+armed. The three the DLC chain adds sit in its own pages — `8E02` and `8ED9` are
+on the modem side (§12) — and are session-only. Nothing is decremented twice,
+because the two chains are mutually exclusive by construction.
+
+### `1415` is a timer table that fires feature flags
+
+Richer than `40AE`, which only decrements. Records are `{pointer, flag-index}`:
+
+```
+141E  RLXA RD           RD = the timer's address      (2 bytes)
+1420  LDA RA / PLO RB   RB.0 = the flag index         (1 byte)
+1423  DBNZ RD,142A      RD == 0 -> end of section
+142A  LDN RD / LBZ      already zero -> next entry
+142E  SMI 1 / STR RD    decrement
+1431  LBNZ              still running -> next entry
+1435  SMI 0xFF / LBZ    index 0xFF -> expire SILENTLY
+143C  SCAL set_feature_flag(RB.0)
+```
+
+| Entry | Timer | On expiry |
+|---|---|---|
+| `13EC` | `delay_timer_812d` | silent |
+| `13EF` | `session_timer_8ed9` | silent |
+| `13F2` | `fast_timer_812b` | silent |
+| `13F5` | `session_timer_8182` | silent |
+| `13F8` | `session_timer_8e02` | `set_feature_flag(6)` |
+
+`RE = 3` at `1415`, and the `00 00 00` at `13FB` ends the first section, so the
+table has **three** sections. The second and third are handled at `144B`–`1477`
+and use a different record layout — the code there reads a 2-byte pointer, then
+*increments* a 16-bit counter at it, then compares it against two table bytes.
+Reading those sections as `{pointer, flag}` triples produces a "timer" at
+`008E`, which is how one knows the layout differs. Unresolved; on the queue with
+the raw bytes.
+
+### `705E` is a sequencer driven by a resume address in RAM
+
+The one callee both chains share, and the most consequential thing here.
+
+```
+705E  RLDI RE,8851 / SEX RE / RLXA R4
+```
+
+`RLXA R4` loads **the program counter** from the word at `8851`, so `705E` is a
+jump to whatever address is stored there. `RLXA` advances `RE` past it, so every
+block starts with `RE = 8853` and `X = RE` — the two cells above the vector are
+its working storage. A block ends either at `70CB` (`SEX R2 / SRET R3`, stay put)
+or at `70B9`, which is the "become" primitive:
+
+```
+70B9  RLDI RE,8852 / SEX RE / RSXD R5    the word at 8851 := R5
+```
+
+`RSXD` writes low-then-descending, so `8851` takes the high byte: a big-endian
+word, matching `RLXA`'s read. Five states exist, and the census is complete —
+`8851`/`8852` is loaded at only six sites in the image:
+
+| State | Does | Then |
+|---|---|---|
+| `70C3` | `PORT5_shadow \|= 0x02` | stays — the idle state |
+| `7065` | word timer at `8854` := `0x0578` | → `70A5` |
+| `7074` | byte timer at `8853` := `0x96`; `PORT5_shadow &= ~0x02` | → `7086` |
+| `7086` | count `8853` down; at zero `PORT5_shadow \|= 0x02`, `8854` := `0x0096` | → `70A5` |
+| `70A5` | count the 16-bit `8854` down (`DBNZ R5`) | at zero → `7074` |
+
+Installed from outside by `6EC5` (reset), `6FE8` and `35EF` — all three to
+`70C3` — and by `7004` to `7065`.
+
+**So `7074` → `7086` → `70A5` → `7074` is a cadence generator on bit 1 of
+`PORT5_shadow`.** One step per base tick is 20 ms, so `0x96` = 150 steps = 3.0 s
+and the duty cycle is even: **3 s low, 3 s high, indefinitely**. `7065` is the
+one-shot entry: `0x0578` = 1400 steps = 28 s of delay before the cadence starts.
+
+§6a records bit 1 of `8034` as one of the untraced bits, and this does not trace
+it to a component either — but it now has a precise waveform, which is the kind
+of fact a bit can be identified *from*. It is on the queue as that.
+
+The mechanism is worth naming separately from what it drives. §10au observed
+that the main thread has no sequencer; this is one, and it belongs to the tick,
+not to the thread. It also runs identically under both interrupt vectors, so the
+cadence survives a DLC session — which is the point of putting it in the half of
+the housekeeping both chains share.
+
+### The rest of the chain
+
+```
+05E3  SCAL 1415                    the 13EC timer tables
+05E8  SCAL 046E(0466)              one inline POINTER argument
+05EF  SCAL 705E                    the sequencer
+05F4  SCAL 0100                    EF3, the hook switch
+05F8    DF set  -> M(8DAC) = 1     feature_flags_8dac[0]
+0603  SCAL 7461                    status is 0x87 or 0x94?
+0607    yes     -> M(8DAE) = 1     feature_flags_8dac[2]
+0611  M(8B0B) == 0x01 && M(8B0C) == 0x08 ?
+0625    yes     -> set_feature_flag(6) ; clear_feature_flag(0x0F)
+0634  SCAL detect_metering_pulse
+0638  SCAL flush_output_latches
+063C  SCAL LCD_RenderNextDescriptor
+0640  if charge_event_pending (8143) == 1 -> clear it, bump charge_event_count (8DE2)
+0653  SCAL 0F73
+```
+
+`7461` is a shared-tail predicate: `GLO RF / XRI 0x87 / LBZ 746A`, falling into
+`GLO RF / XRI 0x94`, so it returns `D == 0` when the status code in `RF.0` is
+**either** `0x87` or `0x94`, and entering one instruction later at `7467` tests
+only `0x94`. Four callers (`0603`, `1B8A`, `48DE`, `7612`), which is what the
+§6a note about "`7461` or `7467`" was pointing at.
+
+### Two decoding traps this chain contains
+
+Both are the kind that produce a plausible wrong reading rather than an obvious
+one, so they are recorded here as much as a warning as a finding.
+
+**`05EC` is data.** `046E` opens `SEX R3 / RLXA R5`, the canonical inline-argument
+read, so the `04 66` after `SCAL 046E` is the pointer `0466`. Decoded as code it
+is `LDN R4 / OUT 6` — a UART write, in the middle of a serial-link tick chain,
+which is precisely where one would believe it. `046E` is now in
+`cdp1806/data/inline_args.txt` for that reason.
+
+**`0611 RLDI R5,0108` is not a pointer.** It loads a *pair of constants*: `GHI R5`
+gives `0x01` and `GLO R5` gives `0x08`, compared in turn against `M(8B0B)` and
+`M(8B0C)` to test whether the DLC receive buffer begins `01 08`. One 4-byte
+`RLDI` in place of two `LDI`s, with the pair kept in a register for reuse. Any
+scan that reads `RLDI Rn,<16-bit>` as an address will call `0108` a pointer here;
+it is a literal.
+
 ## 11. Naming added in this session
 
 Renamed: `proc_333d` → **`dispatch_card_reader_message`**;

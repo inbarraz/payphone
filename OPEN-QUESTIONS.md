@@ -199,6 +199,11 @@ an open question without a next action tends to stay open.
       | `8526` | `units_burned_counter` |
       | `867D`, `87D0`, `88C4`, `8A00`, `8EFB` | `ram_sentinel_<addr>` |
       | `30E3` | `ram_sentinel_addr_list` |
+      | `8851` | `tick_task_resume_addr` — a 16-bit resume address (§10az) |
+      | `8853` | `tick_task_byte_timer` |
+      | `8854` | `tick_task_word_timer` — 16-bit |
+      | `8182`, `8E02`, `8ED9` | `session_timer_<addr>` |
+      | `8DAE` | `feature_flag_idx2` |
 
       `89FA` (`stack_top`) has a different blocker: it is the second byte of the
       existing word at `89F9`, so that item has to be cleared first.
@@ -348,6 +353,27 @@ Collected separately because they are not worth static effort:
       continuation bytes on the stack at `M(R2)` before its epilogue. Find that
       rewrite, or establish that `1A7C` is a deliberate halt (§10av).
 
+- [ ] **What drives bit 1 of `PORT5_shadow` (`8034`)?** It now has a precise
+      waveform, which is the strongest handle yet on any bit of that port: the
+      `705E` sequencer holds it high in the idle state `70C3`, and the cycle
+      `7074` → `7086` → `70A5` drives it **3 s low, 3 s high, indefinitely**,
+      optionally after a 28 s one-shot delay from state `7065` (§10az). §6a
+      still has no bit of `8034` traced to a component. A 3/3 s even cadence is
+      not the Israeli ring cadence, so the candidates are an indicator lamp, a
+      polarity or hook relay, or a watchdog kick. Period and duty cycle are
+      exact, so this should be identifiable from the hardware.
+
+- [ ] **The second and third sections of the `13EC` timer table.** Section 1 is
+      five `{pointer, flag-index}` triples and is fully read (§10az). `RE = 3`
+      at `1415` says there are three sections, and `144B`–`1477` handles the
+      rest with a different record layout: it reads a 2-byte pointer, then
+      *increments* a 16-bit counter at it and compares it against two table
+      bytes, zeroing both on a match. Reading those bytes as triples yields a
+      "timer" at `008E`, so the layout definitely differs, but the 4-byte shape
+      the code implies does not line up with the bytes either. Raw, from
+      `13FE`: `8e d5 00 32 8e 04 04 8e 01 03 00 00 00 8e d7 0b b8 8e 00 03 00
+      00 00`.
+
 - [ ] **What do the DLC payload tags mean, and type 0 vs type 1?**
       `build_dlc_frame` accepts only types 0 and 1 and the first payload byte
       is a tag — `0x0A` for "nothing to report", `0x0F` for a two-value report
@@ -362,10 +388,12 @@ Collected separately because they are not worth static effort:
       branches to `05A6`, and `05A6` polls XI at `05B9` and calls `0A61` at
       `05C1` (§10av). Session sequencing and the NUA send's two-byte over-run
       must live in there.
-      *Specifically unread:* the CI-set path at `05D7`, a per-tick chain in the
-      DLC context distinct from `4071`'s, which reloads the ÷ 12 prescaler and
-      then calls `1415`, `046E`, `705E`, `7461`, `0331`, `034B`, `3733`, `7572`,
-      `279A` and `0F73`. (The `8E0D`/`8E0F` reads at `05CD`/`065C`/`066F` are
+      *The CI-set path at `05D7` is now read* (§10az): it is a reduced
+      re-implementation of the `4071` housekeeping, which the two-vector
+      architecture forces, and its timer table at `13EC` overlaps `40AE` in
+      exactly the two cells that must keep counting under either vector. What
+      remains unread is the XI path proper — `0A61` itself and the frame
+      assembly behind it. (The `8E0D`/`8E0F` reads at `05CD`/`065C`/`066F` are
       *not* part of the gap — §2 already has them as a RAM-resident chained
       vector and its one-shot gate, installed at `1003`/`100B`/`1015`.)
       *Also open:* who sets bit 7 of `8785`, and whether the transmit engine at

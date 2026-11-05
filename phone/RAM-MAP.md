@@ -181,7 +181,7 @@ dozen places has a dozen chances to give itself away.
 | `8173` | — | 1 — `711a` | st=0 |
 | `8174` | `bufDisplayString_8174` | 1 — `713f` | st=1 |
 | `8180` | `fast_timer_8180` | 6 — `3733` `3763` `4d9c` `6ecc` `6fee` `7021` | st=5 imm=19,64 |
-| `8182` | — | 4 — `1a4b` `2b33` `4b12` `73ca` | st=4 imm=00,01 |
+| `8182` | `session_timer_8182` *(no Ghidra label)* | 4 — `1a4b` `2b33` `4b12` `73ca` | st=4 imm=00,01 |
 | `8183` | `permission_valid_8183` | 6 — `26e6` `2c36` `3a33` `4b23` `72fe` `7409` | st=2 cmp=aa |
 | `8184` | `low_credit_warned` | 2 — `527e` `5295` | st=2 imm=aa |
 | `8185` | `port3_readback` | 5 — `50d9` `617e` `4d7a` `6e30` `7665` | st=1 |
@@ -294,7 +294,7 @@ dozen places has a dozen chances to give itself away.
 | Addr | Name | Sites | Signature |
 |---|---|---|---|
 | `8850` | — | 4 — `26d1` `41d2` `6fd4` `7619` | st=1 mask=04,10 |
-| `8851` | — | 1 — `705e` | st=0 |
+| `8851` | `tick_task_resume_addr` *(no Ghidra label)* | 1 — `705e` | st=0 |
 | `8852` | — | 5 — `35ea` `6ec1` `6fe3` `6fff` `70b9` | st=0 |
 | `8859` | — | 4 — `2ca7` `2ce6` `5991` `76ba` | st=3 imm=00,a5 cmp=a5 |
 | `885B` | — | 2 — `3fe0` `7782` | st=2 |
@@ -361,7 +361,7 @@ dozen places has a dozen chances to give itself away.
 | `8DAB` | `dlc_record_len` | 7 — `0798` `0e6b` `1817` `1ddf` `1e46` `1e74` +1 | st=4 imm=00,01 cmp=02 |
 | `8DAC` | `feature_flags_8dac` | 7 — `0222` `0278` `0338` `0352` `05fb` `072e` +1 | st=2 imm=00,01 |
 | `8DAD` | — | 2 — `04c8` `04da` | st=2 imm=01 |
-| `8DAE` | — | 1 — `060a` | st=1 imm=01 |
+| `8DAE` | `feature_flag_idx2` *(no Ghidra label)* | 1 — `060a` | st=1 imm=01 |
 | `8DB3` | `dlc_tx_complete` | 1 — `0b1c` | st=1 imm=01 |
 | `8DB4` | — | 1 — `0f8e` | st=1 imm=01 |
 | `8DB8` | — | 2 — `0f75` `0f87` | st=1 imm=00 |
@@ -386,7 +386,7 @@ dozen places has a dozen chances to give itself away.
 | `8DDC` | — | 2 — `0568` `1bfe` | st=1 |
 | `8DDD` | — | 2 — `0557` `0e4d` | st=2 imm=00 |
 | `8DDE` | — | 1 — `163d` | st=0 |
-| `8DE2` | — | 1 — `0650` | — |
+| `8DE2` | `charge_event_count` | 1 — `0650` | — |
 | `8DE6` | — | 5 — `079d` `0e5a` `0f7d` `1519` `152e` | st=4 imm=00 |
 | `8DE7` | — | 2 — `0572` `0e52` | st=2 |
 | `8DE8` | — | 4 — `1387` `191b` `1d71` `0e9c` | st=0 |
@@ -403,7 +403,7 @@ dozen places has a dozen chances to give itself away.
 | `8DFF` | — | 3 — `0a0f` `1ded` `1e4d` | st=1 |
 | `8E00` | — | 2 — `073b` `1482` | st=2 imm=00,78 |
 | `8E01` | — | 7 — `0742` `0d26` `0d30` `0d7d` `0dc6` `0df0` +1 | st=7 imm=00,05,14,1e,3c |
-| `8E02` | — | 2 — `0747` `0acc` | st=2 |
+| `8E02` | `session_timer_8e02` *(no Ghidra label)* | 2 — `0747` `0acc` | st=2 |
 | `8E03` | — | 5 — `074c` `0ac7` `0da1` `0ddf` `0e01` | st=4 imm=00,0f,64 |
 | `8E04` | — | 7 — `0751` `0de6` `0e08` `0e41` `0f36` `0f4e` +1 | st=7 imm=00,14 |
 | `8E05` | — | 2 — `1718` `17ac` | st=0 cmp=01 |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **156 named**, 233 still unnamed.
+389 anchored cells, **161 named**, 228 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.
