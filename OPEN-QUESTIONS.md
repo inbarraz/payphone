@@ -430,8 +430,27 @@ Collected separately because they are not worth static effort:
 
       | Address | What it is | Section |
       |---|---|---|
-      | `7014` | the second entry to the call-connected tail | 10ba |
-      | `701B` | the shared tail itself — this is what deserves the name `enter_call_connected`, since both entries reach it and it holds the billing gate | 10ba |
+      | **`701B`** | the shared tail — **define this FIRST**, and give it the name `enter_call_connected`; body `701B`–`705D`, ending at the 2-byte `SRET R3` at `705C` | 10ba |
+      | `7014` | the second entry, body `7014`–`701A`; define it *after* `701B` | 10ba |
+
+      **Order matters here, and getting it wrong is what makes these fight.**
+      Ghidra function bodies cannot overlap, and `6FFF` and `7014` are two
+      entries converging on the one tail at `701B`:
+
+      ```
+      6FFF..7013   arm sequencer 7065, tone 3AA0, then LBR 701B  ─┐
+      7014..701A   tone 3AA4, no arm, falls through              ─┼─> 701B..705D
+      ```
+
+      If either entry is created while `701B` is not yet a function,
+      flow-following swallows `701B`–`705D` into it, and the other entry then
+      collides and is refused or silently truncated. Define `701B` first and
+      both entries stop at its boundary. The same applies to **any function
+      whose flow contains `SCAL 7014`** — the only one in the image is at
+      `3B2F`, in the unmapped gap between `play_toggle_pattern` (`3AA8`) and
+      `byte_to_hex_ascii` (`3D18`) — so `701B` and `7014` must exist before that
+      caller can be defined cleanly. Also re-create `6FFF` afterwards: its
+      present body `6FFF`–`700E` is the truncation described above.
       | `70C3`, `7065`, `7074`, `7086`, `70A5` | the five `705E` sequencer states | 10az |
       | `70B9` | `set_next_tick_task` | 10az |
       | `3B24` | the fault-slot test that chooses between the entries | 10ba |

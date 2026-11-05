@@ -6589,6 +6589,21 @@ transition. The two routines sit next to each other and are near-inverses:
 | `dial_buf_end` (`811B`) | — | `0x19`, the empty-buffer top index |
 | `813A` | — | `= M(8513) − 1` |
 
+The exact boundaries, since the interleave makes them easy to get wrong and
+Ghidra will not accept overlapping bodies:
+
+| Body | What |
+|---|---|
+| `6FB3`–`6FFE` | `exit_call_connected`, ending at the 2-byte `SRET R3` at `6FFD` |
+| `6FFF`–`7013` | entry A: arm sequencer `7065`, tone `3AA0`, `LBR 701B` |
+| `7014`–`701A` | entry B: tone `3AA4`, no arm, falls through |
+| `701B`–`705D` | the shared tail, ending at the `SRET R3` at `705C` |
+
+**`701B` has to be defined before either entry.** Flow-following from `6FFF` or
+`7014` otherwise absorbs the tail into whichever was created first, and the
+other then collides with it. The same holds for any function whose flow contains
+`SCAL 7014` — the single such site is `3B2F`.
+
 Seven callers each, and the sets are disjoint but interleaved through the same
 state machines — `41CE`/`41F7` against `41E8`, `44E5` against `45BD`, `48C1`
 against `48F1`. `6FC8` and `6FE3` have no callers at all; they are fall-through
