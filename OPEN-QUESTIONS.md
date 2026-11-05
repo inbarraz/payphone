@@ -419,6 +419,9 @@ Collected separately because they are not worth static effort:
       | `70C3`, `7065`, `7074`, `7086`, `70A5` | the five `705E` sequencer states | 10az |
       | `70B9` | `set_next_tick_task` | 10az |
       | `3B24` | the fault-slot test that chooses between the entries | 10ba |
+      | `28D8` | `interrupt_enter_reader` — **split it out of `28B7`**, whose body currently merges the card-reader epilogue and prologue into one function; the DLC side is correctly split into `interrupt_leave` / `interrupt_enter` | 10av |
+      | `6E0C` | the reset block — no function at all | 10ay |
+      | `1CB7` | the 1658-byte flash programmer — no function at all, so none of it can be read through the MCP | 10ay |
 
       The sequencer states pay off most: each is a few instructions and they are
       currently invisible as code.

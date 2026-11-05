@@ -6905,6 +6905,28 @@ All three were corrected in the notes and left untouched in the program. The
 `51B3` one was the worst: it instructed a future reader to trim a function body
 that is correct as it stands.
 
+A sweep of every address where this project has revised a claim then found two
+more, both written *earlier in the same session* as the finding that outdated
+them:
+
+| Address | The stale comment said | Outdated by |
+|---|---|---|
+| `05D7` | "Distinct from the `4071` tick chain and **still unread**" | §10az, which read it |
+| `6FB3` | "near-inverse of `enter_call_connected` (`6FFF`)" | §10ba, which moved that name |
+
+So this is not only a problem of old claims. A comment written in the morning can
+be stale by the afternoon, and the ones naming *another* routine go stale
+whenever that routine is renamed. Clean at `0100`, `010D`, `0837`, `03EE`, `2ECD`,
+`37A1` and the `28B7` region.
+
+The sweep also turned up two structural things worth recording. `28B7` was
+auto-named `SEP_R1` and its body `28B7`–`28F8` **merges the card-reader epilogue
+with its prologue**, where the DLC side is properly split into `interrupt_leave`
+(`067E`) and `interrupt_enter` (`0699`); renamed `interrupt_leave_reader` and
+queued for splitting. And the reset block at `6E0C` and the whole 1658-byte
+flash programmer at `1CB7` (§10ay) have **no function defined at all**, so
+neither can be read through the MCP.
+
 Each now carries its own retraction in the comment rather than just the new
 reading, because a comment that silently changes its mind teaches nothing, and
 the wrong reading is often the more natural one — `51B3` really does have no
