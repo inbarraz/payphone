@@ -185,7 +185,7 @@ dozen places has a dozen chances to give itself away.
 | `8183` | `permission_valid_8183` | 6 — `26e6` `2c36` `3a33` `4b23` `72fe` `7409` | st=2 cmp=aa |
 | `8184` | `low_credit_warned` | 2 — `527e` `5295` | st=2 imm=aa |
 | `8185` | `port3_readback` | 5 — `50d9` `617e` `4d7a` `6e30` `7665` | st=1 |
-| `8186` | — | 4 — `4180` `44dc` `6fc8` `7035` | st=2 imm=00,aa |
+| `8186` | `call_phase_active` *(no Ghidra label)* | 4 — `4180` `44dc` `6fc8` `7035` | st=2 imm=00,aa |
 | `818C` | — | 2 — `5d09` `5d1b` | st=0 |
 | `818D` | `burn_ack_retry_count` | 4 — `3420` `343c` `5db8` `623f` | st=3 imm=00 cmp=64 |
 | `818E` | `reader_z_reply_count` | 3 — `2a53` `3453` `34bc` | st=3 imm=80 |
@@ -293,7 +293,7 @@ dozen places has a dozen chances to give itself away.
 
 | Addr | Name | Sites | Signature |
 |---|---|---|---|
-| `8850` | — | 4 — `26d1` `41d2` `6fd4` `7619` | st=1 mask=04,10 |
+| `8850` | `saved_card_permission_bits` *(no Ghidra label)* | 4 — `26d1` `41d2` `6fd4` `7619` | st=1 mask=04,10 |
 | `8851` | `tick_task_resume_addr` *(no Ghidra label)* | 1 — `705e` | st=0 |
 | `8852` | — | 5 — `35ea` `6ec1` `6fe3` `6fff` `70b9` | st=0 |
 | `8859` | — | 4 — `2ca7` `2ce6` `5991` `76ba` | st=3 imm=00,a5 cmp=a5 |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **161 named**, 228 still unnamed.
+389 anchored cells, **163 named**, 226 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.

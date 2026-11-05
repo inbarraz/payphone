@@ -204,6 +204,8 @@ an open question without a next action tends to stay open.
       | `8854` | `tick_task_word_timer` — 16-bit |
       | `8182`, `8E02`, `8ED9` | `session_timer_<addr>` |
       | `8DAE` | `feature_flag_idx2` |
+      | `8186` | `call_phase_active` (§10ba) |
+      | `8850` | `saved_card_permission_bits` (§10ba) |
 
       `89FA` (`stack_top`) has a different blocker: it is the second byte of the
       existing word at `89F9`, so that item has to be cleared first.
@@ -358,10 +360,16 @@ Collected separately because they are not worth static effort:
       `705E` sequencer holds it high in the idle state `70C3`, and the cycle
       `7074` → `7086` → `70A5` drives it **3 s low, 3 s high, indefinitely**,
       optionally after a 28 s one-shot delay from state `7065` (§10az). §6a
-      still has no bit of `8034` traced to a component. A 3/3 s even cadence is
-      not the Israeli ring cadence, so the candidates are an indicator lamp, a
-      polarity or hook relay, or a watchdog kick. Period and duty cycle are
-      exact, so this should be identifiable from the hardware.
+      still has no bit of `8034` traced to a component. §10ba then pinned down
+      *when* it runs: `enter_call_connected` (`6FFF`) arms the one-shot and
+      `exit_call_connected` (`6FB3`) returns the sequencer to idle, which holds
+      the bit high — so the cadence runs **during a connected call and only
+      then**, starting 28 s in. A 3/3 s even cadence is not the Israeli ring
+      cadence; the candidates are an indicator lamp, a polarity or hook relay,
+      or a periodic signal to the line. 28 s is close to the first metering
+      interval, which is suggestive but not evidence. Period, duty cycle and
+      now the trigger are exact, so this should be identifiable from the
+      hardware.
 
 - [ ] **The second and third sections of the `13EC` timer table.** Section 1 is
       five `{pointer, flag-index}` triples and is fully read (§10az). `RE = 3`
@@ -373,6 +381,16 @@ Collected separately because they are not worth static effort:
       the code implies does not line up with the bytes either. Raw, from
       `13FE`: `8e d5 00 32 8e 04 04 8e 01 03 00 00 00 8e d7 0b b8 8e 00 03 00
       00 00`.
+
+- [ ] **Why is `fast_timer_812b` in the DLC chain's timer table?** `812D`, the
+      other cell decremented by both `40AE` and `13EC`, has a complete
+      explanation: it is the countdown for both blocking-delay primitives,
+      `play_toggle_pattern` (`3AB3`) and `delay_base_ticks` (`6FA5`), each of
+      which parks on `IDL` until it drains, so a missed tick would hang the
+      phone (§10ba). `812B` has no such story. It is anchored at `1A44` — where
+      `InitBuffer8119` clears it — and at `53BD`, `72B2`, `73D5`, `73DC`, none
+      of them a delay primitive. Something about it must also have to survive a
+      DLC session.
 
 - [ ] **What do the DLC payload tags mean, and type 0 vs type 1?**
       `build_dlc_frame` accepts only types 0 and 1 and the first payload byte

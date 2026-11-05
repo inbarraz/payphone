@@ -6468,6 +6468,115 @@ gives `0x01` and `GLO R5` gives `0x08`, compared in turn against `M(8B0B)` and
 scan that reads `RLDI Rn,<16-bit>` as an address will call `0108` a pointer here;
 it is a literal.
 
+## 10ba. `6FFF` and `6FB3` — entering and leaving the connected call
+
+`6FFF` came up in §10az as one of the four sites that install a state into the
+`705E` sequencer, and it turns out to be one half of the phone's central state
+transition. The two routines sit next to each other and are near-inverses:
+
+| | `6FB3` … `6FFD` | `6FFF` … `705C` |
+|---|---|---|
+| tone | `play_toggle_pattern(3A9E)` | `play_toggle_pattern(3AA0)` |
+| local tone path, `M(8034)` bit 2 | `\|= 0x04` — **opens** | `&= ~0x04` — **closes** |
+| `M(8035)` bit 3 | set | set |
+| `call_phase_active` (`8186`) | `= 0x00` | `= 0xAA` |
+| `call_in_progress` (`8032`) | — | `= 0xAA` |
+| `card_permission_bits` (`8139`) | saved to `8850`, then zeroed | — |
+| `dial_resume_point` (`813E`) | zeroed | — |
+| the `705E` sequencer | `8851 := 70C3`, the idle state | `8851 := 7065`, the 28 s one-shot |
+| `fast_timer_8180` | `0x64` = 100 | `0x19` = 25 |
+| `fast_timer_8129` | `0x64` = 100 | — |
+| `slow_timer_8137` | — | `0x5A` = 90 |
+| `dial_buf_end` (`811B`) | — | `0x19`, the empty-buffer top index |
+| `813A` | — | `= M(8513) − 1` |
+
+Seven callers each, and the sets are disjoint but interleaved through the same
+state machines — `41CE`/`41F7` against `41E8`, `44E5` against `45BD`, `48C1`
+against `48F1`. `6FC8` and `6FE3` have no callers at all; they are fall-through
+inside `6FB3`, not entry points. An earlier reading of this session had `6FE3`
+down as an independent installer, which it is not.
+
+### `6FFF` is the transition into the *chargeable* call
+
+The decisive evidence is not in either routine but at `3790`:
+
+```
+3790  RLDI RA,8032 / LDN RA / XRI 0xAA
+3797  LBNZ 32F9                        not 0xAA -> DISCARD the metering pulse
+379A  M(8143) = 1                      else: charge_event_pending
+```
+
+A metering pulse from the exchange is only ever charged while
+`M(8032) == 0xAA`. `6FFF` is what sets it, and `4B1E` is what clears it —
+`4B16 LDI 0x00` falls through stores into `8182`, `8149` and then `8032`. So the
+window in which the phone bills is opened at `6FFF` and closed at `4B1E`, and
+§10ak's chain from exchange pulse to debit now has its gate named at both ends.
+
+Note the asymmetry: `6FB3` clears `call_phase_active` (`8186`) but **not**
+`call_in_progress` (`8032`). The two flags are set together at `7039`/`703C` and
+cleared in different places, so they are not aliases — `8186` tracks the active
+phase and is released when the end tone plays, while `8032` holds the billing
+window open until `4B1E`. `8186` is tested non-zero at `4180` and `44DC`.
+
+### `play_toggle_pattern` (`3AA8`) decoded, and why `812D` is special
+
+```
+3AA8  SEX R3 / RLXA RC        the inline pointer to the pattern
+3AAF  M(8034) |= 0x04         open the local tone path
+3AB3  R5 = 812D   RD = 8034
+3ABB  LDA RC / LBZ 3ACC       next duration byte; 0 ends the pattern
+3ABF  M(812D) = that byte     delay_timer_812d is the countdown
+3AC0  M(8034) ^= 0x01         toggle the tone
+3AC4  IDL / LDN R5 / LBNZ     park until 812D reaches zero
+3ACC  M(8034) &= ~0x01        leave the tone low
+```
+
+So §6a's "bit 0 toggled in timed patterns" has its format: the pattern is a
+**null-terminated list of half-cycle durations in base ticks**, 20 ms each, and
+bit 0 of `8034` is a tone enable while bit 2 is the path gate. Three patterns
+exist, adjacent and null-terminated:
+
+| Pattern | Bytes | Meaning |
+|---|---|---|
+| `3A9E` | `0F` | one 300 ms tone |
+| `3AA0` | `07 04 05` | 140 ms on, 80 ms off, 100 ms on |
+| `3AA4` | `05 07 03` | 100 ms on, 140 ms off, 60 ms on |
+
+`6FB3` plays `3A9E`, `6FFF` plays `3AA0`, and `7014` — a genuine second entry to
+`6FFF`'s tail, called by `SCAL 7014` at `3B2F` — plays `3AA4` and skips the
+sequencer arm. The choice at `3B2B` is `LDN RA / SHL / SHR / LBZ`, which leaves
+`D = M(RA) & 0x7F`: all seven low bits clear takes `6FFF`, anything set takes
+`7014`. The `LBR 701B` at `7011` is therefore the join of two entries, not
+disabled code — which is how it first read here before the reference at `3B2F`
+turned up.
+
+**And this closes a loop on §10az.** The tone player's countdown is
+`delay_timer_812d`, and `812D` is one of only two cells decremented by *both*
+the `40AE` table and the DLC chain's `13EC` table. That is not a coincidence:
+a tone must keep its timing whichever interrupt vector is armed, so its timer
+has to appear in both housekeeping chains. The argument is stronger than that:
+`812D` is the countdown for **both** of the ROM's blocking-delay primitives —
+`play_toggle_pattern` takes it at `3AB3` and `delay_base_ticks` at `6FA5` — and
+both park on `IDL` while it drains. A blocking delay whose timer stops being
+decremented never returns, so `812D` is the one cell in the image that *cannot*
+be allowed to miss a tick under either vector. That is why it is in both tables.
+
+`812B`, the other cell in both, has no such explanation yet. It is anchored at
+`1A44` (where `InitBuffer8119` clears it), `53BD`, `72B2`, `73D5` and `73DC`,
+and none of those is a delay primitive. Why it earned a place in the DLC chain's
+table is open.
+
+### What the cadence is for is still open
+
+§10az found that the sequencer drives bit 1 of `PORT5_shadow` 3 s low / 3 s high
+after a 28 s delay, and it is now clear *when*: `6FFF` arms that one-shot on
+entering the connected call, and `6FB3` returns the sequencer to its idle state
+`70C3`, which holds bit 1 high. So the cadence runs **during a call and only
+during a call**, starting 28 s in. That narrows the candidates considerably —
+28 s is close to the first metering interval, so a periodic signal to the line
+or to a local indicator both remain possible — but it does not identify the bit,
+and §6a still has nothing on `8034` traced to a component.
+
 ## 11. Naming added in this session
 
 Renamed: `proc_333d` → **`dispatch_card_reader_message`**;

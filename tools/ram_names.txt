@@ -121,6 +121,7 @@
 8183 permission_valid_8183
 8184 low_credit_warned
 8185 port3_readback
+8186 call_phase_active|NOLABEL
 818d burn_ack_retry_count
 818e reader_z_reply_count
 8190 config_parse_result
@@ -145,6 +146,7 @@
 867d ram_sentinel_867d|NOLABEL
 8785 uart_owner_select
 87d0 ram_sentinel_87d0|NOLABEL
+8850 saved_card_permission_bits|NOLABEL
 8851 tick_task_resume_addr|NOLABEL
 8853 tick_task_byte_timer|NOLABEL
 8854 tick_task_word_timer|NOLABEL
