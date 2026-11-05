@@ -389,6 +389,26 @@ Collected separately because they are not worth static effort:
       `13FE`: `8e d5 00 32 8e 04 04 8e 01 03 00 00 00 8e d7 0b b8 8e 00 03 00
       00 00`.
 
+- [ ] **Define functions in Ghidra at these addresses.** The MCP can only read
+      code inside a defined function — it has no create-function and no
+      disassemble-at-an-address — so each of these has to be analysed around
+      rather than through, which is how the `5E1B` extent was got wrong. `F` at
+      the address in the GUI fixes each one permanently.
+
+      | Address | What it is | Section |
+      |---|---|---|
+      | `0699` | `ISR_DLC_Prologue` — interrupt vector #2 | 10av |
+      | `05A6` | `ISR_DLC_Link` — body of handler #2 | 10av |
+      | `067E` | `ISR_DLC_Epilogue` | 10av |
+      | `05D7` | the DLC per-tick chain | 10az |
+      | `70C3`, `7065`, `7074`, `7086`, `70A5` | the five `705E` sequencer states | 10az |
+      | `70B9` | `set_next_tick_task` | 10az |
+      | `7014` | second entry to the call-connected tail | 10ba |
+      | `3B24` | the fault-slot test that chooses between the entries | 10ba |
+
+      The sequencer states are the ones that pay off most: each is a few
+      instructions and they are currently invisible as code.
+
 - [ ] **Why is `fast_timer_812b` in the DLC chain's timer table?** `812D`, the
       other cell decremented by both `40AE` and `13EC`, has a complete
       explanation: it is the countdown for both blocking-delay primitives,

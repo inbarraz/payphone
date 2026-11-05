@@ -24,20 +24,24 @@ The repo includes the ROMs, the Ghidra CPU definition and (soon) the Ghidra proj
 - [`tools/dis.py`](tools/dis.py) — a linear CDP1802/1805/1806 disassembler for
   the image.
 
-  **Read code through Ghidra first.** Ghidra holds the function boundaries, the
-  names already established and the real cross-references, and it is the view
-  the listing in these notes is supposed to match. This script is for the cases
-  Ghidra cannot cover or gets wrong: code with no function defined — common in
-  this image, where `05A6`, `0699`, `067E`, `70B9`, `7014` and `3B24` all have
-  none — sites where the `X == P` inline-operand form or an uncovered inline
-  `SCAL` argument makes the listing actively wrong, and image-wide scripted
-  scans such as "every `RLDI R1`" or "every inbound reference into this range".
-  Where both can see the same code, cross-check: reading `5E1B` here stopped at
-  `5E60` when Ghidra has the function ending at `5E6D`.
+  **Do not read code with this when the Ghidra MCP is available — use Ghidra.**
+  Ghidra holds the function boundaries, the names already established and the
+  real cross-references, and it is the view these notes are supposed to match.
+  Decoding bytes alongside it lets the notes drift from the program, and it
+  reintroduces the arithmetic errors this script was written to remove: reading
+  `5E1B` here stopped at `5E60` when Ghidra has the function ending at `5E6D`.
 
-  It exists because hand-counting bytes produced several of the
-  errors these notes have had to retract, and it handles the two things a naive
-  sweep gets wrong here: the `X == P` inline-operand form, where `OUT`/`RET`/
+  The MCP can only reach code **inside a defined function** — it has no
+  create-function, no raw-byte read and no disassemble-at-an-address. When a
+  target has no function yet, the fix is to define one in Ghidra (`F` at the
+  address), not to decode around it; the boundary then persists for later
+  sessions. See `OPEN-QUESTIONS.md` for the addresses currently waiting on that.
+
+  What is left for this script is the work Ghidra does not do: image-wide
+  scripted scans such as "every `RLDI R1`" or "every inbound reference into this
+  range", extracting a data table, and cross-checking a listing. It exists
+  because hand-counting bytes produced several of the errors these notes have
+  had to retract, and it handles the two things a naive sweep gets wrong here: the `X == P` inline-operand form, where `OUT`/`RET`/
   `DIS`/`LDXA`/`IRX` take an operand from the instruction stream and are two
   bytes instead of one, and inline call arguments, where the bytes after a
   `SCAL` are data and decoding them as code invents plausible instructions.
