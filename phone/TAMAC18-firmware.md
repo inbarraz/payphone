@@ -2469,23 +2469,43 @@ that is exactly the kind of false lead to guard against.
 5E67  LDN R8 / ANI 0x80 / STR R8       otherwise keep only bit 7
 ```
 
-### The call sites answer an open question
+### Named `count_fault_occurrence`, and the full census
 
-| Site | Args | Target |
-|---|---|---|
-| `5C4F` | `27 05 61` | `8427` |
-| `5C89` | `13 01 51` | `8413` |
-| `5DDD` | `3b 03 75` | `843B` |
-| `5DEA` | `3d 02 76` | `843D` |
+The thresholding is the whole point, and it is what separates this from
+`store_byte_84xx` (`5E6E`), its one-byte sibling, which just stores a code: the
+firmware **counts occurrences before logging**, so a transient glitch produces
+no entry. Hence `count_fault_occurrence` rather than anything about storing.
 
-All four are **odd** offsets from `840A`, so each addresses the *second* byte
-of a fault-log entry — the log being `840A`–`8441`, two bytes per entry,
-walked at `600D`–`604B` in `show_fault_log` (§10e).
+All **30** call sites, with `arg1` read as a low byte (`R8 = 0x84:arg1`):
 
-**These four are not all of them.** A byte scan finds **30** `SCAL 5E1B`
-sites, sixteen of them in `5C0F`–`5DEA`. Every one of the 30 has an **odd**
-first argument, so the "second byte of a log entry" reading holds across all
-of them — but any statement resting on there being four sites does not.
+| Site | Args | Target | Thr | | Site | Args | Target | Thr |
+|---|---|---|---|---|---|---|---|---|
+| `1BE3` | `0D 05 48` | `840D` | 5 | | `5C4F` | `27 05 61` | `8427` | 5 |
+| `1BED` | `0F 05 49` | `840F` | 5 | | `5C89` | `13 01 51` | `8413` | 1 |
+| `2A6E` | `1B 01 55` | `841B` | 1 | | `5CD1` | `11 01 50` | `8411` | 1 |
+| `2F5C` | `37 01 73` | `8437` | 1 | | `5D02` | `1D 01 56` | `841D` | 1 |
+| `3432` | `3F 05 77` | `843F` | 5 | | `5D14` | `2D 05 65` | `842D` | 5 |
+| `34A1` | `3F 05 77` | `843F` | 5 | | `5D29` | `1F 05 57` | `841F` | 5 |
+| `34E0` | `3F 05 77` | `843F` | 5 | | `5D34` | `21 01 58` | `8421` | 1 |
+| `37B2` | `2B 05 64` | `842B` | 5 | | `5D3F` | `23 05 59` | `8423` | 5 |
+| `4440` | `31 02 67` | `8431` | 2 | | `5D84` | `29 01 63` | `8429` | 1 |
+| `4CB4` | `15 01 52` | `8415` | 1 | | `5D9D` | `33 02 68` | `8433` | 2 |
+| `4D0D` | `15 01 52` | `8415` | 1 | | `5DB1` | `35 05 69` | `8435` | 5 |
+| `5056` | `25 01 60` | `8425` | 1 | | `5DC3` | `19 01 54` | `8419` | 1 |
+| `5C0F` | `2F 01 66` | `842F` | 1 | | `5DD0` | `39 03 74` | `8439` | 3 |
+| `6E85` | `15 01 52` | `8415` | 1 | | `5DDD` | `3B 03 75` | `843B` | 3 |
+| `7604` | `17 28 53` | `8417` | **40** | | `5DEA` | `3D 02 76` | `843D` | 2 |
+
+**Every one of the 30 has an odd `arg1`**, so every target is the *second* byte
+of a fault-log entry — the log being `840A`–`8441`, two bytes per entry, walked
+at `600D`–`604B` in `show_fault_log` (§10e). An earlier draft listed four sites
+and reasoned from that; the reading survived the recount, but nothing resting on
+there being four does.
+
+Thresholds: **1** at thirteen sites, **2** at three, **3** at two, **5** at
+eleven, and **`0x28` = 40 at exactly one** — `7604`, which wants forty
+occurrences before it logs. Three sites share `8415` at threshold 1 (`4CB4`,
+`4D0D`, `6E85`) and three share `843F` at threshold 5.
 
 So the second byte, left open in §10e, is a **counter with a threshold**. The
 `DEC R8` / `OR` then writes a bit into the first byte, which is the fault
@@ -7218,6 +7238,63 @@ is now mapped.
 
 So status `0x75` is the one reader failure that gets its own message and no log
 entry; everything else on this path is counted and logged.
+
+## 10bf. `2F04` — the cold-start initializer for the `8865` block
+
+`proc_2f04`, now `init_8865_block`. Body `2F04`–`2F25`, sole caller `6ED4` in
+`Finished_LCD_Initialization`, so it runs once at power-up. Four steps:
+
+```
+2F05  SCAL clear_block_range(8865, 88B9)   wipe 85 bytes
+2F0D  M(8865) = 0xAA                       re-arm the sentinel the wipe cleared
+2F14  RC = 8890 / RD = 8891 / SEX RC / RSXD RD
+      -> M(8890) = 0x91, M(888F) = 0x88: the WORD AT 888F = 8891, a pointer
+         initialised to the byte just past itself
+2F20  SCAL 044C                            M(8EEA) = 0, 8EEE..8EF2 = 0
+```
+
+### What the sentinel gates
+
+`proc_51e8` opens `RLDI RC,8865 / LDN / XRI 0xAA / LBNZ 5224` — it does nothing
+at all unless that byte is `0xAA`. So **this routine is what enables it**, and
+`proc_51e8` runs from the tick chain at `40A3`. `8865` is one of the image's
+`0xAA`/`0x55` validity sentinels (§12).
+
+`proc_51e8` is also the only consumer that explains these cells. It reads
+**port 1 bit 4** (`INP 1 / ANI 0x10 / XRI 0x10`), picks counter `8868` or `8869`
+and threshold `M(2F02)` or `M(2F03)` by that bit — both thresholds are 2 —
+increments the chosen counter saturating, and when it equals the threshold reads
+**the other** counter, stores it into `886A`, zeroes the current one, and
+toggles bit 0 of `M(8867)`. The "other counter either way" is the `LSNZ` at
+`520F`: `C6 1C 38 2C`, so a non-zero `D` skips `INC RC` and the `NBR` to land on
+`DEC RC`, while a zero `D` takes `INC RC` and the `NBR` swallows the `DEC`.
+
+So: a 2-tick debounce on port 1 bit 4 that publishes the opposite phase's count
+and flips a phase flag. **What `886A` is consumed for is not established.**
+
+### Two things that bite a reader here
+
+**`2F02`/`2F03` are data, not code.** `2F00` is `68 93` — the *previous*
+routine's `SRET R3` — and the two threshold bytes sit between it and this
+entry point. Anything that disassembles straight through `2F00` will read them
+as an instruction.
+
+**The block serves more than port 1**, which is why this routine is not named
+for it. Anchors inside `8865`–`88B9`: `8865` here and at `51E8`; `8866` at
+`522A`; `8867` at `51DA`/`521C`; `8868` at `51F2`; `886A` at `5214`/`5238`;
+`886B` at `3278`/`32AA`; `886C` at `3270`/`51D3`/`5503`; and `88BA`, `88BB`,
+`88BD`, `88BE` elsewhere. `8890` and `8891` are touched **only** here, so the
+pointer at `888F` is walked by register arithmetic afterwards with no `RLDI` to
+find it by — the same pattern as the `8119` pointers in §10g.
+
+### Port 1 bit 4 is also self-tested
+
+`5DC8` runs the same `INP 1 / ANI 0x10 / XRI 0x10` and logs it through
+`count_fault_occurrence` at `5DD0` with args `39 03 74`: counter `8439`,
+threshold 3, code `0x74`, which the `6069` table maps to **displayed fault 41**.
+So the same input is both debounced for timing here and read-back checked there,
+exactly as port 2 bit 1 is (§10ba) — and with a threshold of 3 rather than 1, so
+that one *does* debounce before logging.
 
 ## 11. Naming added in this session
 
