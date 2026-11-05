@@ -22,7 +22,20 @@ The repo includes the ROMs, the Ghidra CPU definition and (soon) the Ghidra proj
 - [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) — the running queue of what is
   still unknown, what evidence bears on it, and what would settle it.
 - [`tools/dis.py`](tools/dis.py) — a linear CDP1802/1805/1806 disassembler for
-  the image. It exists because hand-counting bytes produced several of the
+  the image.
+
+  **Read code through Ghidra first.** Ghidra holds the function boundaries, the
+  names already established and the real cross-references, and it is the view
+  the listing in these notes is supposed to match. This script is for the cases
+  Ghidra cannot cover or gets wrong: code with no function defined — common in
+  this image, where `05A6`, `0699`, `067E`, `70B9`, `7014` and `3B24` all have
+  none — sites where the `X == P` inline-operand form or an uncovered inline
+  `SCAL` argument makes the listing actively wrong, and image-wide scripted
+  scans such as "every `RLDI R1`" or "every inbound reference into this range".
+  Where both can see the same code, cross-check: reading `5E1B` here stopped at
+  `5E60` when Ghidra has the function ending at `5E6D`.
+
+  It exists because hand-counting bytes produced several of the
   errors these notes have had to retract, and it handles the two things a naive
   sweep gets wrong here: the `X == P` inline-operand form, where `OUT`/`RET`/
   `DIS`/`LDXA`/`IRX` take an operand from the instruction stream and are two

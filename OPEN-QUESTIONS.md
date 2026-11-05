@@ -360,16 +360,23 @@ Collected separately because they are not worth static effort:
       `705E` sequencer holds it high in the idle state `70C3`, and the cycle
       `7074` → `7086` → `70A5` drives it **3 s low, 3 s high, indefinitely**,
       optionally after a 28 s one-shot delay from state `7065` (§10az). §6a
-      still has no bit of `8034` traced to a component. §10ba then pinned down
-      *when* it runs: `enter_call_connected` (`6FFF`) arms the one-shot and
-      `exit_call_connected` (`6FB3`) returns the sequencer to idle, which holds
-      the bit high — so the cadence runs **during a connected call and only
-      then**, starting 28 s in. A 3/3 s even cadence is not the Israeli ring
-      cadence; the candidates are an indicator lamp, a polarity or hook relay,
-      or a periodic signal to the line. 28 s is close to the first metering
-      interval, which is suggestive but not evidence. Period, duty cycle and
-      now the trigger are exact, so this should be identifiable from the
-      hardware.
+      still has no bit of `8034` traced to a component. §10ba narrowed it
+      sharply. The one-shot is armed by the `6FFF` entry and the sequencer is
+      returned to idle (bit high) by `6FB3` — but the `7014` entry reaches the
+      same billable state **without** arming it, and the choice between them is
+      `M(843A) & 0x7F`, byte 0 of fault-log entry 24. `show_fault_log` uses the
+      identical mask, so zero means that slot is empty; and the fault recorded
+      there is `INP 2 / ANI 0x02` at `5DDD` — a **port-2-input bit-1 read-back
+      check**.
+
+      So the cadence is armed only while that self-test passes, and suppressed
+      once the fault is logged. **A driven line whose suppression is gated on a
+      read-back check is most likely an output the firmware verifies, not an
+      indicator.** The two "bit 1"s are on different ports, so this is a
+      correlation, not a loop-back proof — establishing whether `PORT5` bit 1
+      and `PORT2` input bit 1 are the same net is the next step, and it is a
+      hardware question. Period (3 s / 3 s), duty cycle, delay (28 s) and both
+      the arm and suppress conditions are now exact.
 
 - [ ] **The second and third sections of the `13EC` timer table.** Section 1 is
       five `{pointer, flag-index}` triples and is fully read (§10az). `RE = 3`

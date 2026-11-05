@@ -220,7 +220,7 @@ dozen places has a dozen chances to give itself away.
 | `83FE` | — | 1 — `6e20` | — |
 | `8409` | — | 1 — `3c1b` | st=0 |
 | `840A` | `fault_log` | 4 — `3c23` `3f70` `5b9e` `600d` | st=1 mask=7f |
-| `843A` | — | 1 — `3b24` | st=0 |
+| `843A` | `faultlog_entry24_code` *(no Ghidra label)* | 1 — `3b24` | st=0 |
 | `8442` | — | 5 — `3c1f` `5b97` `5ccc` `5e1c` `5e6e` | st=1 imm=00 |
 | `8443` | — | 4 — `3c6d` `3faa` `5be2` `2f48` | st=2 |
 | `8444` | — | 1 — `3f9c` | st=1 |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **163 named**, 226 still unnamed.
+389 anchored cells, **164 named**, 225 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.

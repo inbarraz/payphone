@@ -6474,7 +6474,7 @@ it is a literal.
 `705E` sequencer, and it turns out to be one half of the phone's central state
 transition. The two routines sit next to each other and are near-inverses:
 
-| | `6FB3` … `6FFD` | `6FFF` … `705C` |
+| | `6FB3` … `6FFD` | the tail `701B` … `705C` |
 |---|---|---|
 | tone | `play_toggle_pattern(3A9E)` | `play_toggle_pattern(3AA0)` |
 | local tone path, `M(8034)` bit 2 | `\|= 0x04` — **opens** | `&= ~0x04` — **closes** |
@@ -6496,9 +6496,26 @@ against `48F1`. `6FC8` and `6FE3` have no callers at all; they are fall-through
 inside `6FB3`, not entry points. An earlier reading of this session had `6FE3`
 down as an independent installer, which it is not.
 
-### `6FFF` is the transition into the *chargeable* call
+### The shared tail is the transition into the *chargeable* call
 
-The decisive evidence is not in either routine but at `3790`:
+An earlier draft of this section credited `6FFF` with that transition and put
+`7014` in a footnote. **That was wrong, and it mattered.** `7014` is not a
+variant caller; it is a second entry that falls into the same tail
+unconditionally. `7011 LBR 701B` is the *only* control transfer anywhere in
+`6FB3`–`705C`, so the region is three straight-line entries and one join:
+
+```
+6FB3 ──────────────────────────────────► SRET 6FFD    7 callers
+6FFF ─ arm sequencer 7065, tone 3AA0 ─┐
+                                      ├─► 701B … 705C SRET
+7014 ─ tone 3AA4, no arm ─────────────┘               1 caller, 3B2F
+```
+
+Everything in the table above under "the tail" — including `M(8032) = 0xAA` —
+runs on **both** paths. So there are two entries into the billing window, and
+all they differ in is the tone and whether the cadence is armed.
+
+The decisive evidence is not in any of the three but at `3790`:
 
 ```
 3790  RLDI RA,8032 / LDN RA / XRI 0xAA
@@ -6507,7 +6524,8 @@ The decisive evidence is not in either routine but at `3790`:
 ```
 
 A metering pulse from the exchange is only ever charged while
-`M(8032) == 0xAA`. `6FFF` is what sets it, and `4B1E` is what clears it —
+`M(8032) == 0xAA`. The tail at `703C` is what sets it — reached from `6FFF` or
+`7014` alike — and `4B1E` is what clears it:
 `4B16 LDI 0x00` falls through stores into `8182`, `8149` and then `8032`. So the
 window in which the phone bills is opened at `6FFF` and closed at `4B1E`, and
 §10ak's chain from exchange pulse to debit now has its gate named at both ends.
@@ -6542,13 +6560,47 @@ exist, adjacent and null-terminated:
 | `3AA0` | `07 04 05` | 140 ms on, 80 ms off, 100 ms on |
 | `3AA4` | `05 07 03` | 100 ms on, 140 ms off, 60 ms on |
 
-`6FB3` plays `3A9E`, `6FFF` plays `3AA0`, and `7014` — a genuine second entry to
-`6FFF`'s tail, called by `SCAL 7014` at `3B2F` — plays `3AA4` and skips the
-sequencer arm. The choice at `3B2B` is `LDN RA / SHL / SHR / LBZ`, which leaves
-`D = M(RA) & 0x7F`: all seven low bits clear takes `6FFF`, anything set takes
-`7014`. The `LBR 701B` at `7011` is therefore the join of two entries, not
-disabled code — which is how it first read here before the reference at `3B2F`
-turned up.
+`6FB3` plays `3A9E`, `6FFF` plays `3AA0`, and `7014` plays `3AA4`.
+
+### What chooses between the two entries, and what that says about the cadence
+
+```
+3B24  RLDI RA,843A
+3B28  LDN RA / SHL / SHR      D = M(843A) & 0x7F
+3B2B  LBZ 3B36                zero     -> 6FFF: tone 3AA0, cadence ARMED
+3B2F  SCAL 7014               non-zero -> 7014: tone 3AA4, cadence NOT armed
+```
+
+`843A` is read from exactly one site in the image, and never written through it,
+so it belongs to a structure reached from a neighbour. It does: `843A − 840A` is
+`0x30`, an **even** offset into the fault log (`840A`–`8441`, two bytes per
+entry, §10e), so `843A` is byte 0 of fault-log entry 24 — and `843B`, byte 1 of
+that same entry, is the counter `5DDD` bumps through `increment_fault_counter`
+with the offset argument `0x3B`.
+
+`show_fault_log` settles what byte 0 is. At `6011` and again at `601B` it applies
+**the same `ANI 0x7F`** and skips the slot when the result is zero, then offsets
+the low seven bits by `0x46` to index the message table at `6069`. So the low
+seven bits of byte 0 are a fault code and **zero means the slot is empty**. The
+test at `3B28` is therefore not a mode flag at all: it asks *has this fault been
+recorded?*
+
+And the fault in slot 24 is a self-test result. `5DDD` logs
+`INP 2 / ANI 0x02 / XRI 0x02` — **bit 1 of the port 2 input**, one of three
+read-back checks in a row at `5DC8`–`5DF0`.
+
+So: **the cadence is armed only while the port-2-input bit-1 self-test is
+passing, and suppressed once that fault is logged.** That is a much tighter
+handle on bit 1 of `PORT5_shadow` than §10az had. A signal that is driven on a
+3 s / 3 s cadence and whose suppression is tied to a *read-back* check is most
+likely an output the firmware can verify, rather than an indicator. The two
+"bit 1"s are on different ports, so this is a correlation and not yet a
+loop-back proof — but it is the first evidence that the driven line is sensed at
+all, and it is what to chase next.
+
+It also corrects §10az's conclusion. The cadence does **not** run during every
+connected call: a call entered through `7014` is fully billable and has no
+cadence at all.
 
 **And this closes a loop on §10az.** The tone player's countdown is
 `delay_timer_812d`, and `812D` is one of only two cells decremented by *both*
@@ -6569,13 +6621,15 @@ table is open.
 ### What the cadence is for is still open
 
 §10az found that the sequencer drives bit 1 of `PORT5_shadow` 3 s low / 3 s high
-after a 28 s delay, and it is now clear *when*: `6FFF` arms that one-shot on
-entering the connected call, and `6FB3` returns the sequencer to its idle state
-`70C3`, which holds bit 1 high. So the cadence runs **during a call and only
-during a call**, starting 28 s in. That narrows the candidates considerably —
-28 s is close to the first metering interval, so a periodic signal to the line
-or to a local indicator both remain possible — but it does not identify the bit,
-and §6a still has nothing on `8034` traced to a component.
+after a 28 s delay, and it is now clearer *when*: `6FFF` arms that one-shot and
+`6FB3` returns the sequencer to its idle state `70C3`, which holds bit 1 high.
+
+But **not** on every call. `7014` enters the same billable state without arming
+it, and the choice between the two is the fault-slot test above. So the cadence
+runs during calls entered through `6FFF` only, and is suppressed for the life of
+a logged port-2-input bit-1 fault. §6a still has nothing on `8034` traced to a
+component, but the suppression condition is the strongest lead so far, and it is
+on the queue in that form.
 
 ## 11. Naming added in this session
 
