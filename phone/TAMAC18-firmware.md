@@ -384,7 +384,7 @@ firmware line diverged.
 > **Addresses here are the phone's.** The card reader is a separate CPU with
 > its own 32 KB space, and both put working state at `80xx`, so the same
 > number means different things in the two documents — `8034` is
-> `PORT5_shadow` here and the **stepper phase index** in
+> `PORT1_shadow` here and the **stepper phase index** in
 > [`card-reader/BSK31-firmware.md`](../card-reader/BSK31-firmware.md);
 > `8035` is `PORT2_shadow` here and the **live phase pattern** there. Never
 > carry a bare address between the two.
@@ -622,6 +622,15 @@ Link reset at **`0x5FB1`** clears bit 0 of `0x8029`, zeroes `8031` and
 
 ## 6b. How the ports are decoded — measured
 
+> **`8034` was called `PORT5_shadow` here until §10u settled the port mapping.**
+> It is `PORT1_shadow`: `port n <- M(0x8033 + n)`, so `8034` is what `OUT 1`
+> sends, and it doubles as the control word of the port-2 write that follows.
+> `8033` is only ever a control word and never port data, so it was not a
+> "port 5 shadow" either; it keeps `strap_drive_and_flags`. The claim below that
+> any `ORI`/`ANI` on `8034` is a hardware output change survives the rename —
+> only the port number was wrong.
+
+
 **There is no external I/O decoder for the UART. It decodes its own port
 select**, which is the entire point of the 1854's Mode 1.
 
@@ -738,7 +747,7 @@ load serves both ports. The same idiom appears at `241D`, `2950` and `295E`.
 | Port | Direction | Shadow |
 |---|---|---|
 | **2** | output | **`0x8035`** (`PORT2_shadow`) |
-| **5** | output | **`0x8034`** (`PORT5_shadow`) |
+| **5** | output | **`0x8034`** (`PORT1_shadow`) |
 | 6 | UART data | — |
 | 7 | UART status / control | — |
 
@@ -3481,20 +3490,40 @@ immediately *below* the one the real write uses. So port 5's data byte is not
 its own — it is whatever happens to sit below the target, and it changes with
 the target.
 
-**That resolves the question in favour of the latch-enable reading.** Of the two
-possibilities the earlier draft offered — `OUT 5` is a strobe whose data the
-hardware ignores, or the two routines drive different devices — only the first
-survives, because `scan_keypad` and `flush_output_latches` are unrelated
-routines following one rule. Note also that `M(0x8033 + 5)` = `8038` is never an
-`OUT 5` source anywhere, so port 5 never receives "its own" byte under the
-scheme at all.
+Of the two possibilities the earlier draft offered — `OUT 5` is a strobe whose
+data the hardware ignores, or the two routines drive different devices — the
+second is dead, because `scan_keypad` and `flush_output_latches` are unrelated
+routines following one rule. `M(0x8033 + 5)` = `8038` is never an `OUT 5` source
+anywhere either, so port 5 never receives "its own" byte under the scheme.
 
-So **`8033` is not "the port 5 shadow"**, and neither is any other cell — which
-is why it stays named `strap_drive_and_flags` (§10k). What the staging array
-`8033`–`8037` holds is one byte per *real* output port, and `OUT 5` is the
-select or latch-enable pulse that precedes each write. The names
-`PORT5_shadow` (`8034`) and `PORT2_shadow` (`8035`) record one site's accident
-and should be read with that in mind.
+**But "whose data the hardware ignores" is also wrong**, and the flush proves
+it two ways:
+
+```
+7594  OUT 5 <- M(8034)
+7597  OUT 2 <- M(8035)
+759B  ANI 0xBF / STR      clear bit 6 of M(8034)
+759E  OUT 5 <- M(8034)    <- same port-2 data, different OUT 5 byte
+75A1  OUT 2 <- M(8035)
+```
+
+The second port-2 write exists *only* so bit 6 of the `OUT 5` byte can change
+between them; the data byte is identical. The same shape repeats for port 4 —
+`75AF ANI 0xED` clears bits 1 and 4 of `M(8036)` between two `OUT 4` writes of
+`M(8037)`. So the `OUT 5` byte is **observed**: it is a control word whose bits
+qualify the write that follows, and those qualifier bits are the strobes.
+
+**So the array is `port n <- M(0x8033 + n)` for the data, with `M(0x8033 + n − 1)`
+as that write's control word.** That makes `8034` the **port 1** data byte
+(`758F OUT 5 <- 8033`, `7592 OUT 1 <- 8034`) *and* the control word of the port-2
+write. `PORT2_shadow` (`8035`) is correct. **`PORT1_shadow` (`8034`) is not —
+it is renamed `PORT1_shadow`.** `8033` is only ever a control word, never port
+data, which is why it keeps `strap_drive_and_flags` (§10k) and why §6b should
+not have called it a port-5 shadow either.
+
+That reframes §10az's cadence: **bit 1 of `8034` is a bit of the port-1 output
+image**, so what the `705E` sequencer drives for 3 s at a time is a port-1 line,
+not anything on port 5.
 
 ## 10v. `init_comm_session` (`0x74A7`)
 
@@ -5907,10 +5936,15 @@ epilogue borrows `R1` as its program counter for the five instructions it takes
 to put `R4` back. The second handler's epilogue at `067E` is byte-for-byte the
 same idea — `IRX`, `RLXA RE` down to `RLXA R4`, then `LDXA / RSHL / LDXA / RET`.
 
-So **neither handler replaces the saved continuation**. Branching into the tick
-chain is still interrupt-handler work; the handler reaches `28B7` either way and
-resumes exactly where it was interrupted. How a thread parked at `1A7C` ever
-proceeds is therefore open again, and is back on the queue.
+So branching into the tick chain is still interrupt-handler work: the handler
+reaches `28B7` either way and resumes exactly where it was interrupted. That
+part stands.
+
+**But the conclusion drawn from it — that no path replaces the saved
+continuation — was wrong.** Codex asked for such a path "unless one is
+identified"; a later review identified it, in the *other* handler, and the bytes
+confirm it. See §10bd. The park loop at `1A7C` is resumed, and the mechanism is
+exactly the stack rewrite this section said did not exist.
 
 ### What the `IDL` park *does* mean
 
@@ -6483,7 +6517,8 @@ Richer than `40AE`, which only decrements. Records are `{pointer, flag-index}`:
 ```
 141E  RLXA RD           RD = the timer's address      (2 bytes)
 1420  LDA RA / PLO RB   RB.0 = the flag index         (1 byte)
-1423  DBNZ RD,142A      RD == 0 -> end of section
+1422  INC RD            paired with the DBNZ below: a zero test that
+1423  DBNZ RD,142A      RESTORES RD. RD == 0 -> end of section
 142A  LDN RD / LBZ      already zero -> next entry
 142E  SMI 1 / STR RD    decrement
 1431  LBNZ              still running -> next entry
@@ -6500,12 +6535,45 @@ Richer than `40AE`, which only decrements. Records are `{pointer, flag-index}`:
 | `13F8` | `session_timer_8e02` | `set_feature_flag(6)` |
 
 `RE = 3` at `1415`, and the `00 00 00` at `13FB` ends the first section, so the
-table has **three** sections. The second and third are handled at `144B`–`1477`
-and use a different record layout — the code there reads a 2-byte pointer, then
-*increments* a 16-bit counter at it, then compares it against two table bytes.
-Reading those sections as `{pointer, flag}` triples produces a "timer" at
-`008E`, which is how one knows the layout differs. Unresolved; on the queue with
-the raw bytes.
+table has **three** sections.
+
+### Sections 2 and 3 are periodic headers followed by ordinary triples
+
+Solved. Each later section is **one 4-byte header — `{counter pointer, 16-bit
+big-endian limit}` — followed by section-1 triples that run only on the tick the
+counter reaches the limit**, then the usual `00 00 00`. The header handler is
+`144B`–`1477`:
+
+```
+144B  RLXA RD                           the counter's address
+144D  INC RD / LDN / ADI 1 / STR        low byte + 1
+1452  DEC RD / LDN / ADCI 0 / STR       high byte + carry
+1458  LDA RA / SM / LBZ 1461            compare high against the table
+1461  IRX / LDA RA / SM / LBNZ 146E     compare low
+1467  STR RD / DEC RD / STR RD          on a match, zero both counter bytes
+146B  LBR 141E                          ...and fall into the triples
+146E  skip the triples to 00 00 00, then 1444 for the next section
+```
+
+`SM` is `M(R(X)) − D`, so equal operands give `D = 0` and `LBZ` is the match.
+The counter is cleared on the match, so the period is exactly `limit`
+increments of the base tick.
+
+| Section | Counter | Limit | On the hit tick |
+|---|---|---|---|
+| 2 | `8ED5` | `0x0032` = 50 ticks = **1.000 s** | decrement `8E04`, then `8E01` |
+| 3 | `8ED7` | `0x0BB8` = 3000 ticks = **60.000 s** | decrement `8E00` |
+
+So `1415` is three timebases in one walker: section 1 at the 50 Hz base tick,
+section 2 at 1 Hz, section 3 at 1/60 Hz — the DLC context's equivalent of the
+main chain's `40AE` / `40D6`-`40E7` split, built differently. Its triples carry
+flag indices `04` and `03`, so an expired sub-timer raises a feature flag.
+
+Earlier drafts of this section could not read the layout, because `tools/dis.py`
+mis-sized `ADCI` (`0x7C`) as one byte and printed the `1454` operand as a
+phantom `IDL` — which read as a mis-decode of data and sent the analysis looking
+for a different record shape. The tool is fixed and self-tests the three
+affected opcodes.
 
 ### `705E` is a sequencer driven by a resume address in RAM
 
@@ -6531,17 +6599,17 @@ word, matching `RLXA`'s read. Five states exist, and the census is complete —
 
 | State | Does | Then |
 |---|---|---|
-| `70C3` | `PORT5_shadow \|= 0x02` | stays — the idle state |
+| `70C3` | `PORT1_shadow \|= 0x02` | stays — the idle state |
 | `7065` | word timer at `8854` := `0x0578` | → `70A5` |
-| `7074` | byte timer at `8853` := `0x96`; `PORT5_shadow &= ~0x02` | → `7086` |
-| `7086` | count `8853` down; at zero `PORT5_shadow \|= 0x02`, `8854` := `0x0096` | → `70A5` |
+| `7074` | byte timer at `8853` := `0x96`; `PORT1_shadow &= ~0x02` | → `7086` |
+| `7086` | count `8853` down; at zero `PORT1_shadow \|= 0x02`, `8854` := `0x0096` | → `70A5` |
 | `70A5` | count the 16-bit `8854` down (`DBNZ R5`) | at zero → `7074` |
 
 Installed from outside by `6EC5` (reset), `6FE8` and `35EF` — all three to
 `70C3` — and by `7004` to `7065`.
 
 **So `7074` → `7086` → `70A5` → `7074` is a cadence generator on bit 1 of
-`PORT5_shadow`.** One step per base tick is 20 ms, so `0x96` = 150 steps = 3.0 s
+`PORT1_shadow`.** One step per base tick is 20 ms, so `0x96` = 150 steps = 3.0 s
 and the duty cycle is even: **3 s low, 3 s high, indefinitely**. `7065` is the
 one-shot entry: `0x0578` = 1400 steps = 28 s of delay before the cadence starts.
 
@@ -6736,7 +6804,7 @@ read-back checks in a row at `5DC8`–`5DF0`.
 
 So: **the cadence is armed only while the port-2-input bit-1 self-test is
 passing, and suppressed once that fault is logged.** That is a much tighter
-handle on bit 1 of `PORT5_shadow` than §10az had. A signal that is driven on a
+handle on bit 1 of `PORT1_shadow` than §10az had. A signal that is driven on a
 3 s / 3 s cadence and whose suppression is tied to a *read-back* check is most
 likely an output the firmware can verify, rather than an indicator. The two
 "bit 1"s are on different ports, so this is a correlation and not yet a
@@ -6845,7 +6913,7 @@ that *block* on that timer, which is what closed the overlap question above.
 
 ### What the cadence is for is still open
 
-§10az found that the sequencer drives bit 1 of `PORT5_shadow` 3 s low / 3 s high
+§10az found that the sequencer drives bit 1 of `PORT1_shadow` 3 s low / 3 s high
 after a 28 s delay, and it is now clearer *when*: `6FFF` arms that one-shot and
 `6FB3` returns the sequencer to its idle state `70C3`, which holds bit 1 high.
 
@@ -6943,6 +7011,94 @@ registered function, and `28F8` as a unit of control entered once and left once.
 Its key-code table sits at `2408`–`2418`, immediately *below* the entry point —
 loaded into `RE` at `2425`, with `24A8`'s comment already noting `2418` as the
 last entry.
+
+## 10bd. The park loop IS resumed — the DLC handler rewrites the saved `R4`
+
+§10av withdrew the claim that the ISR redirects a parked thread, on the grounds
+that both epilogues restore the interrupted context in full. The epilogue fact
+is true. **The conclusion was wrong.** Codex had asked for the retraction
+"unless a path that actually replaces the saved continuation is identified", and
+one exists — not in the card-reader handler where §10av looked, but in the DLC
+handler, nine instructions before its epilogue.
+
+### The rewrite
+
+```
+065C  RLDI R1,8E0F / LDN R1
+0661  LBZ 0679             M(8E0F) == 0 -> skip, ordinary return
+0664  SEX RA
+0665  RNX R2               RA := R2        (RNX is R(X) <- R(N), and X is RA)
+0667  LDI 0x16
+066A  SCAL add_D_to_RA     RA := R2 + 0x16
+066F  RLDI R1,8E0D
+0673  RLXA R1              R1 := the word at 8E0D/8E0E
+0675  SEX RA / RSXD R1     store that word AT R2 + 0x16
+0679  RLDI R1,067E / SEP R1   the epilogue, with P = R1
+```
+
+**`R2 + 0x16` is the saved `R4`.** The `0699` prologue is `DSAV`, `DEC R2`, then
+eleven `RSXD`s — `R4` through `RE` at `069C`–`06B1`. `RSXD` writes the low byte
+at `M(R(X))`, the high byte at `M(R(X))−1`, and leaves `R(X)` two lower. Eleven
+of them move `R2` down by 22 = `0x16`, and `R4` was stored *first*, so its slot
+is the top of the frame: high byte at `S−1`, low at `S`, where `S` is `R2` after
+the `DEC`. `R2 + 0x16` is exactly `S`. The `RSXD R1` therefore lands on `R4`'s
+two bytes, and the epilogue's `RLXA R4` at `0693` reads the *new* value back.
+Because that epilogue runs with `P = R1`, its closing `RET` transfers to
+whatever is in the `R4` slot.
+
+So the main thread does not resume where it was interrupted. It resumes at the
+address the handler just wrote.
+
+### What `8E0D` really is
+
+§2 had `8E0D`/`8E0F` as "the second link's RAM-resident chained vector and its
+one-shot gate". Close, and wrong in the part that matters: **`8E0D` is a
+main-thread resume address, not an interrupt vector.** `0679` overwrites `R1`
+with `067E` before the `SEP`, and `05A6` re-arms `R1` to `0699` on the next
+entry, so the word at `8E0D` is never used as a vector. `8E0F` is the one-shot
+gate — set to 1 when a step is scheduled, cleared when it is consumed.
+
+Renamed accordingly: `dlc_resume_addr` and `dlc_resume_armed`.
+
+### Who fills it, and why the stubs at `1A6A`–`1A79` are not dead
+
+`0653` calls `0F73` once per DLC base tick. `0F73` calls `0278`, which returns
+the lowest set feature flag (clamped at `0x0E`); index `0x0E` routes to `1015`,
+which clears `8E0F` and returns, so a step that is still running is not
+restarted. Otherwise a row byte from the table at `1026` indexes `1268`, which
+indexes a word table at `129E`, and `0FE6`'s `SEX R7 / RLXA R4` with `P = R4`
+jumps to the matching micro-handler. Those converge on `0FE8`, which writes the
+next macro-step address to `8E0D`, sets `8E0F = 1`, and calls `0A3E` to clear
+the flag bytes.
+
+The macro-step addresses live in a 37-word table at `131C`. §10at recorded
+`1A6A`–`1A7B` as "six consecutive `LBR 1A7C` with **no inbound references**
+anywhere — dead, most likely a jump table whose entries were all stubbed to the
+park loop." The first half is right and the conclusion is wrong: `1A6A`, `1A6D`,
+`1A70`, `1A73`, `1A76` and `1A79` are **entries in the `131C` table** (at
+`1344`, `1324`, `1328`, `132E`, `1336` and `1350`), reached by the computed jump
+at `0FE6`. They are script *yields*, not stubs. Nothing *branches* to them,
+which is what the scan tested — and once again the absence of inbound branches
+decided nothing (§10bc).
+
+### So `1A7C` is a coroutine yield, not a halt
+
+A session step parks there; the tick chain picks the next step from the flag
+state and splices its address into the interrupt frame; the epilogue resumes the
+main thread at that step; the step runs and parks again. `IDL` + `LBR` to itself
+is the yield instruction, and the handler is the scheduler.
+
+This also explains the shape §10at found and could not justify: twenty-four
+sites ending in `LBR 1A7C`, each recording a result code in `feature_flags_8dac`
+before parking. The result code *is* the scheduler's input — `0278` returns the
+lowest set flag, and that selects the next step.
+
+**Credit and caution.** Found by a Grok review tasked with closing gaps; every
+instruction and the frame arithmetic above were re-verified against the image
+here. The parts not re-verified independently are the `1026`/`129E`/`131C` table
+walk and the claim that every dispatcher entry except index 20 (`0EAF`) reaches
+`0FE8` — those are recorded as its findings, with the tables named so they can
+be checked.
 
 ## 11. Naming added in this session
 

@@ -66,7 +66,15 @@ LONGB = {0xc0: 'LBR', 0xc1: 'LBQ', 0xc2: 'LBZ', 0xc3: 'LBDF', 0xc8: 'LSKP',
          0xc9: 'LBNQ', 0xca: 'LBNZ', 0xcb: 'LBNF'}
 SKIP  = {0xc4: 'NOP', 0xc5: 'LSNQ', 0xc6: 'LSNZ', 0xc7: 'LSNF',
          0xcc: 'LSIE', 0xcd: 'LSQ', 0xce: 'LSZ', 0xcf: 'LSDF'}
-IMM   = {0xf8: 'LDI', 0xf9: 'ORI', 0xfa: 'ANI', 0xfb: 'XRI', 0xfc: 'ADI',
+# Every 2-byte immediate. 7C/7D/7F are easy to miss because the rest of the 7x
+# block is 1-byte register ops, and ALU below also names them - but `op in IMM`
+# is tested first, so listing them here is what gives them their operand byte.
+# Sized at 1 they printed the operand as a separate instruction, and since
+# ADCI #00 is `7c 00` the phantom was always IDL, which reads as a mis-decode of
+# DATA rather than as a tool bug. It put a bogus IDL at 048F and 1455 in this
+# project's listings; Grok's review caught it.
+IMM   = {0x7c: 'ADCI', 0x7d: 'SDBI', 0x7f: 'SMBI',
+         0xf8: 'LDI', 0xf9: 'ORI', 0xfa: 'ANI', 0xfb: 'XRI', 0xfc: 'ADI',
          0xfd: 'SDI', 0xff: 'SMI'}
 ALU   = {0xf0: 'LDX', 0xf1: 'OR', 0xf2: 'AND', 0xf3: 'XOR', 0xf4: 'ADD',
          0xf5: 'SD', 0xf6: 'SHR', 0xf7: 'SM', 0xfe: 'SHL',
@@ -231,6 +239,7 @@ SELFTEST = [
     (0x05dd, 'SCM1'),    (0x0695, 'LDXA'),    (0x0698, 'RET'),
     (0x7063, 'RLXA R4'), (0x40a7, 'SCAL R3,4EFC'), (0x1423, 'DBNZ RD,142A'),
     (0x05ed, 'OUT  6'),  (0x706b, 'RSXD R5'), (0x70cc, 'SRET R3'),
+    (0x048e, 'ADCI #00'), (0x1454, 'ADCI #00'), (0x06ee, 'SDBI #82'),
 ]
 
 def selftest():

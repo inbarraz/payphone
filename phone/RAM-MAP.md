@@ -77,7 +77,7 @@ dozen places has a dozen chances to give itself away.
 | `8031` | `link_resume_point` | 7 — `3900` `4726` `47ae` `4c14` `5f42` `5fb9` +1 | st=4 imm=00,d8 |
 | `8032` | `call_in_progress` | 4 — `3790` `42b6` `4b1e` `703c` | st=2 cmp=aa |
 | `8033` | `strap_drive_and_flags` | 16 — `0c9d` `19c3` `1a01` `2b1e` `2b78` `2b94` +10 | st=17 imm=01,20 mask=c0,e0 |
-| `8034` | `PORT5_shadow` | 26 — `0707` `19f9` `1a14` `2824` `284e` `2c10` +20 | st=26 mask=01,02,7f,ce cmp=01,40 |
+| `8034` | `PORT1_shadow` | 26 — `0707` `19f9` `1a14` `2824` `284e` `2c10` +20 | st=26 mask=01,02,7f,ce cmp=01,40 |
 | `8035` | `PORT2_shadow` | 16 — `0cc0` `19d1` `241d` `2950` `295e` `2c57` +10 | st=15 mask=02,ef,f7,fd |
 | `8036` | `timer_and_display_flags` | 23 — `01e4` `01f1` `28ac` `4132` `43f3` `4532` +17 | st=22 mask=40,7f,bf,df |
 | `8038` | `LCD_next_descriptor` | 1 — `0721` | st=1 imm=00 |
@@ -410,8 +410,8 @@ dozen places has a dozen chances to give itself away.
 | `8E0A` | `code_shadow_mode` | 3 — `1ed8` `1ef1` `30c3` | st=3 imm=00,01 |
 | `8E0B` | — | 2 — `0525` `0530` | st=2 imm=00 |
 | `8E0C` | — | 1 — `20de` | st=1 |
-| `8E0D` | `dlc_chained_vector` *(no Ghidra label)* | 2 — `066f` `1003` | st=1 |
-| `8E0F` | `dlc_chained_vector_armed` *(no Ghidra label)* | 5 — `05cd` `065c` `0756` `100b` `1015` | st=4 imm=00,01 |
+| `8E0D` | `dlc_resume_addr` *(no Ghidra label)* | 2 — `066f` `1003` | st=1 |
+| `8E0F` | `dlc_resume_armed` *(no Ghidra label)* | 5 — `05cd` `065c` `0756` `100b` `1015` | st=4 imm=00,01 |
 | `8E10` | `CTRL_F000_shadow` | 4 — `0011` `13a2` `1ed1` `1eea` | st=3 imm=02,03 |
 | `8E11` | — | 3 — `078d` `0a97` `0dd4` | st=2 imm=00,01 |
 | `8E12` | — | 1 — `097c` | st=0 |
@@ -438,8 +438,8 @@ dozen places has a dozen chances to give itself away.
 | `8ECD` | — | 1 — `0bad` | st=1 imm=00 |
 | `8ECF` | — | 2 — `15a5` `1958` | st=2 |
 | `8ED0` | — | 2 — `15ab` `195d` | st=2 imm=00 |
-| `8ED5` | — | 1 — `0760` | st=1 imm=00 |
-| `8ED7` | — | 1 — `0769` | st=1 imm=00 |
+| `8ED5` | `dlc_1hz_counter` *(no Ghidra label)* | 1 — `0760` | st=1 imm=00 |
+| `8ED7` | `dlc_1min_counter` *(no Ghidra label)* | 1 — `0769` | st=1 imm=00 |
 | `8EDD` | — | 4 — `06d3` `0fa0` `0fc7` `0ff3` | st=3 imm=00 |
 | `8EE0` | — | 3 — `1fd8` `2016` `205d` | st=1 cmp=00 |
 | `8EE1` | — | 2 — `1ff8` `203e` | st=1 |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **164 named**, 225 still unnamed.
+389 anchored cells, **166 named**, 223 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.

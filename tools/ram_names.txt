@@ -27,7 +27,7 @@
 8031 link_resume_point
 8032 call_in_progress
 8033 strap_drive_and_flags
-8034 PORT5_shadow
+8034 PORT1_shadow
 8035 PORT2_shadow
 8036 timer_and_display_flags
 8037 LCD_verify_errcount
@@ -185,11 +185,13 @@
 8de2 charge_event_count
 8e02 session_timer_8e02|NOLABEL
 8e0a code_shadow_mode
-8e0d dlc_chained_vector|NOLABEL
-8e0f dlc_chained_vector_armed|NOLABEL
+8e0d dlc_resume_addr|NOLABEL
+8e0f dlc_resume_armed|NOLABEL
 8e10 CTRL_F000_shadow
 8e6d dlc_frame_checksum
 8ec8 dlc_rx_count_saved
+8ed5 dlc_1hz_counter|NOLABEL
+8ed7 dlc_1min_counter|NOLABEL
 8ed9 session_timer_8ed9|NOLABEL
 8efb ram_sentinel_8efb|NOLABEL
 97a1 code_shadow_job_state

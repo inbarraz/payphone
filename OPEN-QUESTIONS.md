@@ -345,15 +345,16 @@ Collected separately because they are not worth static effort:
       unaccounted for too.
       *Settle by:* tracing EF4 on the board, or following `RF.1`'s consumers.
 
-- [ ] **How does a thread parked at `1A7C` ever proceed?** Briefly recorded as
-      settled, and withdrawn: both interrupt handlers restore the interrupted
-      `R4` and `(X,P)` in full (`28D2` and `067E`), so entering the tick chain
-      from `51AD` is still handler work and replaces nothing. `IDL` plus a
-      forward branch is "wait for one interrupt" — the idiom at `06EB` and
-      `0CDF` — but `1A7C`'s branch points back at its own `IDL` and tests
-      nothing, which makes it terminal unless a handler rewrites the saved
-      continuation bytes on the stack at `M(R2)` before its epilogue. Find that
-      rewrite, or establish that `1A7C` is a deliberate halt (§10av).
+- [x] **How a thread parked at `1A7C` proceeds** — it is **resumed**, and the
+      mechanism is the stack rewrite §10av said did not exist. The DLC handler
+      at `0664`–`0676` sets `RA = R2 + 0x16` — the saved-`R4` slot, eleven
+      `RSXD`s above the frame base — and stores the word from `8E0D` into it;
+      `interrupt_leave`'s `RLXA R4` at `0693` reads it back and its `RET`
+      transfers there. `8E0D` is a main-thread resume address, not a vector
+      (`0679` overwrites `R1` before the `SEP`). So `IDL; IDL; LBR self` is a
+      coroutine yield and the tick chain is the scheduler, with the step's
+      result code in `feature_flags_8dac` as its input. The six "dead stubs" at
+      `1A6A`–`1A79` are entries in the `131C` macro-step table (§10bd).
 
 - [ ] **Mirror any remaining comments across the `1CB7` → `9100` relocation.**
       The block is copied to `9100` and runs there, so a finding is only useful
@@ -392,7 +393,7 @@ Collected separately because they are not worth static effort:
       this reader rejects `CE`, perhaps a variant for different reader
       firmware. Needs the reader image.
 
-- [ ] **What drives bit 1 of `PORT5_shadow` (`8034`)?** It now has a precise
+- [ ] **What drives bit 1 of `PORT1_shadow` (`8034`)?** It now has a precise
       waveform, which is the strongest handle yet on any bit of that port: the
       `705E` sequencer holds it high in the idle state `70C3`, and the cycle
       `7074` → `7086` → `70A5` drives it **3 s low, 3 s high, indefinitely**,
@@ -407,24 +408,32 @@ Collected separately because they are not worth static effort:
       check**.
 
       So the cadence is armed only while that self-test passes, and suppressed
-      once the fault is logged. **A driven line whose suppression is gated on a
-      read-back check is most likely an output the firmware verifies, not an
-      indicator.** The two "bit 1"s are on different ports, so this is a
-      correlation, not a loop-back proof — establishing whether `PORT5` bit 1
-      and `PORT2` input bit 1 are the same net is the next step, and it is a
-      hardware question. Period (3 s / 3 s), duty cycle, delay (28 s) and both
-      the arm and suppress conditions are now exact.
+      once the fault is logged.
 
-- [ ] **The second and third sections of the `13EC` timer table.** Section 1 is
-      five `{pointer, flag-index}` triples and is fully read (§10az). `RE = 3`
-      at `1415` says there are three sections, and `144B`–`1477` handles the
-      rest with a different record layout: it reads a 2-byte pointer, then
-      *increments* a 16-bit counter at it and compares it against two table
-      bytes, zeroing both on a match. Reading those bytes as triples yields a
-      "timer" at `008E`, so the layout definitely differs, but the 4-byte shape
-      the code implies does not line up with the bytes either. Raw, from
-      `13FE`: `8e d5 00 32 8e 04 04 8e 01 03 00 00 00 8e d7 0b b8 8e 00 03 00
-      00 00`.
+      **Narrowed again by §10u's port correction: the bit is a `PORT 1` output
+      bit, not port 5.** `port n <- M(0x8033+n)`, so `8034` is what `OUT 1`
+      sends — `758F OUT 5 <- 8033`, `7592 OUT 1 <- 8034`. The cell was named
+      `PORT5_shadow` until then, which had made the cadence look like a port-5
+      signal; it is a port-1 line held for seconds at a time.
+
+      Also ruled out: an in-stream loopback. Nothing writes bit 1 and reads it
+      back at `5DD7`, and the suppression at `3B28` is a one-way gate, so the
+      firmware never compares the two "bit 1"s. What fits every byte is a
+      call-time level on port 1 that stops pulsing once the port-2 earth fault
+      is logged — §10n maps that fault's code `0x75` to displayed fault 38, the
+      earth-disconnected string. Whether the two are the same net on the PCB is
+      a hardware question this ROM cannot answer. Period (3 s / 3 s), duty
+      cycle, delay (28 s), the port, and both the arm and suppress conditions
+      are now exact.
+
+- [x] **The second and third sections of the `13EC` timer table** — each is one
+      4-byte header `{counter pointer, 16-bit limit}` followed by ordinary
+      section-1 triples that run only on the tick the counter reaches the limit.
+      Section 2: counter `8ED5`, limit `0x0032` = 1.000 s, decrements `8E04`
+      then `8E01`. Section 3: counter `8ED7`, limit `0x0BB8` = 60.000 s,
+      decrements `8E00`. So `1415` is three timebases in one walker — 50 Hz,
+      1 Hz, 1/60 Hz. The layout had looked unreadable only because `tools/dis.py`
+      mis-sized `ADCI` and printed a phantom `IDL` at `1455` (§10az).
 
 - [ ] **Re-run the inline-args analyzer, then define the remaining entries.**
       The MCP reads only code inside a defined function, so anything unmapped
@@ -497,6 +506,25 @@ Collected separately because they are not worth static effort:
       a session would stall there if the DLC chain did not decrement it. Both
       cells in the `40AE` ∩ `13EC` overlap are explained, and the intersection
       has no further content (§10bb).
+
+- [ ] **The DLC frame shape is read; the tag *meanings* are not.** A review
+      worked out `038D` in full: it builds **one** frame shape — type 0 carries
+      a payload whose first byte is a tag, type 1 carries none, and anything but
+      0 or 1 returns `0xFF` at `0408`. Frame at `8C27`: `CC`, `00`, length+7,
+      `M(8DA7)`, `M(8DA8)`, type, a flag byte that is `01` only for a type-0
+      frame with non-zero length, the payload, the CRC high byte first, then
+      `84`. Known tags: `0A` (nothing to report, `01FB`), `0F` (two-value
+      report, `02E3`), `0B` (an eight-byte report, `029C`), and `01` — which
+      `build_dlc_record` writes at `8D26` ahead of the 70-byte record, so
+      `020A`'s tag is `01` too.
+
+      **The receiver does not branch on the tag at all.** `0904` → `089A`
+      checks the `CC` sync, a minimum length and the `84` trailer, then the CRC
+      via `02FF`, then compares the `8DA7`/`8DA8` identity pair through `7498`.
+      No compare against `0A`, `0F`, `0B` or `01` appears in `0904`–`0976`. So
+      what is still open is narrower: **what each tag means to the far end** —
+      possibly not answerable from this ROM — and whether any other parser
+      exists.
 
 - [ ] **What do the DLC payload tags mean, and type 0 vs type 1?**
       `build_dlc_frame` accepts only types 0 and 1 and the first payload byte
