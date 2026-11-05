@@ -371,6 +371,20 @@ Collected separately because they are not worth static effort:
       into the lower range but never written up would have been missed. Defining
       a function over `1CB7`–`2330` purely to list its comments would settle it.
 
+- [ ] **Dropped, kept for the record: the "function at 6666" report.** Inbar hit
+      trouble with "the function at `6666` because of the `SCAL` to `7014`", and
+      neither part matches the image as read here — `6666` is data (inside the
+      9-byte LCD descriptor at `6660`, referenced from `4050` in
+      `DisplayCommStatus`, with nothing referencing `6666` itself), and
+      `SCAL Rn,7014` occurs exactly once in the image, at `3B2F`. So either the
+      address was a slip or Ghidra was showing something the MCP cannot see.
+      Dropped at Inbar's request before that was settled.
+
+      If it resurfaces, the likely subject was the unmapped routine containing
+      `3B2F`, which cannot be defined cleanly until `701B` and `7014` are
+      functions — see the ordering note above. A comment at `6666` records this
+      in the program too.
+
 - [ ] **What drives bit 1 of `PORT5_shadow` (`8034`)?** It now has a precise
       waveform, which is the strongest handle yet on any bit of that port: the
       `705E` sequencer holds it high in the idle state `70C3`, and the cycle
