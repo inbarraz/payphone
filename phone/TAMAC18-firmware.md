@@ -2901,6 +2901,12 @@ pointers in §10g. `standby_reboot_or_halt` reads it at `23A6` with the same
 `LDN` / `LBZ` shape. Finding its writer would say exactly which reader
 failure raises fault 23.
 
+**Partly answered, by a different road.** `2A4B` (§10be) raises displayed fault
+23 through the ordinary `840A` log, writing code `0x55` into entry `841A` with
+a threshold of 1 — a reader failure seen during a charged call. That is *a*
+writer of fault 23, but not of `88BB`: there are two paths to the same displayed
+number, and `88BB` still has no known writer.
+
 ### An apparent off-by-one
 
 Codes **`0x48` and `0x49` map to fault number 43**, giving index 31 — one
@@ -7144,6 +7150,74 @@ here. The parts not re-verified independently are the `1026`/`129E`/`131C` table
 walk and the claim that every dispatcher entry except index 20 (`0EAF`) reaches
 `0FE8` — those are recorded as its findings, with the tables named so they can
 be checked.
+
+## 10be. `2A4B` — a writer of fault 23, gated on the charge phase
+
+`FUN_2a4b`, now `log_reader_fault23_if_charging`. Nineteen instructions,
+`2A4B`–`2A77`, one caller at `4C0A`. It does three things.
+
+**1. It is gated on `charge_phase`.** `2A4B`–`2A52` returns at once unless
+`M(8144)` is non-zero, so it only acts during a charged call. Its neighbour on
+the same path, `75CA` at `4C06`, tests the same cell (§10u).
+
+**2. It ages `reader_z_reply_count` (`818E`)** — the count of `MZ`/`NZ` replies
+from the optical reader (§6b). A two-visit decay, and *every* path still falls
+through to the log:
+
+| `M(818E)` | becomes | |
+|---|---|---|
+| `0x00` | `0x00` | unchanged |
+| non-zero, bit 7 clear | `0x80` | a real count collapses to the marker |
+| `0x80` | `0x00` | the marker clears |
+| `0x80` + other bits | `0x80` | |
+
+So bit 7 reads as "counted and acknowledged, pending clear". The `SHL` at
+`2A63` is dead — `D` is discarded by the `LBR` at `2A64`.
+
+**3. It logs the fault.** `2A6E SCAL 5E1B` with inline args `1B 01 55`:
+
+| Arg | | |
+|---|---|---|
+| `0x1B` | the **low byte** of the target, so `R8 = 841B` | not an offset from `840A` — §10i fixes the convention from the `5C4F` row, whose arg `0x27` targets `8427`. `841B` is odd, so the entry is `841A` code / `841B` counter |
+| `0x01` | the threshold | the counter is incremented and compared at `5E41` (`LDA R3 / SM`, `X = R8`); `1 − 1 = 0` takes the `LBZ`, so **the first occurrence raises it**. No debounce, unlike `5DDD`'s threshold of 3 |
+| `0x55` | OR'd into `841A` — the fault code | |
+
+Crossing the threshold also sets `M(97A6) = 6`.
+
+### Which fault, and why it matters
+
+Code `0x55` indexes the BCD table at `6069` as `(code & 0x7F) − 0x46` = 15, and
+`6078` holds `0x23` — **displayed fault 23**. §10e ties fault 23 to the optical
+reader, "reported ahead of everything in the `840A` log", and ends: *"Finding
+its writer would say exactly which reader failure raises fault 23."*
+
+**This is one such writer**, and it says: a reader failure seen *during a
+charged call*, on the path where `RF.0` is not `0x75`. Being threshold-1, it
+logs on the first occurrence rather than counting.
+
+That is progress on the §10e question but not a full answer, and the distinction
+matters: §10e's fault-23 path is gated on `M(88BB)`, which still has **no known
+writer**. This routine reaches the same displayed number by the ordinary
+`840A`-log route with code `0x55`. Two roads to fault 23, and only one of them
+is now mapped.
+
+### Caller context
+
+`proc_4bef` dispatches on `RF.0`, the status-code register:
+
+```
+4BEF  GLO RF / XRI 0x75 / LBNZ 4C05
+4BF5    LoadStringForDisplay(66A8)   "this card is not ..."
+4BFD    delay_base_ticks(0x64)       100 ticks = 2 s
+4C02    LBR 4C6C
+4C05  otherwise:
+4C06    SCAL 75CA                    M(88BE) = 0xFF or 0x01 on charge_phase
+4C0A    SCAL log_reader_fault23_if_charging
+4C0E  GLO RF / XRI 0x81 / LBNZ 4C37  ...
+```
+
+So status `0x75` is the one reader failure that gets its own message and no log
+entry; everything else on this path is counted and logged.
 
 ## 11. Naming added in this session
 

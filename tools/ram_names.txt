@@ -127,6 +127,8 @@
 8190 config_parse_result
 8191 port1_bit0_latch
 840a fault_log
+841a faultlog_reader_code|NOLABEL
+841b faultlog_reader_count|NOLABEL
 843a faultlog_entry24_code|NOLABEL
 8448 cleaning_event_record
 844d coldstart_sentinel_844d
