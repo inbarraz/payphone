@@ -1123,9 +1123,16 @@ Two special cases corroborate the reading:
 | `31E2` | `20` | `?EJ` |
 | `3954` | `18` | `?CC` |
 
-Selectors `0x30` (`?S`), `0x38` (`?TE01`), `0x40` (`?TE02`) and `0x50`
-(`?CD012`) have **no call site with a literal selector** — either issued
-through a computed selector, or dead.
+Selectors `0x30` (`?S`) and `0x50` (`?CD012`) have **no call site with a literal
+selector** — either issued through a computed selector, or dead.
+
+**Corrected:** this previously also listed `0x38` and `0x40` as having none.
+They do — `?TE01` at `61FD` and `?TE02` at `61F2`, both through the `3658`
+entry (`send_reader_command_set_RA`). A census that scans only `SCAL 365C`
+misses every selector passed that way, which is most of them: all ten of the
+`3658` call sites are main-thread or technician-menu code, and `0x38`/`0x40`
+are used nowhere else. Worth remembering whenever a routine has two entries —
+counting one of them is counting a subset.
 
 ### Matched against the reader's parser
 
@@ -1147,6 +1154,13 @@ The BSK31 parser at `0x0EC0` accepts fourteen commands. Cross-referencing:
 | `TE` | `0D9E` → the TE menu dispatcher at `0DC4` | `?TE01`, `?TE02` (sel 38, 40) |
 | `DR` | `1F07` | — not sent |
 | `S` | clears two flags, `LBR 0C01` | `?S` (sel 30) |
+
+**`CE` is the one phone command with no handler in that list.** `?CE007`
+(sel `08`, sent from `3145`) is not among the fourteen commands the `0EC0`
+parser accepts, and it differs from `?CD007` by a single letter. So either the
+parser census is incomplete, or `CE` is a command this reader rejects — perhaps
+for a variant the phone also supports. Open; it needs the reader image, not
+this one.
 
 `TE → 0D9E` lands immediately before the reader's TE menu dispatcher at
 `0x0DC4`, which indexes by `M(0x8023)` — so `?TE01` / `?TE02` really do select

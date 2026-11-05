@@ -385,6 +385,13 @@ Collected separately because they are not worth static effort:
       functions — see the ordering note above. A comment at `6666` records this
       in the program too.
 
+- [ ] **What is `?CE007` (template selector `08`)?** The phone sends it from
+      `3145`, but `CE` is not among the fourteen commands the BSK31 parser at
+      `0EC0` accepts, while `?CD007` — one letter away, same digits — maps to the
+      reader's `CD` handler at `070B`. Either the parser census is incomplete or
+      this reader rejects `CE`, perhaps a variant for different reader
+      firmware. Needs the reader image.
+
 - [ ] **What drives bit 1 of `PORT5_shadow` (`8034`)?** It now has a precise
       waveform, which is the strongest handle yet on any bit of that port: the
       `705E` sequencer holds it high in the idle state `70C3`, and the cycle
