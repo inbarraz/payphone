@@ -6890,6 +6890,33 @@ function rather than separate entry points, so neither has an inbound reference
 and Ghidra has nothing to anchor on. The MCP cannot create functions, so these
 are hand jobs in the GUI.
 
+## 11b. Retracting a claim means fixing Ghidra too
+
+Found the hard way. Three claims retracted in these notes were still sitting in
+Ghidra disassembly comments, where they are what a reader actually sees:
+
+| Address | The stale comment said | Retracted in |
+|---|---|---|
+| `509C` | "there is ONE interrupt handler and the DLC half is this fall-through branch" | §10av |
+| `51B3` | "DEAD CODE … NOTHING in the image branches to 51B3", and that the body should be trimmed to `51B2` | §10av |
+| `1A7C` | "the ISR … moves the session along **and redirects the thread**" | §10av |
+
+All three were corrected in the notes and left untouched in the program. The
+`51B3` one was the worst: it instructed a future reader to trim a function body
+that is correct as it stands.
+
+Each now carries its own retraction in the comment rather than just the new
+reading, because a comment that silently changes its mind teaches nothing, and
+the wrong reading is often the more natural one — `51B3` really does have no
+inbound branches, and the error was testing for branches at all when the
+question was fall-through.
+
+**So: when a claim is withdrawn here, fix the comment at that address in the
+same pass.** Ghidra comments cannot be enumerated through the MCP, so there is
+no way to sweep for stale ones afterwards; they have to be fixed when the
+retraction is made. `37A1` is the model — its comment opens "Not a swap, an
+earlier reading of this file called it one."
+
 ## 11a. Which absolute claims have been machine-verified
 
 Claims of the form *only*, *nothing*, *exactly N* have been this project's most
