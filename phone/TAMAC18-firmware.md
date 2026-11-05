@@ -456,7 +456,7 @@ Signatures established so far (`W` = word, `B` = byte):
 | `0100` | `test_EF3_inverted` | `NONE` |
 | `290A` | `memset` | `W,B,W` |
 | `2919` | `hexpack` | — |
-| `3658` | — | `B` |
+| `3658` | `send_reader_command_set_RA` | `B` |
 | `365C` | `send_reader_command` | `B` |
 | `36B0` | — | `W` → returns a byte in D |
 | `36C2` | — | `NONE` |
@@ -1022,6 +1022,23 @@ wrong — the stepper is in the reader's own ROM, on its own CPU — and §10ak 
 out the call pattern that makes it a unit count.
 
 ## 8. Transmitting: the command set
+
+**`3658` is `send_reader_command`'s other entry.** A single instruction,
+`RLDI RA,8028`, falling through into `365C`. It exists because
+`send_reader_command` ends `LDI 0x19 / STR RA` — `reader_tx_countdown = 25` —
+but never sets `RA` itself: inside `service_card_reader_link` the handler
+register map at `5FB1` already holds `RA = 8028` (§6, §10al), and callers
+outside that map have no such guarantee. The caller split follows exactly:
+
+| Entry | Callers | |
+|---|---|---|
+| `365C` | `310C` `3114` `3145` `314D` `318C` `31E2` `3954` | **all** inside `service_card_reader_link` (`3100`–`3991`) |
+| `3658` | `467B` `47C4` `4CC0` `537B` `5F97` `61B3` `61F2` `61FD` `6285` `62A0` | all main-thread or technician-menu |
+
+So: from inside the reader-link handler use `365C`; from anywhere else use
+`3658`. Named `send_reader_command_set_RA` for the register, because that is its
+entire body, and because `365C` keeps the plain name that this file fixes to
+that address throughout.
 
 **`send_reader_command`** @ **`0x365C`** (was `FUN_365c`). Signature `B` — one
 inline selector byte, which is the **low byte of a template address** in the
