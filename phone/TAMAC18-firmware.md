@@ -6613,10 +6613,90 @@ both park on `IDL` while it drains. A blocking delay whose timer stops being
 decremented never returns, so `812D` is the one cell in the image that *cannot*
 be allowed to miss a tick under either vector. That is why it is in both tables.
 
-`812B`, the other cell in both, has no such explanation yet. It is anchored at
-`1A44` (where `InitBuffer8119` clears it), `53BD`, `72B2`, `73D5` and `73DC`,
-and none of those is a delay primitive. Why it earned a place in the DLC chain's
-table is open.
+`812B`, the other cell in both, turns out to have **the same explanation**, found
+by way of `tbl_6d17` (§10bb). It is a dwell / hold-off timer that code *blocks*
+on:
+
+- at `53B1`, inside `test_dial_and_reader`, the pattern loop spins until
+  `M(812B)` reaches zero before advancing to the next step;
+- at `73C1`, inside `729E`, `LDN R8 / LBNZ 73BD` **returns early while it is
+  non-zero**, and `7395`–`73A0` and `73AD`–`73B4` clamp it to a minimum of
+  `0x3C` or `4`.
+
+And `729E` is called from `wait_until_dialling_done` (`2C70`) as well as from
+`service_tick` (`728C`). `wait_until_dialling_done` is one of the `1A7C`-family
+session steps: it parks on `IDL` and re-tests. So during a DLC session the main
+thread sits in that wait, and it cannot get past `729E`'s gate until `M(812B)`
+reaches zero. If the DLC chain did not decrement it, the session would stall
+there.
+
+So both cells in the overlap are there for one reason: **something blocks on each
+reaching zero, and the block is reachable under either interrupt vector.** That
+is the whole content of the `40AE` ∩ `13EC` intersection, and it is no longer an
+open question.
+
+## 10bb. `tbl_6d17` — the dial-and-reader test pattern, and its real size
+
+`53B1` is its only reference, and it is the stimulus table for
+`test_dial_and_reader`, the technician-menu **"CHECK DIAL / READER"** test.
+
+Entries are two bytes: a value written to `M(8033)` (`strap_drive_and_flags`)
+and a dwell count loaded into `fast_timer_812b`. The loop from `53C9` sets
+`M(8033) = 0x20`, ORs `0x10` into `M(8036)`, writes the entry's value and its
+dwell, then spins on `get_key_with_timeout(1)` and the reader dispatcher at
+`5F35` until the dwell reaches zero, and advances. Three nested loops:
+
+```
+restart:  RE = 6D17
+  step:   M(8033) = entry[0] ;  M(812B) = entry[1]
+    wait: poll keys, service the reader   while M(812B) != 0
+          advance 2                        while next entry[0] != 0
+          -> restart                       (forever, until key or timeout)
+```
+
+**The size follows from the middle loop: the table is `0x00`-terminated, not
+counted.** It runs to **65 entries — 130 bytes at `6D17`–`6D98`, with the
+terminator at `6D99`, 131 bytes in all.**
+
+The existing Ghidra comment said *"twelve 2-byte pairs … a hold count for
+`M(812B)`, which is 24 in every entry"*, and the first draft of this section
+repeated it. **Both were wrong.** Twelve is where the dwell stops being uniform,
+not where the table ends: entry 12 at `6D2F` is `3C 24`, and the dwells from
+there on are `0x24`, `0x0C` and `0x30` as well as `0x18`. The `0x00` that
+actually stops the loop is 106 bytes further on. Taking a change in one field as
+a terminator is the error; the loop tests the *other* field.
+
+| Entries | At | Shape |
+|---|---|---|
+| 0–11 | `6D17` | `3C 3C 3D 3E 3E 3D 3C 29 39 39 29 3C`, dwell `0x18` throughout |
+| 12–15 | `6D2F` | `3C`/36, `29`/12, `29`/36, `20`/12 |
+| 16–27 | `6D37` | the 0–11 sweep again, byte for byte |
+| 28–31 | `6D4F` | `29`/36, `39`/12, `39`/36, `20`/12 |
+| 32–49 | `6D57` | shorter mixed runs, `34`/36 and `20`/12 at the end |
+| 50–60 | `6D7B` | `3C`/48 then the same sweep from `3D` |
+| 61–64 | `6D91` | `29`/36, `39`/12, `39`/36, `20`/12 — identical to 28–31 |
+
+So it is a **twelve-step sweep repeated with variations, punctuated by four-step
+groups that always end on value `0x20`**. Since the loop writes `M(8033) = 0x20`
+at the top of every step before writing the entry's own value, `0x20` is the
+neutral state, and those entries are deliberate pauses marking group boundaries.
+Dwells are `0x0C`/`0x18`/`0x24`/`0x30` = 12/24/36/48 ticks; `812B` is decremented
+on the 50 Hz base pass, so 240/480/720/960 ms. The whole table sums to 1536
+ticks — **30.7 s per cycle**, after which the loop restarts from the top.
+
+The values' low five bits are the same field of `M(8033)` that
+`read_hardware_straps` drives (§10k), so the test walks that field through a
+fixed sequence while the technician works the dial and inserts a card. Bit 5
+(`0x20`) is set in every value in the table. What those lines physically reach is
+still not established.
+
+Ghidra has only `6D17` typed, as a single byte `3Ch`, with `6D18`–`6D1A` as three
+more loose bytes and **nothing defined from `6D1B` to `6E1F`** — which is exactly
+why the short reading went unchallenged. Re-typing `6D17`–`6D98` as a 130-byte
+array would make the extent visible in the listing.
+
+Its real value here was the side door onto `812B`: this is one of the two places
+that *block* on that timer, which is what closed the overlap question above.
 
 ### What the cadence is for is still open
 
@@ -6916,7 +6996,16 @@ them:
 
 So this is not only a problem of old claims. A comment written in the morning can
 be stale by the afternoon, and the ones naming *another* routine go stale
-whenever that routine is renamed. Clean at `0100`, `010D`, `0837`, `03EE`, `2ECD`,
+whenever that routine is renamed.
+
+A comment can also be **wrong rather than stale**, and that is harder to catch
+because it reads as settled knowledge. `tbl_6d17`'s comment said the table was
+"twelve 2-byte pairs"; it is 65 (§10bb). The first draft of §10bb repeated the
+twelve, because the comment was in the program and looked authoritative, and
+only a byte-level check of the terminator caught it. **So: machine-check a size,
+a count or an extent taken from an existing comment before building on it.** The
+two bytes Ghidra had typed were consistent with the wrong reading, which is
+exactly why consistency with the listing is not enough. Clean at `0100`, `010D`, `0837`, `03EE`, `2ECD`,
 `37A1` and the `28B7` region.
 
 The sweep also turned up two structural things worth recording. `28B7` was

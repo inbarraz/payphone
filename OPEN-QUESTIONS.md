@@ -433,15 +433,14 @@ Collected separately because they are not worth static effort:
       shift X` at each (`cdp1806/ghidra_scripts/SetXPInline.java`). The notes
       already have them right; it is the listing that needs correcting.
 
-- [ ] **Why is `fast_timer_812b` in the DLC chain's timer table?** `812D`, the
-      other cell decremented by both `40AE` and `13EC`, has a complete
-      explanation: it is the countdown for both blocking-delay primitives,
-      `play_toggle_pattern` (`3AB3`) and `delay_base_ticks` (`6FA5`), each of
-      which parks on `IDL` until it drains, so a missed tick would hang the
-      phone (§10ba). `812B` has no such story. It is anchored at `1A44` — where
-      `InitBuffer8119` clears it — and at `53BD`, `72B2`, `73D5`, `73DC`, none
-      of them a delay primitive. Something about it must also have to survive a
-      DLC session.
+- [x] **Why is `fast_timer_812b` in the DLC chain's timer table** — same reason
+      as `812D`: something *blocks* on it reaching zero. `53B1` spins on it in
+      `test_dial_and_reader`'s pattern loop, and `73C1` in `729E` returns early
+      while it is non-zero; `729E` is called from `wait_until_dialling_done`
+      (`2C70`), a `1A7C`-family session step that parks on `IDL` and re-tests, so
+      a session would stall there if the DLC chain did not decrement it. Both
+      cells in the `40AE` ∩ `13EC` overlap are explained, and the intersection
+      has no further content (§10bb).
 
 - [ ] **What do the DLC payload tags mean, and type 0 vs type 1?**
       `build_dlc_frame` accepts only types 0 and 1 and the first payload byte
