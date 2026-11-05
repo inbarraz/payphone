@@ -389,25 +389,46 @@ Collected separately because they are not worth static effort:
       `13FE`: `8e d5 00 32 8e 04 04 8e 01 03 00 00 00 8e d7 0b b8 8e 00 03 00
       00 00`.
 
-- [ ] **Define functions in Ghidra at these addresses.** The MCP can only read
-      code inside a defined function — it has no create-function and no
-      disassemble-at-an-address — so each of these has to be analysed around
-      rather than through, which is how the `5E1B` extent was got wrong. `F` at
-      the address in the GUI fixes each one permanently.
+- [ ] **Re-run the inline-args analyzer, then define the remaining entries.**
+      The MCP reads only code inside a defined function, so anything unmapped
+      has to be analysed around rather than through — which is how the `5E1B`
+      extent was got wrong.
+
+      **Done:** `0699` → `interrupt_enter` (`0699`–`06B9`) and `067E` →
+      `interrupt_leave` (`067E`–`0698`), with `05A6` → `ISR_DLC_Link`. All three
+      extents match §10av exactly. `05D7` was on an earlier version of this list
+      in error: it is the CI-set path *inside* `ISR_DLC_Link`, not an entry
+      point, and it now reads through the MCP as part of that function.
+
+      **First, the mechanical fix.** `3aa8 p` has been added to
+      `cdp1806/data/inline_args.txt`. Without it the analyzer could not find
+      `play_toggle_pattern`'s return point, so **caller bodies truncated at the
+      call**: `exit_call_connected` was `6FB3`–`6FC5` and
+      `call_connect_with_cadence` `6FFF`–`700E`, each stopping at its
+      `SCAL 3AA8` instead of at the `SRET R3` that really ends it. Re-running
+      the inline-args analyzer should extend both. This is specific to `3AA8`,
+      not systemic — `6E6B` resolves at all 84 of its sites and the function at
+      `2D10` runs clean through five of them.
+
+      **Then define:**
 
       | Address | What it is | Section |
       |---|---|---|
-      | `0699` | `ISR_DLC_Prologue` — interrupt vector #2 | 10av |
-      | `05A6` | `ISR_DLC_Link` — body of handler #2 | 10av |
-      | `067E` | `ISR_DLC_Epilogue` | 10av |
-      | `05D7` | the DLC per-tick chain | 10az |
+      | `7014` | the second entry to the call-connected tail | 10ba |
+      | `701B` | the shared tail itself — this is what deserves the name `enter_call_connected`, since both entries reach it and it holds the billing gate | 10ba |
       | `70C3`, `7065`, `7074`, `7086`, `70A5` | the five `705E` sequencer states | 10az |
       | `70B9` | `set_next_tick_task` | 10az |
-      | `7014` | second entry to the call-connected tail | 10ba |
       | `3B24` | the fault-slot test that chooses between the entries | 10ba |
 
-      The sequencer states are the ones that pay off most: each is a few
-      instructions and they are currently invisible as code.
+      The sequencer states pay off most: each is a few instructions and they are
+      currently invisible as code.
+
+- [ ] **Set `XP` at `05E0` and `0658`.** Two confirmed `X == P` inline sites in
+      `ISR_DLC_Link` where Ghidra's listing is wrong: it shows `RET` / `DEC R4`
+      and `DIS` / `DEC R4`, decoding the `0x24` operand as a spurious
+      instruction. They are really `RET 0x24` and `DIS 0x24` (§10az). `ctrl
+      shift X` at each (`cdp1806/ghidra_scripts/SetXPInline.java`). The notes
+      already have them right; it is the listing that needs correcting.
 
 - [ ] **Why is `fast_timer_812b` in the DLC chain's timer table?** `812D`, the
       other cell decremented by both `40AE` and `13EC`, has a complete

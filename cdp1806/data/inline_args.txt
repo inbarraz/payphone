@@ -156,3 +156,17 @@ program TAMAC-18
 # chain, which is the same failure mode the 2ecd comment above describes.
 # The observed argument is 0466, which holds the word 8EEA.
 046e  p
+
+# 3aa8: play_toggle_pattern - one 16-bit pointer to a null-terminated list of
+# half-cycle durations, read by SEX R3 / RLXA RC at 3aa8-3aa9.
+#
+# Added because its absence TRUNCATES CALLER FUNCTION BODIES. With no signature
+# the analyzer cannot find the return point, so flow stops at the call: Ghidra
+# had exit_call_connected as 6fb3-6fc5 and enter_call_connected as 6fff-700e,
+# both ending at their SCAL 3aa8 (6fc2 and 700b) instead of at the SRET R3 that
+# really ends them. The visible effect is worse than a short body - the name
+# sits on a 16-byte prologue and the reader cannot tell that the state work,
+# including the M(8032) = 0xAA billing gate at 703c, belongs to it.
+#
+# Observed arguments are 3a9e, 3aa0 and 3aa4, the three tone patterns (10ba).
+3aa8  p
