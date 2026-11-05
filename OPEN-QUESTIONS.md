@@ -355,6 +355,22 @@ Collected separately because they are not worth static effort:
       continuation bytes on the stack at `M(R2)` before its epilogue. Find that
       rewrite, or establish that `1A7C` is a deliberate halt (§10av).
 
+- [ ] **Mirror any remaining comments across the `1CB7` → `9100` relocation.**
+      The block is copied to `9100` and runs there, so a finding is only useful
+      where it executes; the notes, though, cite the ROM addresses throughout
+      (§10ay now carries the conversion table). Done so far: the mapping and
+      overlay note at both `1CB7` and `9100`; "never executes" markers with
+      pointers to the live twin at `1CC2`, `1ECA`, `2176` and `21A5`; and the
+      §10ay/§11a findings commented at the executing addresses `910B`, `9313`,
+      `95BF` and `95EE`.
+
+      **Still unverified:** whether other comments exist in `1CB7`–`2330`. The
+      MCP cannot enumerate comments — it can only set them — and reading them
+      needs a function to list through, which that range has none of. The list
+      above was reconstructed from what the notes record, so a comment written
+      into the lower range but never written up would have been missed. Defining
+      a function over `1CB7`–`2330` purely to list its comments would settle it.
+
 - [ ] **What drives bit 1 of `PORT5_shadow` (`8034`)?** It now has a precise
       waveform, which is the strongest handle yet on any bit of that port: the
       `705E` sequencer holds it high in the idle state `70C3`, and the cycle
@@ -421,7 +437,7 @@ Collected separately because they are not worth static effort:
       | `3B24` | the fault-slot test that chooses between the entries | 10ba |
       | `28D8` | `interrupt_enter_reader` — **split it out of `28B7`**, whose body currently merges the card-reader epilogue and prologue into one function; the DLC side is correctly split into `interrupt_leave` / `interrupt_enter` | 10av |
       | `6E0C` | the reset block — no function at all | 10ay |
-      | `1CB7` | the 1658-byte flash programmer — no function at all, so none of it can be read through the MCP | 10ay |
+      | `1CB7` | the flash programmer's **ROM source image**, 1658 bytes — no function. Low priority: it never executes (§10ay), so a function here would only document the source. The executing copy at `9100`–`9779` already has ~21 functions. |
 
       The sequencer states pay off most: each is a few instructions and they are
       currently invisible as code.

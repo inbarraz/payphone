@@ -6184,6 +6184,67 @@ together three things this file had been carrying as separate puzzles: what the
 code shadow is *for*, what `F000` bit 1 does, and why a 1658-byte subsystem has
 to run from RAM.
 
+> ### Read every address in this section as `+ 0x7449`
+>
+> **This section cites the ROM image, which never executes.** The block is
+> relocated before it runs, and Ghidra's analysis of it is entirely at the
+> destination — so the two use different address spaces for the same code, and a
+> reader going from these notes to the listing will find nothing at the address
+> written here.
+>
+> ```
+> 1366  SCAL memcpy(28F9)  args 9100, 1CB7, 067A   then calls 9421 directly
+>
+>   source  1CB7..2330   data only; nothing transfers control into it, and its
+>                        only reference is the descriptor at 07A9
+>   dest    9100..9779   where it runs
+>   offset  +0x7449      upper = lower + 0x7449
+> ```
+>
+> | Notes say | Listing has | | Notes say | Listing has |
+> |---|---|---|---|---|
+> | `1CC2` | `910B` `build_dlc_record` | | `2096` | `94DF` |
+> | `1CE8` | `9131` (the 11-byte copy) | | `2102` | `954B` |
+> | `1DC5` | `920E` | | `2118` | `9561` |
+> | `1DCF` | `9218` | | `212E` | `9577` |
+> | `1E39` | `9282` | | `2144` | `958D` |
+> | `1E9C` | `92E5` | | **`2176`** | **`95BF`** the page split |
+> | **`1ECA`** | **`9313`** `F000` bit 0 | | **`21A5`** | **`95EE`** the unlock |
+> | `1F1F` | `9368` | | `21F0` | `9639` |
+> | `1F43` | `938C` | | **`2237`** | **`9680`** `F000` bit 0 |
+> | `1FAD` | `93F6` | | `2265` | `96AE` |
+> | **`1FD8`** | **`9421`** the entry point | | **`2282`** | **`96CB`** `F000` bit 0 |
+> | | | | `22B0` | `96F9` |
+>
+> **`9733` onward is not reliably this block.** The `97xx` area is a shared
+> overlay region with three images copied into it, and two land inside this
+> block's range:
+>
+> | Source | Dest | Length | Copier |
+> |---|---|---|---|
+> | `1CB7` | `9100` | `0x67A` | `relocate_1cb7_block_and_run` (`1366`) |
+> | `040D` | `9733` | `0x03F` | `CopyCodeTo9733AndJump` (`026A`), then `LBR 9733` |
+> | `3011` | `9771` | `0x026` | `copy_0x26_from_3011_to_9771_and_jump` (`304A`) |
+>
+> Each copier re-copies its own image immediately before transferring into it, so
+> these are alternatives rather than one layout, and only `9100`–`9732` is
+> dependably the `1CB7` block. That is why `proc_from_040D` (`9733`) and
+> `proc_from_3011` (`9771`) are named for their own sources and are not functions
+> of this block, even though they fall inside `9100`–`9779`.
+>
+> Ghidra now carries this mapping as a comment at both `1CB7` and `9100`, the
+> ROM-side images at `1CC2`, `1ECA`, `2176` and `21A5` are marked
+> "never executes" with a pointer to their live twin, and the findings below are
+> commented at the executing addresses.
+>
+> One caution the conversion exposed: **the spans quoted below are byte ranges,
+> not instruction boundaries.** "the unlock at `21A7`–`21B7`" names two
+> mid-instruction bytes — the `RLDI RD,5555` that starts the sequence is at
+> `21A5`, and the sequence really runs `21A5`–`21B9` (live `95EE`–`9602`).
+> Adding `0x7449` to a quoted byte lands mid-instruction and the listing shows
+> nothing there, which is how the mapping row for this one came out wrong the
+> first time.
+
 ### The unlock sequence settles it
 
 Inside the common programmer at `2176`:
