@@ -3415,17 +3415,55 @@ That closes most of the gap left in §6. **Port 3 is both** —
 1802 uses the same N code for input and output with direction set by `MRD`,
 so one N value can serve two devices.
 
-### What port 5 receives is still unresolved
+### Port 5 is a strobe, not a data port
 
 Taking each pair literally gives `port n <- M(8033+n)`, with port 5 carrying
 the byte one below. The flush at `399D` is
 `SEX RB(8034) / OUT 5 / NOP NOP / OUT 2`, making `port 5 <- M(8034)` and
 `port 2 <- M(8035)`.
 
-The two agree on `port 2 <- M(8035)` and disagree on port 5. Either `OUT 5`
-is a latch-enable whose data the hardware ignores, or the two routines drive
-different devices. **`8033` should not be called "the port 5 shadow" on this
-evidence** — which is why it stays named `strap_drive_and_flags` (§10k).
+An earlier draft called this a *disagreement* about port 5 and left it open —
+the two sites agreeing on `port 2 <- M(8035)` but naming different sources for
+port 5. **It is not a disagreement. It is the rule.** `scan_keypad` settles it
+from outside this routine entirely: having set `X = R5 = 8035` with `DIS 0x54`
+at `242D`, it does
+
+```
+2430  OUT 5    <- M(8035),  R5 -> 8036
+2433  OUT 3    <- M(8036),  R5 -> 8037
+2434  DEC R5 / DEC R5       re-aim at 8035
+```
+
+which is line three of the flush sequence above, open-coded in a different
+routine for a different purpose. Checked against every pair on record:
+
+| Site | `OUT 5` takes | then | `0x8033 + n` |
+|---|---|---|---|
+| flush | `8033` | `OUT 1 <- 8034` | `8034` ✓ |
+| flush, `399D` | `8034` | `OUT 2 <- 8035` | `8035` ✓ |
+| flush | `8035` | `OUT 3 <- 8036` | `8036` ✓ |
+| flush | `8036` | `OUT 4 <- 8037` | `8037` ✓ |
+| **`scan_keypad`** | **`8035`** | **`OUT 3 <- 8036`** | **`8036` ✓** |
+
+`port n <- M(0x8033 + n)` holds at all five, and `OUT 5` always carries the byte
+immediately *below* the one the real write uses. So port 5's data byte is not
+its own — it is whatever happens to sit below the target, and it changes with
+the target.
+
+**That resolves the question in favour of the latch-enable reading.** Of the two
+possibilities the earlier draft offered — `OUT 5` is a strobe whose data the
+hardware ignores, or the two routines drive different devices — only the first
+survives, because `scan_keypad` and `flush_output_latches` are unrelated
+routines following one rule. Note also that `M(0x8033 + 5)` = `8038` is never an
+`OUT 5` source anywhere, so port 5 never receives "its own" byte under the
+scheme at all.
+
+So **`8033` is not "the port 5 shadow"**, and neither is any other cell — which
+is why it stays named `strap_drive_and_flags` (§10k). What the staging array
+`8033`–`8037` holds is one byte per *real* output port, and `OUT 5` is the
+select or latch-enable pulse that precedes each write. The names
+`PORT5_shadow` (`8034`) and `PORT2_shadow` (`8035`) record one site's accident
+and should be read with that in mind.
 
 ## 10v. `init_comm_session` (`0x74A7`)
 
