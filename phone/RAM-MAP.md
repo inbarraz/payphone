@@ -133,13 +133,13 @@ dozen places has a dozen chances to give itself away.
 | `8124` | `metering_interval_prev` | 1 — `5303` | st=0 |
 | `8127` | — | 2 — `3a1f` `7424` | st=2 imm=c8 |
 | `8128` | `slow_timer_8128` | 3 — `25a4` `72d0` `76f4` | st=1 imm=04 |
-| `8129` | — | 6 — `44e9` `48ce` `4b58` `6ff5` `7623` `7649` | st=1 imm=64 cmp=32 |
+| `8129` | `fast_timer_8129` | 6 — `44e9` `48ce` `4b58` `6ff5` `7623` `7649` | st=1 imm=64 cmp=32 |
 | `812A` | `fast_timer_812a` | 2 — `31c3` `4a49` | st=1 imm=96 |
-| `812B` | — | 5 — `1a44` `53bd` `72b2` `73d5` `73dc` | st=2 imm=00 |
-| `812C` | — | 4 — `454a` `4569` `461d` `4633` | st=2 imm=64 |
-| `812D` | `wait_timer_812d` | 5 — `36e6` `3ab3` `401e` `5ef5` `6fa5` | st=5 imm=00,96 |
-| `812E` | — | 1 — `2656` | st=1 imm=0a |
-| `812F` | — | 13 — `3834` `493b` `4f19` `4f2b` `4f48` `4f5e` +7 | st=6 imm=00,0f,64,96 |
+| `812B` | `fast_timer_812b` | 5 — `1a44` `53bd` `72b2` `73d5` `73dc` | st=2 imm=00 |
+| `812C` | `fast_timer_812c` | 4 — `454a` `4569` `461d` `4633` | st=2 imm=64 |
+| `812D` | `delay_timer_812d` | 5 — `36e6` `3ab3` `401e` `5ef5` `6fa5` | st=5 imm=00,96 |
+| `812E` | `fast_timer_812e` | 1 — `2656` | st=1 imm=0a |
+| `812F` | `fast_timer_812f` | 13 — `3834` `493b` `4f19` `4f2b` `4f48` `4f5e` +7 | st=6 imm=00,0f,64,96 |
 | `8130` | `timer_prescaler` | 1 — `40f4` | st=2 imm=00 |
 | `8131` | `slow_timer_8131` | 1 — `491a` | st=1 imm=1e |
 | `8132` | `fast_timer_8132` | 1 — `42be` | st=0 |
@@ -151,7 +151,7 @@ dozen places has a dozen chances to give itself away.
 | `8139` | `card_permission_bits` | 29 — `0095` `2559` `26dc` `2723` `2814` `282b` +23 | st=5 imm=00,04 mask=02,04,06,08 cmp=41 |
 | `813A` | — | 7 — `1a59` `250c` `2c3d` `7048` `735a` `7389` +1 | st=3 imm=01 |
 | `813B` | `dial_digit_count` | 5 — `009f` `2741` `2a15` `742b` `7730` | st=0 cmp=01,03,04,0b |
-| `813C` | — | 3 — `2686` `37b9` `45f9` | st=2 imm=00,14 |
+| `813C` | `dial_digit_limit` | 3 — `2686` `37b9` `45f9` | st=2 imm=00,14 |
 | `813D` | — | 2 — `2421` `5d23` | st=2 |
 | `813E` | `dial_resume_point` | 17 — `00a3` `2500` `25c1` `267c` `26eb` `35be` +11 | st=11 imm=00,21,24,27,2a cmp=27,2a |
 | `813F` | — | 5 — `2663` `2a31` `4d53` `4da9` `5eee` | st=4 imm=00 cmp=0b |
@@ -167,16 +167,16 @@ dozen places has a dozen chances to give itself away.
 | `814D` | `measurement_step_bits` | 5 — `34ec` `61ca` `620b` `626e` `62ac` | st=2 mask=40,80 |
 | `8155` | — | 1 — `76dd` | st=0 |
 | `8164` | — | 1 — `2612` | st=0 |
-| `8165` | — | 11 — `44d4` `4509` `4660` `4716` `483d` `4895` +5 | st=2 imm=05 |
-| `8166` | — | 1 — `5c01` | st=0 |
+| `8165` | `port1_bit5_debounce` | 11 — `44d4` `4509` `4660` `4716` `483d` `4895` +5 | st=2 imm=05 |
+| `8166` | `port2_bit0_counter` | 1 — `5c01` | st=0 |
 | `8167` | `mode_flags_8167` | 26 — `1ace` `1af2` `1b19` `1b3d` `1b67` `1bb4` +20 | st=12 imm=00,0e,20,2c,80,c0 mask=20,80,fa,fd cmp=20 |
 | `8168` | — | 2 — `475f` `47bb` | st=1 imm=aa cmp=aa |
 | `8169` | — | 9 — `4b6d` `4b8c` `4bb0` `4cac` `4d07` `5951` +3 | st=2 imm=55 cmp=55 |
-| `816B` | — | 7 — `19bc` `19f2` `270c` `374f` `3b43` `4025` +1 | st=4 imm=00,55 cmp=55 |
+| `816B` | `internal_busy_816b` | 7 — `19bc` `19f2` `270c` `374f` `3b43` `4025` +1 | st=4 imm=00,55 cmp=55 |
 | `816C` | — | 1 — `4942` | st=1 imm=00 |
 | `816D` | — | 1 — `273d` | st=0 |
 | `816F` | — | 1 — `2782` | st=1 |
-| `8170` | — | 2 — `4084` `7716` | st=2 imm=05 |
+| `8170` | `oneshot_countdown_8170` | 2 — `4084` `7716` | st=2 imm=05 |
 | `8172` | — | 1 — `711e` | st=0 |
 | `8173` | — | 1 — `711a` | st=0 |
 | `8174` | `bufDisplayString_8174` | 1 — `713f` | st=1 |
@@ -233,7 +233,7 @@ dozen places has a dozen chances to give itself away.
 | `844B` | — | 3 — `3e50` `3fc2` `5da4` | st=2 imm=00,05 cmp=04 |
 | `844C` | — | 1 — `5de4` | st=0 |
 | `844D` | `coldstart_sentinel_844d` | 1 — `306f` | st=1 imm=aa |
-| `844E` | — | 4 — `3ae4` `3af8` `5b7b` `54a3` | st=0 |
+| `844E` | `ysm_number` | 4 — `3ae4` `3af8` `5b7b` `54a3` | st=0 |
 | `845A` | `pulse_count_event` | 6 — `23ae` `2f4c` `3f5f` `4252` `4cee` `76c6` | st=4 imm=00 cmp=2d |
 | `845C` | — | 19 — `1c1a` `1c26` `1c35` `1c41` `2cda` `2f30` +13 | st=10 imm=00,80,c0 mask=01,f0,fc cmp=c0,ca |
 | `845D` | `ram_sentinel_845d` | 1 — `6112` | st=1 imm=00 |
@@ -243,7 +243,7 @@ dozen places has a dozen chances to give itself away.
 | Addr | Name | Sites | Signature |
 |---|---|---|---|
 | `8500` | — | 2 — `3084` `3bf0` | st=1 |
-| `8501` | — | 7 — `1cec` `2e36` `3ae8` `3afd` `5655` `5b6e` +1 | st=0 |
+| `8501` | `own_phone_number` | 7 — `1cec` `2e36` `3ae8` `3afd` `5655` `5b6e` +1 | st=0 |
 | `850D` | — | 4 — `2f26` `5437` `55ab` `308e` | st=1 cmp=40 |
 | `850E` | `accept_list_count` | 2 — `33f0` `5ce0` | st=0 |
 | `850F` | `accept_list_0` | 2 — `568e` `5ce9` | st=0 |
@@ -276,7 +276,7 @@ dozen places has a dozen chances to give itself away.
 | `8780` | — | 3 — `62d6` `6379` `640e` | st=1 |
 | `8781` | — | 2 — `370c` `3df7` | st=0 |
 | `8783` | — | 1 — `5a6f` | st=1 |
-| `8785` | — | 5 — `3b84` `3d74` `4006` `509d` `6e32` | st=4 imm=00,80 |
+| `8785` | `uart_owner_select` | 5 — `3b84` `3d74` `4006` `509d` `6e32` | st=4 imm=00,80 |
 | `8786` | — | 5 — `3cca` `50b0` `5ab3` `5b0b` `5b29` | st=1 mask=01,0f,80 |
 | `8787` | — | 1 — `3d8b` | st=1 imm=00 |
 | `8788` | — | 2 — `636e` `63de` | st=1 imm=00 |
@@ -328,23 +328,23 @@ dozen places has a dozen chances to give itself away.
 
 | Addr | Name | Sites | Signature |
 |---|---|---|---|
-| `8A01` | — | 3 — `023d` `0d8b` `14b8` | st=0 |
-| `8B0B` | — | 9 — `0241` `024f` `0615` `0784` `0a7d` `0ab0` +3 | st=2 imm=00 |
-| `8B0D` | — | 1 — `0aa9` | st=0 |
+| `8A01` | `dlc_rx_buffer` | 3 — `023d` `0d8b` `14b8` | st=0 |
+| `8B0B` | `dlc_rx_count` | 9 — `0241` `024f` `0615` `0784` `0a7d` `0ab0` +3 | st=2 imm=00 |
+| `8B0D` | `dlc_rx_base` | 1 — `0aa9` | st=0 |
 | `8B0E` | — | 1 — `0d8f` | st=0 |
-| `8B0F` | — | 1 — `0a76` | st=0 |
+| `8B0F` | `dlc_rx_base2` | 1 — `0a76` | st=0 |
 | `8B10` | — | 1 — `0d9a` | st=0 |
 | `8B11` | — | 1 — `0d96` | st=0 |
 | `8C1B` | — | 1 — `0db1` | st=1 |
 | `8C1D` | — | 1 — `0a90` | st=1 imm=01 |
-| `8C1F` | — | 1 — `0af4` | st=0 |
+| `8C1F` | `uart_tx_ptr` | 1 — `0af4` | st=0 |
 | `8C20` | — | 2 — `0be5` `0c30` | st=0 |
-| `8C21` | — | 4 — `077b` `0ad6` `0ae1` `0bc5` | st=2 imm=00 |
+| `8C21` | `uart_tx_count` | 4 — `077b` `0ad6` `0ae1` `0bc5` | st=2 imm=00 |
 | `8C22` | — | 1 — `0c20` | st=0 |
-| `8C23` | — | 4 — `0afb` `0bd5` `0c27` `0b0f` | st=2 imm=00 |
+| `8C23` | `uart_tx_index` | 4 — `0afb` `0bd5` `0c27` `0b0f` | st=2 imm=00 |
 | `8C25` | — | 2 — `0e2e` `0f2a` | st=0 |
 | `8C26` | — | 1 — `0949` | st=0 |
-| `8C27` | — | 3 — `039e` `03e9` `0bec` | st=1 imm=cc |
+| `8C27` | `dlc_tx_frame` | 3 — `039e` `03e9` `0bec` | st=1 imm=cc |
 | `8C28` | — | 1 — `0be1` | st=0 |
 | `8C37` | — | 1 — `77dd` | st=0 |
 | `8C59` | — | 1 — `1674` | st=0 cmp=02 |
@@ -353,24 +353,24 @@ dozen places has a dozen chances to give itself away.
 
 | Addr | Name | Sites | Signature |
 |---|---|---|---|
-| `8D26` | — | 3 — `020a` `180d` `1cc2` | st=0 |
-| `8DA6` | — | 2 — `02d6` `0bcd` | st=1 cmp=01 |
-| `8DA7` | — | 5 — `03af` `0772` `0953` `0e2a` `0f26` | st=3 imm=00 |
+| `8D26` | `dlc_record` | 3 — `020a` `180d` `1cc2` | st=0 |
+| `8DA6` | `dlc_tx_frame_len` | 2 — `02d6` `0bcd` | st=1 cmp=01 |
+| `8DA7` | `dlc_link_address` | 5 — `03af` `0772` `0953` `0e2a` `0f26` | st=3 imm=00 |
 | `8DA9` | — | 2 — `1dfb` `1e56` | st=0 |
 | `8DAA` | — | 1 — `1809` | st=0 |
-| `8DAB` | — | 7 — `0798` `0e6b` `1817` `1ddf` `1e46` `1e74` +1 | st=4 imm=00,01 cmp=02 |
+| `8DAB` | `dlc_record_len` | 7 — `0798` `0e6b` `1817` `1ddf` `1e46` `1e74` +1 | st=4 imm=00,01 cmp=02 |
 | `8DAC` | `feature_flags_8dac` | 7 — `0222` `0278` `0338` `0352` `05fb` `072e` +1 | st=2 imm=00,01 |
 | `8DAD` | — | 2 — `04c8` `04da` | st=2 imm=01 |
 | `8DAE` | — | 1 — `060a` | st=1 imm=01 |
-| `8DB3` | — | 1 — `0b1c` | st=1 imm=01 |
+| `8DB3` | `dlc_tx_complete` | 1 — `0b1c` | st=1 imm=01 |
 | `8DB4` | — | 1 — `0f8e` | st=1 imm=01 |
 | `8DB8` | — | 2 — `0f75` `0f87` | st=1 imm=00 |
 | `8DBB` | — | 10 — `0a69` `0d84` `0dcd` `0df7` `0e0f` `0e19` +4 | st=9 imm=00,01 |
 | `8DBC` | — | 3 — `04c0` `04d2` `0d5f` | st=1 imm=01 |
-| `8DBD` | — | 2 — `0b14` `0b23` | st=1 imm=00 |
+| `8DBD` | `dlc_tx_notify_arm` | 2 — `0b14` `0b23` | st=1 imm=00 |
 | `8DC2` | — | 1 — `1daf` | st=0 |
 | `8DC3` | — | 3 — `0e23` `0f3d` `0f58` | st=3 imm=00 |
-| `8DC5` | — | 4 — `0c83` `0cb9` `3759` `6f10` | st=3 imm=00,01 cmp=01 |
+| `8DC5` | `dlc_session_active` | 4 — `0c83` `0cb9` `3759` `6f10` | st=3 imm=00,01 cmp=01 |
 | `8DCC` | — | 2 — `17cf` `202e` | st=0 |
 | `8DCD` | — | 3 — `14e1` `2050` `2071` | st=2 |
 | `8DCE` | — | 2 — `193b` `2036` | st=0 |
@@ -410,8 +410,8 @@ dozen places has a dozen chances to give itself away.
 | `8E0A` | `code_shadow_mode` | 3 — `1ed8` `1ef1` `30c3` | st=3 imm=00,01 |
 | `8E0B` | — | 2 — `0525` `0530` | st=2 imm=00 |
 | `8E0C` | — | 1 — `20de` | st=1 |
-| `8E0D` | — | 2 — `066f` `1003` | st=1 |
-| `8E0F` | — | 5 — `05cd` `065c` `0756` `100b` `1015` | st=4 imm=00,01 |
+| `8E0D` | `dlc_chained_vector` *(no Ghidra label)* | 2 — `066f` `1003` | st=1 |
+| `8E0F` | `dlc_chained_vector_armed` *(no Ghidra label)* | 5 — `05cd` `065c` `0756` `100b` `1015` | st=4 imm=00,01 |
 | `8E10` | `CTRL_F000_shadow` | 4 — `0011` `13a2` `1ed1` `1eea` | st=3 imm=02,03 |
 | `8E11` | — | 3 — `078d` `0a97` `0dd4` | st=2 imm=00,01 |
 | `8E12` | — | 1 — `097c` | st=0 |
@@ -425,14 +425,14 @@ dozen places has a dozen chances to give itself away.
 | `8E38` | — | 1 — `08d1` | st=1 |
 | `8E68` | — | 1 — `0306` | st=0 |
 | `8E6B` | — | 1 — `0317` | st=0 |
-| `8E6D` | — | 1 — `03f7` | st=0 |
+| `8E6D` | `dlc_frame_checksum` | 1 — `03f7` | st=0 |
 | `8E76` | — | 1 — `21f7` | st=0 |
 | `8E77` | — | 1 — `2176` | st=0 |
 | `8E79` | — | 7 — `20f4` `210a` `2120` `2136` `214d` `219c` +1 | st=5 imm=00,01 cmp=00 |
 | `8E7A` | — | 2 — `21c4` `220d` | st=0 cmp=01 |
 | `8E7B` | — | 7 — `20a1` `20bb` `20ec` `221d` `2233` `2268` +1 | st=1 |
 | `8EBC` | — | 1 — `5c72` | st=1 |
-| `8EC8` | — | 1 — `14c1` | st=1 |
+| `8EC8` | `dlc_rx_count_saved` | 1 — `14c1` | st=1 |
 | `8EC9` | — | 1 — `14da` | st=0 cmp=08 |
 | `8ECC` | — | 1 — `0ba8` | st=1 |
 | `8ECD` | — | 1 — `0bad` | st=1 imm=00 |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **124 named**, 265 still unnamed.
+389 anchored cells, **156 named**, 233 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.

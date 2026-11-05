@@ -171,10 +171,18 @@ Harmless to execution, misleading when reading the file: `GHI` commented "Get lo
 
 ## Gaps
 
-### G1. The `X == P` inline-operand idiom is not modeled — and this ROM is built on it
+### G1. The `X == P` inline-operand idiom — **now switchable by hand**
 
-When `X == P`, `R(X)` *is* the program counter, so `OUT n`, `INP n`, `RET` and `DIS`
-consume an inline byte and the PC skips over it.
+When `X == P`, `R(X)` *is* the program counter, so an instruction that
+**increments `R(X)`** consumes an inline byte and the PC skips over it.
+
+**`INP` is not one of them.** The 1802 is asymmetric here: `OUT` (61-67) is
+`M(R(X)) → BUS; R(X)+1 → R(X)`, but `INP` (69-6F) is `BUS → M(R(X)); BUS → D`
+with **no increment**. So `INP` with `X == P` writes the bus value at the PC — a
+no-op in ROM — and stays one byte. An earlier version of this gap listed `INP`
+alongside the others; it does not belong. The instructions that do increment
+`R(X)`, and so have an inline form, are `OUT`, `RET`, `DIS`, `LDXA` (72) and
+`IRX` (60).
 
 Verified live:
 
@@ -186,10 +194,55 @@ Today those operand bytes are disassembled as instructions: `0x0001` shows as `I
 `0x6DD8` as `LBR 0xC4C4`, which is what kills auto-analysis right at the entry point.
 **Highest-value gap to close.**
 
-### G2. No context register for `P` (or `X`)
+### G2. No context register for `P` (or `X`) — **partly closed**
 
-This is the enabler for G1 and for M9. A SLEIGH context variable set by `SEP`/`SEX`/`DIS`
-would let the inline-operand forms be separate constructors with the correct lengths.
+A context register now exists, `contextreg` at offset `0x80`, carrying a one-bit
+field **`XP`**:
+
+```
+XP = 0   the normal form: the operand byte comes from M(R(X))
+XP = 1   the inline form:  the operand byte follows the opcode
+```
+
+`OUT`, `RET` and `DIS` each have two constructors keyed on it, so the
+inline-operand forms disassemble with the right length. The field is `noflow`,
+so it applies to the one instruction rather than propagating down the
+fall-through, which suits an idiom used at isolated sites.
+
+**Using it on an address** — `ghidra_scripts/SetXPInline` does all three on
+`Ctrl`-`Shift`-`X`, and `SetXPNormal` reverses it; by hand it is:
+
+1. clear the bytes there (`C`), so the wrong-length instruction goes away
+2. right-click → **Set Register Values…**, set `XP = 1` over just that address
+3. disassemble (`D`)
+
+That order is not optional. The context value is read when the instruction is
+created, so setting it under a live instruction has no visible effect.
+
+**Set it one instruction at a time.** `DIS` and `RET` load *both* `X` and `P`
+from their operand, so a `SEX R4` earlier in a block does not put the whole
+block in the inline form — see the `2419` counter-example in the README, where
+two real inline instructions bracket two `OUT`s that are not, inside nine bytes.
+Blanket-setting a range quietly turns those one-byte `OUT`s into two and shifts
+everything after them.
+
+Same mechanism ARM uses for `TMode` and MIPS for its 16-bit mode.
+
+**Built and verified.** `support/sleigh cdp1806.slaspec` against Ghidra 12.2
+compiles clean — still 19 NOP constructors, unchanged, so the three new
+constructors have real bodies — and the compiled `cdp1806.sla` (magic `sla\x04`,
+zlib from offset 4) contains both `contextreg` and `XP`. Extension zip:
+`dist/ghidra_12.2_PUBLIC_20261103_cdp1806.zip`.
+
+**What is still missing** is the automatic part: nothing *infers* `XP`. `SEP`,
+`SEX` and `DIS` would have to `globalset` it onto the following addresses for
+auto-analysis to get it right unaided, and `SEP` also still has `# TODO: Set P`
+(M9). So the manual switch unblocks the known sites — `0000`, the `6DD5` reset
+block, `51A8`, `51B1` — without yet fixing the general case.
+
+`LDXA` and `IRX` also increment `R(X)` and so have inline forms; neither has a
+site in this ROM that needs it, so neither was given a second constructor. Add
+one the same way if a site turns up.
 
 ### G3. Nine 1806 BCD instructions are empty stubs
 

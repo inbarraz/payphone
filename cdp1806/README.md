@@ -158,12 +158,116 @@ so just run it again.
 
 Available from **Tools > CDP1806 > Remove SCAL Register References**.
 
+## The `XP` context switch
+
+When `X == P` on a CDP1800, `R(X)` *is* the program counter, so any instruction
+that increments `R(X)` — `OUT`, `RET`, `DIS`, `LDXA`, `IRX` — swallows a byte
+from the instruction stream and is two bytes long rather than one. Nothing can
+infer that while disassembling, because `P` and `X` are data registers with no
+value at analysis time.
+
+The `XP` field in `contextreg` is the manual switch. On an address that uses the
+idiom:
+
+1. clear the bytes (`C`)
+2. right-click → **Set Register Values…**, set `XP = 1` over that address alone
+3. disassemble (`D`)
+
+`XP` is `noflow`, so it stays on the one instruction. Known sites in the
+TAMAC-18 image: `0000` (`DIS` + `00`), the `6DD5` reset block, `51A8`
+(`OUT 6` + `'>'`) and `51B1` (`RET` + `0x24`). See `REVIEW.md` gaps G1 and G2.
+
+### One keystroke instead of three steps
+
+Two scripts in `ghidra_scripts/` do the clear-set-disassemble sequence at the
+cursor, or over the selection if there is one:
+
+| Script | Does | Default key | Menu |
+|---|---|---|---|
+| `SetXPInline` | `XP = 1`, the inline form | `Ctrl`-`Shift`-`X` | *Tools ▸ CDP1806 ▸ Set XP inline form* |
+| `SetXPNormal` | `XP = 0`, back to one byte | `Ctrl`-`Shift`-`Z` | *Tools ▸ CDP1806 ▸ Set XP normal form* |
+
+**Installing the extension is enough** — the scripts ship inside the zip under
+`cdp1806/ghidra_scripts/`, and Ghidra scans an extension's script folder
+automatically. There is nothing to add in *Manage Script Directories*. The key
+comes from the `//@keybinding` line in each file. To use a different one, either
+edit that line or set it in the Script Manager's **Key Binding** column, which
+overrides the file.
+
+`Ctrl`-`Shift`-`Z` is the only one worth checking for a clash on your setup; if
+it collides, rebind it there.
+
+### Do not blanket-set `XP` over a range without checking
+
+An earlier version of this file said that setting `XP = 1` across a whole block
+was harmless because "no constructor consults it" on other addresses. **That is
+wrong, and the way it is wrong is quiet.** It is harmless on an address where no
+`OUT`/`RET`/`DIS` starts — but on one where such an instruction *does* start and
+`X` is *not* equal to `P`, it silently turns a one-byte instruction into two and
+everything after it shifts.
+
+The counter-example is in the TAMAC-18 image at `2419`:
+
+```
+242D  e4      SEX R4     X := 4 == P, so the next instruction is the inline form
+242E  71 54   DIS 0x54   inline operand - and it sets X := 5, P := 4
+                         *** X IS NO LONGER P ***
+2430  65      OUT 5      normal 1-byte form: outputs M(R5), R5++
+2431  c4 c4   NOP NOP
+2433  63      OUT 3      normal 1-byte form
+2436  e4      SEX R4     X := 4 == P again
+2437  70 24   RET 0x24   inline operand
+```
+
+`DIS` and `RET` **load both `X` and `P` from their operand byte**, so a `SEX R4`
+earlier in a block does not mean the block is in the inline form. Here two
+genuine inline instructions bracket two `OUT`s that are not, within nine bytes.
+Blanket-setting that range corrupts both `OUT`s.
+
+**So: set `XP` one instruction at a time, and only where `X == P` holds at that
+instruction.** Trace forward from the last `SEX`, and treat every `DIS` and
+`RET` as resetting `X`.
+
+The `6DD5` reset block is the one place a range is safe, and only because it has
+been checked: `SEX 0` at `6DD5` with `P = 0` at reset, and **no `DIS` or `RET`
+anywhere in it** (verified by scanning the block for `0x70`/`0x71`), so `X == P`
+really does hold throughout.
+
+Order matters inside the scripts and is worth knowing if you ever do it by hand:
+**clear first, then set the context, then disassemble.** The context value is
+read when the instruction is created, so setting it under a live instruction
+changes nothing you can see — which is the usual reason a first attempt at this
+appears not to work.
+
 ## Building and installing
 
 ```sh
 export GHIDRA_INSTALL_DIR=/path/to/ghidra
 cd cdp1806
 gradle
+```
+
+On a Homebrew install the path is the **`libexec`** directory, not the Cellar
+root — the formula puts the Ghidra tree one level down:
+
+```sh
+export GHIDRA_INSTALL_DIR=/opt/homebrew/Cellar/ghidra/12.2/libexec
+```
+
+To check just the processor spec without a full build, which is much quicker:
+
+```sh
+cd cdp1806/data/languages
+$GHIDRA_INSTALL_DIR/support/sleigh cdp1806.slaspec
+```
+
+A clean run reports only the `19 NOP constructors` warning. The compiled
+`cdp1806.sla` is zlib behind a four-byte `sla\x04` header, so to confirm a
+change actually landed in it:
+
+```sh
+python3 -c "import zlib; d=open('cdp1806.sla','rb').read(); \
+  print(zlib.decompress(d[4:]).count(b'XP'))"
 ```
 
 That writes `dist/ghidra_<version>_<date>_cdp1806.zip`. Install it with
@@ -173,6 +277,22 @@ on macOS that is `~/Library/ghidra/ghidra_<version>_PUBLIC/Extensions`.
 Each Ghidra release keeps its own extensions directory, so the module needs reinstalling
 after a Ghidra upgrade. A missing or stale `cdp1806.sla` is rebuilt from the `.slaspec`
 automatically on first use.
+
+### Language versions and existing programs
+
+`cdp1806.ldefs` carries a `version`, and Ghidra records it in every program
+imported with the module. **Changing the register or context layout without
+bumping that version leaves an already-imported program on the old layout** —
+the new register silently does not exist for it, which looks exactly like the
+module not having been installed.
+
+The `XP` context register went in at **1.1**. On opening a program saved under
+1.0, Ghidra reports that it needs a language upgrade and performs it
+automatically; a minor-version increment needs no `LanguageTranslator`, and
+names, comments and data all survive. **Archive the project first anyway** —
+*File ▸ Archive Current Project* — because the upgrade rewrites the program.
+
+Bump the minor version for any future layout change, for the same reason.
 
 ## Known issues
 

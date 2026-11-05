@@ -36,7 +36,7 @@
 # Example:
 #
 #   6e6b  p          # LoadStringForDisplay - 16-bit string descriptor
-#   6fa5  b          # setWaitFor812d_Zero - one byte
+#   6fa5  b          # delay_base_ticks - one byte
 
 # ---------------------------------------------------------------------------
 # TAMAC-18 V2.8 (ROM/TAMAC-18 V2.8 9513.bin)

@@ -10,8 +10,9 @@ The repo includes the ROMs, the Ghidra CPU definition and (soon) the Ghidra proj
   inline-argument and SCRT call analyzers.
 - [`phone/TAMAC18-firmware.md`](phone/TAMAC18-firmware.md) — reverse
   engineering notes for the TAMAC-18 payphone firmware (CDP1806ACE): the
-  `P = R4` convention, the interrupt system, and the card reader link
-  protocol from the phone's side.
+  `P = R4` convention, the interrupt system, the card reader link protocol from
+  the phone's side, how the card is debited, and the dial-up session that
+  uploads call records to **Isranet**, the Israeli X.25 gateway.
 - [`card-reader/BSK31-firmware.md`](card-reader/BSK31-firmware.md) — reverse
   engineering notes for the Landis & Gyr BSK31-202 optical phonecard reader
   (CDP1802) used by the payphone, including its wire protocol.
@@ -23,6 +24,17 @@ The repo includes the ROMs, the Ghidra CPU definition and (soon) the Ghidra proj
 - [`tools/dump_strings.py`](tools/dump_strings.py) — dumps the firmware's
   Hebrew and Latin strings, and walks LCD descriptor chains. Handles the
   ROM's `0xA0`-based Hebrew encoding and its per-string byte order.
+
+## External corroboration
+
+The phone uploads its call records over **Isranet**, Israel's X.25 network,
+dialled on `131`. Phrack 27's [NUA list for Datex-P and X.25
+networks](https://phrack.org/issues/27/nua-list-for-datex-p-and-x25-networks)
+(1989) gives Israel's DNIC as `0425` and Isranet as `04251`, and its one Israeli
+address — `0425 130 000 215` — has an eight-digit national part. The NUA this
+firmware calls, `34011503`, is eight digits with the same leading `3`, sent bare
+as a same-network address. See
+[`phone/TAMAC18-firmware.md`](phone/TAMAC18-firmware.md) §10at.
 
 ## Background
 

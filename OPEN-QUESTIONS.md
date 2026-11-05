@@ -169,16 +169,17 @@ an open question without a next action tends to stay open.
 
 ## Naming and tooling
 
-- [ ] **267 RAM cells are still unnamed**, out of the 399 the firmware points a
+- [ ] **233 RAM cells are still unnamed**, out of the 399 the firmware points a
       register at, after dropping the cells a bad `SCAL`-pointer heuristic had
       invented. [`phone/RAM-MAP.md`](phone/RAM-MAP.md) has all of them with
       the signature the ROM shows — stores, immediates, `ANI` masks, comparison
       values — which is what is actually known about each. Naming them would
       mean inventing meanings.
       *Attack in this order,* highest site count first, because a cell touched
-      from a dozen places has a dozen chances to give itself away: `8165` (11
-      sites, all in the idle loop), `812F` (13, walked by the `4F19`–`4FC2`
-      block), `8169`, `8183`, `81B5`, `8186`, `8182`.
+      from a dozen places has a dozen chances to give itself away: `8169`,
+      `81B5`, `8186`, `8182`, `8168`, `816C`, `813A`, `813C` — §10ax records
+      what each one's reference sites actually show, which is the head start.
+      (`8165`, `812F` and `8183` are done.)
 - [ ] **Label the fifteen cells Ghidra still has no data item for.**
       `rename_data` silently does nothing without one, and the only way the code
       names any of these is as an inline-argument byte or a pointer-list entry,
@@ -205,8 +206,8 @@ an open question without a next action tends to stay open.
 - [ ] **Name the soft-timer bank.** `arm_timer_set` (§10y) revealed the whole
       set: `888E`, `8131`, `8133`, `8134`, `8136`, `8128`, `8137`, `811D`.
       Several were previously unnamed for lack of a role; now they have one.
-- [ ] **Cells still unnamed because the meaning is unknown:** `8030`, `812F`,
-      `8149`, `8165`, `816C`, `845D`, `97A6`, `8191`, `8501`, `81B5`, `850D`,
+- [ ] **Cells still unnamed because the meaning is unknown:** `816C`,
+      `97A6`, `81B5`, `850D`,
       `8500`, `8513`–`8515`. Only `8513` has a known consumer
       (`M(813A) = M(8513) − 1` at `1A52`).
 - [ ] **Reconcile the four statements about `CA`, `CB`, `TG`, `MN`.** The
@@ -318,6 +319,85 @@ Collected separately because they are not worth static effort:
       `8101`–`8119` and `3B0D` sets the top index to `0x19`. The four slots
       `8116`–`8119` sit inside the cleared region but outside the wrap
       (§10ao).
+- [ ] **What does `יש"מ` stand for?** It is the ROM's own label (`69AC`) for the
+      12-byte number field at `844E`, the sibling of `own_phone_number`
+      (§10ap). A site or terminal identifier would fit — `844E` sits in the
+      battery-backed block beside the fault log — but nothing in the image
+      shows it, and it is a question about Bezeq's terminology rather than the
+      firmware.
+- [ ] **Trace `number_field_dialog`'s own renderer.** `5751` is the LCD path for
+      `own_phone_number` and `ysm_number`, and its formatting lives in `57B6`,
+      `586C` and `5909`, none of them read. `Hex2ASC_8501_to_RA` is *not* it —
+      that one feeds the report builder at `55A7` (§10ap). So what the
+      technician screen actually shows for a nine-digit number is still open,
+      including whether it carries the same trailing `'A'` pad.
+- [ ] **What is EF4?** Only two sites sample it, `23B8` and `4A13`, and both do
+      so immediately before EF3 — so it is a second contact or sense line read
+      alongside the hook switch, and `4A13` carries the result in `RF.1` rather
+      than acting on it (§10aq). EF1 is the timebase and EF3 the hook; EF2 is
+      unaccounted for too.
+      *Settle by:* tracing EF4 on the board, or following `RF.1`'s consumers.
+
+- [ ] **How does a thread parked at `1A7C` ever proceed?** Briefly recorded as
+      settled, and withdrawn: both interrupt handlers restore the interrupted
+      `R4` and `(X,P)` in full (`28D2` and `067E`), so entering the tick chain
+      from `51AD` is still handler work and replaces nothing. `IDL` plus a
+      forward branch is "wait for one interrupt" — the idiom at `06EB` and
+      `0CDF` — but `1A7C`'s branch points back at its own `IDL` and tests
+      nothing, which makes it terminal unless a handler rewrites the saved
+      continuation bytes on the stack at `M(R2)` before its epilogue. Find that
+      rewrite, or establish that `1A7C` is a deliberate halt (§10av).
+
+- [ ] **What do the DLC payload tags mean, and type 0 vs type 1?**
+      `build_dlc_frame` accepts only types 0 and 1 and the first payload byte
+      is a tag — `0x0A` for "nothing to report", `0x0F` for a two-value report
+      (§10ar). The other four wrappers' tags, and whatever the receive side
+      expects, are unread.
+- [ ] **Read the DLC interrupt handler — `0699` / `05A6`, not `5071`.** An
+      earlier version of this item pointed at `5071` and would have sent the
+      work into the wrong subsystem. `5071` is the **card-reader** handler; its
+      bit-7 fall-through is the `5A8E` mailbox transport's status latch, and
+      `dlc_uart_service` (`0A61`) is unreachable from it. The DLC has its own
+      vector: session entry swaps `R1` to `0699` at `06E4`, that prologue
+      branches to `05A6`, and `05A6` polls XI at `05B9` and calls `0A61` at
+      `05C1` (§10av). Session sequencing and the NUA send's two-byte over-run
+      must live in there.
+      *Specifically unread:* the CI-set path at `05D7`, a per-tick chain in the
+      DLC context distinct from `4071`'s, which reloads the ÷ 12 prescaler and
+      then calls `1415`, `046E`, `705E`, `7461`, `0331`, `034B`, `3733`, `7572`,
+      `279A` and `0F73`. (The `8E0D`/`8E0F` reads at `05CD`/`065C`/`066F` are
+      *not* part of the gap — §2 already has them as a RAM-resident chained
+      vector and its one-shot gate, installed at `1003`/`100B`/`1015`.)
+      *Also open:* who sets bit 7 of `8785`, and whether the transmit engine at
+      `0AD6`–`0B2A` is reached at all (§10au found no reference to `0AD6`).
+- [ ] **Find Isranet PAD documentation, circa the early 1990s.** Two questions
+      hang on it (§10at):
+      **(a) Is `D1` a terminal type or a login identifier?** The ROM shows it is
+      the phone's complete answer to the `TERMINAL=` prompt — there is no third
+      prompt pattern and no other string sent — but not what that prompt was
+      asking for. A contemporary user recalls an identifier being required after
+      the modem answered, with no password. Note that the shape of a remembered
+      human login is no guide: a carrier's own identifiers follow its own
+      conventions, and a fleet account could be two characters.
+      **(b) Whose host was NUA `34011503`?** Presumably Bezeq's payphone
+      management system. *That it is an Isranet NUA is now settled* — Phrack
+      27's 1989 NUA list gives Isranet's prefix as `04251` and its one Israeli
+      address an eight-digit national part, `30000215`, matching this ROM's
+      eight-digit `34011503` in length and leading digit (§10at). Whose host it
+      was is still open.
+      *Searched and not found:* general web search turns up X.25/PAD background
+      (X.3/X.28/X.29, NUI and NUA concepts) and modern Bezeq material, but
+      nothing on Isranet's own login syntax. Hebrew-language sources, archived
+      Israeli computing forums, or `Isranet` paired with `PSS`/`Datex-P` are the
+      untried angles.
+- [ ] **Why does the NUA transmit over-run by two bytes?** `uart_tx_count` is a
+      plain down-counted byte count and total sent is 1 + count, which closes
+      exactly for `"\r.\r"` and `"D1\r"` but gives 11 bytes for a 9-byte NUA
+      string — so `1A95`/`1A96`, both `FF`, go out after the CR (§10at).
+- [ ] **Create function boundaries at `0C44` and `0C57`.** Neither login step
+      has one, so the decompiler cannot render them (§10as). Same problem as
+      `514B`/`5FB1` on the reader link — both fall-through labels with no
+      inbound reference, so Ghidra has nothing to anchor on. (`5071` is done.)
 - [ ] **Scope port 1 bit 3.** Three consecutive high ticks raise `M(8067)`
       bit 0 (`4AB9`), which is what lets the `?CC` flush run. It is the third
       sense line found on port 1 and the only one with no candidate meaning
@@ -358,7 +438,32 @@ Kept as a record of what the method looks like when it works.
       each accepted pulse. So `credit_times_interval_ge_1000` computes
       credit × ticks-per-unit, an estimate of remaining talk time, and takes
       the larger interval as the conservative one (§10aa, §10ak).
+- [x] **What the 1658-byte `1CB7` block is** — a **memory-operation interpreter
+      with an AT29C256 page programmer**, i.e. a remote firmware-update facility
+      reached over the DLC link. The `AA`/`5555`, `55`/`2AAA`, `A0`/`5555`
+      unlock at `21A7`–`21B7` is the JEDEC SDP program command, and `2176`
+      handles 64-byte pages. That also explains the code shadow (you cannot
+      execute from flash while programming it) and supports the write-routing
+      reading of `F000` bit 1 (§10ay).
+- [x] **Whether the DLC frame CRC is really CRC-16/Modbus** — yes, bit-exact.
+      The transcribed loop matches a reference implementation at every length
+      1–160, including `"123456789"` → `0x4B37` (§11a). The *coverage* was wrong
+      and is fixed: `R9 = 8C27`, the frame's first byte, not `8C29` (§10au).
+- [x] **What checksum the DLC frame carries** — **CRC-16/Modbus**: init
+      `0xFFFF`, reflected polynomial `0xA001`, eight bit iterations, computed
+      from the frame's own length field at `8C29` with that byte as the count
+      and the result left at `dlc_frame_checksum` (§10au). The routine was
+      already named `crc16-modbus`; §10au shows the bytes that bear it out.
+- [x] **Why metering stops during a data call** — `M(8DC5)` is
+      `dlc_session_active`, set at `0C83` and cleared at `0CB9`, and it is one
+      of `detect_metering_pulse`'s three inhibits. The only visible interlock
+      between the data side and the charging side (§10au).
 - [x] **What bit 6 of `M(8036)` means** — "the timer set is running" (§10y).
+- [x] **What the DLC link connects to** — **Isranet**, the Israeli X.25
+      gateway, dialled on `131`. The phone wakes the PAD with `\r.\r`, answers
+      `TERMINAL=` with `D1` — terminal type or login identifier, undetermined
+      (§10at) — and at the `@` prompt calls NUA `34011503` before uploading its
+      70-byte record (§10at, §10ar).
 - [x] **Whether the card is debited during the call or only on eject** —
       **during the call**, within one tick of each charge. The debit at `2D88`
       sets `M(8064)`, and `service_card_reader_link` at `3103` sends `?F` for
