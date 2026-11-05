@@ -6772,6 +6772,94 @@ a logged port-2-input bit-1 fault. §6a still has nothing on `8034` traced to a
 component, but the suppression condition is the strongest lead so far, and it is
 on the queue in that form.
 
+## 10bc. `scan_keypad` does not end at its `RET`, and the census that proves it
+
+Asked whether `scan_keypad` (`2419`) ends at `2437`. It does not, and the
+question is a good one because **there is a real `RET` opcode there** — `0x70` at
+`2437`, with `0x24` at `2438`.
+
+### Why that `RET` is not a return
+
+`RET` (`0x70`) and `DIS` (`0x71`) both do `X,P ← M(R(X)) ; R(X) ← R(X)+1`.
+Normally `X ≠ P`, the byte comes off the stack, and loading `P` genuinely
+returns. But `SEX R4` at `2436` makes `X = 4 = P`, and `R4` is the program
+counter in this firmware — so `R(X)` *is* the PC. The operand is fetched from the
+instruction stream, `R(X)` steps past it, and `P` is loaded with `4`, the
+register it already was. Execution continues at `2439`.
+
+The operand's nibbles are the new `X` and the new `P`. **`0x24` means `X = R2`,
+`P = R4` — and `P` was already `R4`.**
+
+### The census
+
+Every `SEX R4` immediately followed by an `R(X)`-incrementing opcode — `IRX`,
+`OUT`, `RET`, `DIS`, `LDXA`:
+
+| | |
+|---|---|
+| sites in the image | **66** |
+| of those, `RET` or `DIS` | **65** |
+| …with operand low nibble `4`, i.e. `P` stays the PC | **65 — all of them** |
+| …that therefore transfer control | **0** |
+| the remaining one | `51A7 OUT 6` + `0x3E` = `'>'`, a data byte, not an `X`/`P` pair |
+
+So for `RET`/`DIS` this idiom *never* transfers control anywhere in this ROM. It
+is always "set `X`, toggle interrupts, fall through". The operands seen are
+`0x04`, `0x24`, `0x34`, `0x44`, `0x54`, `0x74`, `0xA4`, `0xB4` and `0xC4` — the
+high nibble varies freely, the low nibble never does. `242D` (`DIS 0x54`,
+`X = R5`) is the `README` counter-example for why `XP` must not be blanket-set
+across a range, and even it keeps `P = R4`.
+
+The one `OUT` site is a different use of the same addressing trick: `51A7` sends
+the literal `'>'` of the card-reader handshake straight from the instruction
+stream, so there the inline byte is payload rather than a register pair. `IRX`
+and `LDXA` never appear in this form.
+
+*(A first draft of this table said 67 sites and 67 with low nibble 4. Both were
+wrong — the count was asserted from eyeballing a listing rather than counted,
+and lumping the `OUT` site in with the `RET`/`DIS` ones would have made the
+"always `4`" claim false. Counted and verified now.)*
+
+### The proof, as opposed to the argument
+
+**Nothing in the image branches to `2439`.** If the `RET` returned, `2439`–`24BB`
+would be unreachable — and so would `FUN_2500` and `FUN_280f`, since each is
+reached only by the preceding tail branch — and the keypad would never be read at
+all. Meanwhile `2439` onward is unmistakably live: `INP 2` reads the columns,
+`ANI 0xF8` and three `SHR`s form an index, and that index walks the table at
+`2408`–`2418` which the prologue loaded into `RE` at `2425`, using `R5`, `R6` and
+`RD` exactly as `2419`–`2425` set them.
+
+**Note the asymmetry, because it is the real lesson.** At `51B3` this project read
+"nothing branches here" as "dead code" and was wrong. Here the identical fact
+proves the opposite. Absence of inbound branches cannot decide reachability when
+a fall-through is possible; it only tells you how control *doesn't* arrive.
+
+### What `scan_keypad` actually is
+
+Not a subroutine. It has no return of its own — it is a link in a chain of tail
+branches that ends in the interrupt epilogue:
+
+| Function | Body | Ends with |
+|---|---|---|
+| `FUN_4a12` | `4A12`–`4AF5` | `4AF3 LBR 2419` |
+| **`scan_keypad`** | **`2419`–`24BB`** | **`24B9 LBR 2500`** |
+| `FUN_2500` | `2500`–`2797` | `2797 LBR 280F` |
+| `FUN_280f` | `280F`–`28B6` | `28B4 LBR 28B7` |
+| `interrupt_leave_reader` | `28B7`–`28F8` | restores the context and `RET`s (§10av) |
+
+Each target has **exactly one** inbound reference — the preceding tail branch — so
+none of `2419`, `2500` or `280F` is independently callable. They are
+continuations, and all of this runs inside the card-reader interrupt handler.
+
+So Ghidra's body `2419`–`24BB` is a defensible boundary (it ends at the 3-byte
+`LBR` at `24B9`), but "where does `scan_keypad` end" has two answers: `24BB` as a
+registered function, and `28F8` as a unit of control entered once and left once.
+
+Its key-code table sits at `2408`–`2418`, immediately *below* the entry point —
+loaded into `RE` at `2425`, with `24A8`'s comment already noting `2418` as the
+last entry.
+
 ## 11. Naming added in this session
 
 Renamed: `proc_333d` → **`dispatch_card_reader_message`**;

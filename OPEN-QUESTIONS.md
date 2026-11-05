@@ -442,6 +442,15 @@ Collected separately because they are not worth static effort:
       The sequencer states pay off most: each is a few instructions and they are
       currently invisible as code.
 
+- [ ] **Set `XP` at `242E`** (`SEX R4 / DIS 0x54` at `242D`). The last known
+      mis-rendered `X == P` site: Ghidra reads the `0x54` operand as a spurious
+      `STR R4`. It is the `README` counter-example for why `XP` must not be
+      blanket-set across a range — alone among the image's 65 `RET`/`DIS` inline
+      sites it moves `X` to `R5` rather than `R2`, though `P` still stays `R4`
+      (§10bc). Unlike `05E0`/`0658`, the following addresses *are* affected here:
+      a 1-byte `DIS` plus a 1-byte `STR R4` happen to total the same two bytes,
+      so the listing re-syncs, but the instruction itself reads wrong.
+
 - [ ] **Set `XP` at `05E0` and `0658`.** Two confirmed `X == P` inline sites in
       `ISR_DLC_Link` where Ghidra's listing is wrong: it shows `RET` / `DEC R4`
       and `DIS` / `DEC R4`, decoding the `0x24` operand as a spurious
