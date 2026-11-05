@@ -6555,9 +6555,54 @@ counter reaches the limit**, then the usual `00 00 00`. The header handler is
 146E  skip the triples to 00 00 00, then 1444 for the next section
 ```
 
-`SM` is `M(R(X)) − D`, so equal operands give `D = 0` and `LBZ` is the match.
-The counter is cleared on the match, so the period is exactly `limit`
-increments of the base tick.
+`SM` is `D − M(R(X))` — the slaspec's `F7`; `M(R(X)) − D` is `SD`, `F5`. So `D`
+holds the table's limit byte and `M(R(X))` the counter byte, and equal operands
+give `D = 0`, which is what `LBZ` tests. The direction does not change the
+match, equality being symmetric, but it is which-operand-is-which. The counter
+is cleared on the match, so the period is exactly `limit` increments of the base
+tick.
+
+### The structure `RA` walks
+
+`RA` is the table cursor, and `X` is pointed at it (`141D SEX RA`) so `RLXA`
+reads through it. The whole table is 41 bytes, `13EC`–`1414`, ending exactly
+where `walk_soft_timer_tables`' own code begins at `1415`:
+
+```
+table      := triple* terminator                 -- section 1, no header
+              ( header triple* terminator ) x2   -- sections 2 and 3
+
+triple     := u16 timer_ptr ; u8 flag_index      3 bytes
+header     := u16 counter_ptr ; u16 limit        4 bytes
+terminator := u16 0x0000 ; u8 pad                3 bytes
+```
+
+Everything is **big-endian**, because `RLXA` loads the high byte first. `RE = 3`
+at `1417` counts the sections and the `DBNZ RE` at `1444` ends the walk, so
+there are exactly three — and only the second and third carry a header, because
+`1415` enters the triple loop directly while `1444` always branches to the
+header reader at `144B`. **The sections are positional, not tagged.**
+
+| Record | Effect |
+|---|---|
+| `triple` | decrement the byte at `timer_ptr`; on reaching zero call `set_feature_flag(flag_index)`, unless the index is `0xFF` — expire silently |
+| `header` | increment the 16-bit counter at `counter_ptr`; if it now equals `limit`, zero it and run the following triples **once**; otherwise skip them |
+
+So a header is a prescaler gating its own triple list.
+
+Three mechanical details about the cursor, all of which matter if you re-walk it
+by hand:
+
+- An entry is read as `RLXA RD` (2 bytes) + `LDA RA` (1), so the terminator is
+  consumed as a 3-byte record, not a 2-byte one.
+- `1422 INC RD` / `1423 DBNZ RD` is a zero test that **restores** `RD`, because
+  `DBNZ` decrements. That is what lets the same register hold the timer pointer
+  and be tested for the end of the section.
+- The skip path at `146E` advances by the same 3-byte stride (`RLXA RD` +
+  `INC RA`), so skipped and walked triples move `RA` identically — which is why
+  a header that does not match still lands on the terminator.
+
+`RA` is re-`SEX`ed at `1440`, `146A` and `146E`, after each call that moves `X`.
 
 | Section | Counter | Limit | On the hit tick |
 |---|---|---|---|
