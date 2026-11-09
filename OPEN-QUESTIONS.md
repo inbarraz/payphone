@@ -318,7 +318,7 @@ Collected separately because they are not worth static effort:
       32 KB. The reasoning is internal to the firmware; the chip is the proof.
       *Settle by:* looking at the board. **Needs hardware** — but only a glance
       at the part numbers.
-- [ ] **What is the code shadow actually for?** Reset writes `F000 = 0x00`, and
+- [x] **What the code shadow is for** Reset writes `F000 = 0x00`, and
       nothing in the image reaches the `0x03` entry point at `000F`, so the
       phone boots and runs from the **ROM**, not the shadow (§10an — this
       corrects an earlier claim). The shadow is filled on request and switched
@@ -338,7 +338,8 @@ Collected separately because they are not worth static effort:
       its physical decode is unobserved. The original framing, kept for the bit
       pattern it records:
 
-- [ ] **(superseded) What does `F000` bit 1 do?** Set in `0x03` and `0x02`, cleared in
+      *(The original framing, kept for the bit pattern it records:)* what does
+      `F000` bit 1 do? Set in `0x03` and `0x02`, cleared in
       `0x01`, `0x00`, and by a failed integrity check (§10a, §10am, §10an).
 - [x] **What the relocated `1CB7`–`2330` block does** — the
       **memory-operation interpreter with an AT29C256 page programmer**, i.e.
