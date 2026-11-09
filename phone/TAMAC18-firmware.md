@@ -7685,6 +7685,65 @@ whichever one my previous query had returned.** When a family of routines is
 laid out as fixed-size stubs, the only safe way to tabulate them is to derive
 every field from the entry address.
 
+## 10bj. `17C5` — the interpreter's command dispatcher
+
+`FUN_17c5`, now `dispatch_interp_command`. This is the piece §10bi was missing:
+it found the jump table at `1989` but not what indexes it. `R9` is the
+command-stream pointer throughout.
+
+```
+17C5  LDI 0x0E / SCAL set_feature_flag      mark the interpreter busy
+17CC  SEX R8 / RNX R9                       R8 := R9, save the stream pointer
+17CF  R7 = word(8DCC) ; R7 -= 6             the block length, less a 6-byte header
+17E6  R8 += R7   (GLO/ADD then GHI/ADC)
+17EE  word(8DCE) := R8                      the END of the command block
+17F5  test_feature_flag(0x14) -> LBNZ 181E
+17FF  test_feature_flag(0x13) -> LBNZ 181E
+1809  word(8DA9) := 8D26 ; M(8D26) = 2 ; M(8DAB) = 1
+      neither flag set -> build a 1-byte reply, TAG 0x02
+181E  SCAL 13D9        M(8DF1) := R9 - M(8DF3), the offset into the block
+1823  LDN R9 / SDI 0x15 / LBNF 1955         command > 0x15 -> REJECT
+1829  LDN R9 / SHL                          index = cmd * 2
+182B  R8 = 1989 + index
+1838  SEX R8 / RLXA R4                      LOADS THE PC: the dispatch jump
+```
+
+Commands `00`–`0x15` are valid, which is exactly the table's 22 entries, and the
+bound is checked before the index is formed — `SDI` gives `D = 0x15 − cmd`, so a
+borrow (`LBNF`) means out of range.
+
+### Tag `0x02` means "not authorised"
+
+The reply built at `1809` is one byte with **`0x02` as the tag** in `dlc_record`
+(`8D26`), length 1 in `dlc_record_len` (`8DAB`), and `word(8DA9)` pointed at the
+record. It is built precisely when **neither** feature flag `0x14` nor `0x13` is
+set — and `0x13` is the same flag that gates every flash command in §10bi's
+table.
+
+So that is a fifth known tag, against the four in §10bi (`0x0A` nothing to
+report, `0x0F` two-value report, `0x0B` eight-byte report, `0x01` the 70-byte
+record). It also says the authorisation check happens **once, in the
+dispatcher**, before any command runs — the per-command `0x13` gates in the
+`1848`–`1891` block are a second line of defence rather than the only one.
+
+### Flag `0x0E` is the interpreter's busy marker
+
+Raising it first ties back to §10bd. In the DLC scheduler, `0278` returns the
+lowest set feature flag and index `0x0E` routes to `1015`, which **clears** the
+resume gate at `8E0F` so a step already running is not rescheduled. So
+`set_feature_flag(0x0E)` here is how the interpreter tells that scheduler it is
+busy — the two subsystems interlock through the flag array.
+
+### `183B` is not this routine's tail
+
+`1839 RLXA R4` loads the program counter, so control leaves there. Ghidra's body
+runs to `183D`, but `183B`–`183D` is the **command-`01` handler**: jump-table
+slot `01` holds `183B`, and it is `LBR 92E5`. Reading it as the fall-through tail
+of the dispatcher is exactly the mistake the `RLXA R4` idiom invites — the same
+shape as the `RET 0x24` trap in §10bc, where an instruction that looks like an
+ending is not one, and its mirror image here, where an instruction that looks
+like a continuation is a jump.
+
 ## 11. Naming added in this session
 
 Renamed: `proc_333d` → **`dispatch_card_reader_message`**;

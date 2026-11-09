@@ -578,7 +578,9 @@ Collected separately because they are not worth static effort:
       `84`. Known tags: `0A` (nothing to report, `01FB`), `0F` (two-value
       report, `02E3`), `0B` (an eight-byte report, `029C`), and `01` — which
       `build_dlc_record` writes at `8D26` ahead of the 70-byte record, so
-      `020A`'s tag is `01` too.
+      `020A`'s tag is `01` too. **And `0x02` means "not authorised"** —
+      `dispatch_interp_command` builds a 1-byte reply with that tag when neither
+      feature flag `0x14` nor `0x13` is set, before any command runs (§10bj).
 
       **The receiver does not branch on the tag at all.** `0904` → `089A`
       checks the `CC` sync, a minimum length and the `84` trailer, then the CRC
