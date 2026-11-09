@@ -205,9 +205,14 @@ A real F2F magnetic-head decoder would be unmistakable — a tight loop on an EF
 line or port, shifting bits and checking parity. **There is none.** So the
 firmware does not bit-bang a magnetic head.
 
-### Which suggests the mag reader is a SERIAL peripheral
+### A serial magnetic reader — the hypothesis, and why it is withdrawn
 
-This resolves into a single hypothesis that accounts for every loose end at
+> **Withdrawn. Read the retraction in the next subsection before this one.**
+> The Mag. Reader socket **was never fitted**, so it is not the source of any
+> traffic the phone received, and four lines is not a UART. What follows is
+> recorded as the reasoning that was tried, not as a live reading.
+
+This resolved into a single hypothesis that accounted for every loose end at
 once. The Mag. Reader socket has **four lines** on the distribution board.
 Earlier these notes guessed card-present/data/clock/ground. But four lines is
 equally **TX, RX, power, ground** — a serial-attached reader. If so:
@@ -220,12 +225,13 @@ equally **TX, RX, power, ground** — a serial-attached reader. If so:
 | no stripe decoder in the ROM | none is needed — an intelligent reader sends ASCII messages, exactly like the BSK31 |
 | `CA`/`CB` share the `CO` handler at `33C5` | all three carry card data in a similar format |
 
-That is five anomalies closed by one assumption, which is why it is worth
-recording. **It is still a hypothesis.** The test is the routing question in
-§6a: if the two `M74HC4066` switches route the UART between the Optical Reader
-pins on J1 (16, 32, 35, 38, 40) and the Mag. Reader pins (23, 25, 26, 44),
-the hypothesis is confirmed and the phone has **three** UART peers — optical
-reader, magnetic reader, and the DLC modem — selected by vector and switch.
+Five anomalies closed by one assumption, which is why it is recorded. It did
+not survive: the socket is unfitted, and §6a's position is that `CA`/`CB`/`TG`/
+`MN` cannot be attributed on firmware evidence. The routing question in §6a —
+whether the two `M74HC4066` switches route the UART between the Optical Reader
+pins on J1 (16, 32, 35, 38, 40) and the Mag. Reader pins (23, 25, 26, 44) — is
+still worth answering for its own sake, but a yes no longer confirms this
+hypothesis, because an unfitted socket can be wired and still never speak.
 
 ### The unattributed codes, after the J1 mapping
 
@@ -239,13 +245,12 @@ BSK31.
 
 The unfitted socket establishes the general point that **this firmware carries
 support for hardware that is not installed** — and the credit-card UI above
-confirms it concretely. **The retraction above applies here too:** the
-serial-magnetic-reader hypothesis is withdrawn, so it is not "the best current
-account" of the four prefixes — §6a's position is that `CA`/`CB`/`TG`/`MN`
-cannot be attributed on firmware evidence, and §8 has since placed `TG` as the
-flag that makes the phone send `?CE007` instead of `?CD007`. The withdrawn
-account was the
-serial-magnetic-reader hypothesis immediately above.
+confirms it concretely. **The retraction above applies here too:** an earlier
+version of this paragraph called the serial-magnetic-reader hypothesis "the
+best current account" of the four prefixes. It is withdrawn. §6a's position is
+that `CA`/`CB`/`TG`/`MN` cannot be attributed on firmware evidence, and §8 has
+since placed `TG` as the flag that makes the phone send `?CE007` instead of
+`?CD007`.
 
 ### What the photographs cannot settle
 
@@ -301,9 +306,14 @@ control takes EF1, EF2 and TPA** as its possible clock sources. So the
 divisor is the EF1 ÷ 12 stage of §10aj. (An earlier edit here announced that
 "the paragraph below predates that and is kept" — there is no such paragraph;
 the next heading is "What differs between builds". The announcement was part of
-the same half-patched sentence.) The hardware question that remains decides
-whether the
-second link counts **EF1 or EF2**, and tracing both resolves it from hardware.
+the same half-patched sentence.)
+
+Note that this counter is the **timebase**, not a data line: §9a identifies the
+second link as the UART, so nothing is clocked off EF1 or EF2 for serial data.
+Two earlier versions of this paragraph ended with "the hardware question that
+remains decides whether the second link counts **EF1 or EF2**" — that question
+is answered twice over, by the slaspec and by the UART reading. What EF2 is
+wired to is still unknown, but no firmware claim now rests on it.
 
 ### What differs between builds
 
@@ -326,7 +336,7 @@ build, not a different product.
 | Address | V2.8 | PH06 | B02 | Reading |
 |---|---|---|---|---|
 | `7BFA` | `0430` | `0430` | `0430` | **software version 4.30** — see below |
-| `7BFE` | `7AAE` | `7AAE` | `7AAE` | fixed, unidentified |
+| `7BFE` | `7AAE` | `7AAE` | `7AAE` | **whole-ROM additive checksum** — see below |
 | `7C00` | `031C` | `0320` | — | **a length**, +4 |
 | `7C02` | `009E` | `00A9` | `00A2` | **build identifier** |
 
@@ -559,7 +569,12 @@ the reset pair itself, so the "only" was already false within this file.
 > so it is never the address `SEP` uses. It is the main thread's resume address,
 > and `8E0F` is its one-shot gate. Its only writers are `1007`/`100A`; `065C`
 > reads the gate and `05CD` clears it.
-Not yet investigated — there appear to be several interrupt modes.
+
+Both vectors are now traced end to end: `28D8` for the card reader (§6) and
+`0699` for the DLC link (§9a, §10bd), with exactly one armed at a time and
+`06E4`/`0CD8` swapping them. An earlier version of this line read "Not yet
+investigated — there appear to be several interrupt modes." There are two
+handlers, not several modes.
 
 ## 6. The card reader link
 
@@ -932,7 +947,7 @@ In priority order, with what each would resolve:
 | **36** | /INTERRUPT | If it comes from the CDP1854's INT (its pin 13), **both** ISRs are UART-driven, which is strong support for the time-multiplexed-UART model. If something else raises it, the second link is not the UART at all. |
 | **4** | Q | Tests the claim in §1a that Q clocks the `MC14094` chain. **Also worth checking whether Q reaches U230 pin 9** — if it does, the peer select is software-driven after all. |
 | **22** | EF3 | Should reach J1 pins 15/37 (Hook). Would confirm the hook identification from hardware; currently it rests on firmware plus the J1 mapping. |
-| **21** | EF4 | Unidentified. Only one `BN4` appears in the whole credit-card span. |
+| **21** | EF4 | Unidentified. **No** `BN4` appears in the credit-card span — the "lone `BN4`" an earlier version of this row cited was a misdecoded descriptor byte at `4997` (§1a). So there is no firmware evidence bearing on EF4 at all. |
 
 ### What drives the select line — still open
 
@@ -1371,14 +1386,16 @@ The installer is at `0x0FFB`–`0x101F`: it writes a 16-bit address fetched via
 R7 into `8E0D`/`8E0E`, then sets `M(8E0F) = 1` to arm it (or `= 0` at `1015`
 to disarm), and finishes with `ClearBytesAt_Array8dac` (`0A3E`).
 
-So the second link can **hand off to a dynamically installed handler**: code
-registers a callback, and the next interrupt vectors to it instead of the
-default. `8E0F` is the one-shot gate. **Writer list corrected.** `066F`/`0673` and `065C` are *reads*, not writes.
-The resume word is stored at `1007` and `100A` (after `RLDI RA,8E0D` at `1003`),
-and the gate is written at `1011` (`LDI 0x01`), `101B` (`LDI 0x00`), `05D3`
-(after `05CD`) and `075A` (after `0756`). The original list said writers of
-`8E0D` are `066F` and `1003`, and of `8E0F` are `05CD`, `065C`
-(the ISR), `0756`, `100B` and `1015`.
+So code can **register a continuation for the main thread**: the installer puts
+an address in `8E0D`/`8E0E`, arms `8E0F`, and the next interrupt writes that
+address over the saved `R4` so the interrupted thread resumes there. The handler
+itself always exits through `067E`; nothing is vectored anywhere (§10bd). An
+earlier reading of this paragraph had the *interrupt* vectoring to `8E0D`.
+
+**Writers.** The resume word is stored at `1007` and `100A` (after
+`RLDI RA,8E0D` at `1003`), and the gate at `1011` (`LDI 0x01`), `101B`
+(`LDI 0x00`), `05D3` (after `05CD`) and `075A` (after `0756`). `066F`/`0673` and
+`065C` are **reads** — an earlier list counted both as writers.
 
 ### What is and is not established
 
@@ -1388,10 +1405,20 @@ through `proc_06ba`; the session requires the handset on hook (EF3);
 `PerformComm?` reads the same 1806 counter the ISR sets up in EF1-counting
 mode.
 
-**Not established:** what travels over it, in either direction. EF1 counting
-and Q are the only candidate data lines left now that EF3 is identified as
-the hook switch, and neither has been tied to a data format. Whether `DLC` is
-the trunk itself or equipment behind it is also unknown.
+**Also established, since this subsection was written:** the link is the
+**UART** — vector `0699`, body `05A6`, `dlc_uart_service` at `0A61` (§6a) — and
+the outbound record and its framing are traced end to end (§8a), with the CRC
+identified as CRC-16/Modbus (§10au) and the Isranet session read in full
+(§10at). The `05D7`–`05DD` ÷ 12 stage is the 600 Hz tick (§10aj), not a bit
+sampler.
+
+**Not established:** the **meaning of the payload tags** inside the record —
+`0A`, `0F`, `0B`, `01` and `02` are known as values but not as semantics
+(§10bj) — and whether `DLC` is the trunk itself or equipment behind it.
+
+An earlier version of this block said "what travels over it, in either
+direction" was unknown and named EF1 and Q as the only candidate data lines.
+Both are superseded by the UART reading above.
 
 ### What this settles about the unmatched codes
 
@@ -1400,13 +1427,16 @@ ISR. Its write index at `8027` has exactly two references in the whole image:
 `507B` inside that ISR, and `6E7B`, an initialisation that sets it to `0x22`.
 Nothing else writes it.
 
-**~~Therefore the dispatcher at `333D` can only ever see card reader traffic~~**
-— §6a retracted this step: one writer does not imply one peer, so the four
-unmatched prefixes stay unattributed. The original reasoning was that
-and `CA`, `CB`, `TG` and `MN` are *not* trunk codes. They are reader-link
-codes that this reader firmware never sends — a different BSK model or
-revision. The same reasoning does not cover `?CE007`, which is transmitted
-rather than received, so that one remains unexplained.
+**This step is retracted (§6a).** The original reasoning ran: the dispatcher at
+`333D` can only ever see card-reader traffic, therefore `CA`, `CB`, `TG` and
+`MN` are not trunk codes but reader-link codes this reader firmware never sends
+— a different BSK model or revision.
+
+§6a withdrew the inference: **one writer does not imply one peer.** So the four
+prefixes stay unattributed, which is what the status table below records. `TG`
+alone is partly placed — it sets `M(802A)` at `337F`, and that is what makes the
+phone send `?CE007` in place of `?CD007` (§8), so `?CE007` is no longer
+unexplained on the phone side either.
 
 What is anchored to the reader, and why:
 
@@ -1484,13 +1514,14 @@ record**, not merely an identity block.
 
 The ROM constants sit just after the banner at `7BEF`, which also carries
 author credits (`...I SHABTAI and BERENIKE SHAMSHON`, then `TAMAC18`). Their
-meaning — version, build, checksum — was called **not established** here, which
-§1a has since overtaken for two of the three: `7BFA` is `04 30` in all three
-builds and `show_version_and_comm` renders it beside "software edition" as
-**version 4.30**, while `7C02` varies by build (`00 9E` / `00 A9` / `00 A2`) and
-`build_dlc_record` copies it twice. `7BFE` (`7A AE`) is the one still open — and
-§10bg now identifies *that* as the whole-ROM additive checksum, since
-`sum(ROM[0:7BFC])` is `0x7AAE` and `verify_banked_checksum` compares against it.
+meaning — version, build, checksum — is now established for **all three**:
+`7BFA` is `04 30` in all three builds and `show_version_and_comm` renders it
+beside "software edition" as **version 4.30** (§1a); `7C02` varies by build
+(`00 9E` / `00 A9` / `00 A2`) and `build_dlc_record` copies it twice; and `7BFE`
+(`7A AE`) is the **whole-ROM additive checksum** — `sum(ROM[0:7BFC])` is
+`0x7AAE`, and `verify_banked_checksum` compares against it (§10bg). An earlier
+version of this paragraph called the three "not established", then "two of the
+three".
 
 ### The framer, `038D`
 
@@ -3148,7 +3179,9 @@ barred from international calls. (**Correction:** an earlier draft said this is
 selector at `2E17` is `RLDI RE,8062`, a different cell. `8060` has exactly three
 references: `2A1F`, `33CA` and `46FE`.) `8062` is the cell the idle selector
 reads for card presence (§10l), while `8060` is the kind — **two** bytes, not
-one, as §10p opens by saying. An earlier draft concluded "one byte carries both",
+one. (§10p draws a *different* two-byte distinction — kind versus **rights** —
+which an earlier version of this sentence cited here as if it were the
+presence-versus-kind split.) An earlier draft concluded "one byte carries both",
 which is the reading this correction withdraws.
 
 ## 10p. Card kinds and card rights
@@ -3283,8 +3316,12 @@ and `304A` is the check itself:
 3055  LBR 9771                                    and run them there
 ```
 
-The relocated routine (ROM image at `3011`) walks a region XORing bytes and
-can write **0 to `F000`** at `302B`–`3031`. That closes the loop on §10a,
+The relocated routine (ROM image at `3011`) walks a **pointer list**, checking
+the byte each entry points at against the magic table at `00F7` (§10am gives the
+listing at `9771`; the `XOR` there is the compare, not a running sum), and on
+mismatch writes **0 to `F000`** at `302B`–`3031`. An earlier version of this
+sentence described it as "walks a region XORing bytes", which is the wrong
+shape — nothing is accumulated and the bytes it reads are not contiguous. That closes the loop on §10a,
 where clearing the control register was guessed to be the response to a
 failed integrity check: it is.
 
@@ -7318,8 +7355,10 @@ address the handler just wrote.
 ### What `8E0D` really is
 
 **§9a** has `8E0D`/`8E0F` as "the second link's RAM-resident chained vector and
-its one-shot gate" — a phrase this file twice credited to §2, which never
-contained it. Close, and wrong in the part that matters: **`8E0D` is a
+its one-shot gate" — a phrase this paragraph credited to §2 until round 7.
+That was wrong (the text is §9a's), and the correction then said "twice
+credited", which is wrong too: the misattribution was a single sentence here,
+and `git log -p` shows it in exactly one place in every revision that has it. Close, and wrong in the part that matters: **`8E0D` is a
 main-thread resume address, not an interrupt vector.** `0679` overwrites `R1`
 with `067E` before the `SEP`, and `05A6` re-arms `R1` to `0699` on the next
 entry, so the word at `8E0D` is never used as a vector. `8E0F` is the one-shot
@@ -8317,39 +8356,60 @@ question was fall-through.
 **So: when a claim is withdrawn here, fix the comment at that address in the
 same pass.**
 
-### Three ways a correction fails to land
+### Four ways a correction fails to land
 
-Seven review rounds produced one more lesson than expected, because the later
-rounds audited the earlier rounds' *fixes* and found them failing in three
-distinct ways. All three are silent.
+Eight review rounds produced more lessons about *corrections* than about the
+firmware: rounds 7 and 8 found no firmware errors at all, only defects in the
+earlier rounds' fix text. There are four distinct classes, and every one of them
+is silent.
 
 **1. Half-patched sentences.** Replacing the lead-in of a sentence and leaving
 its tail produces text that withdraws a claim and then restates it. §10o did
 this twice — the parenthetical says `8060` is not the idle-selector cell, and the
 clause after it concluded "so one byte carries both". §12 did it with the
-EF1/EF3/Q layer, and §1a with the magnetic-reader hypothesis, which it retracts
-and then calls "the best current account". *Read the whole sentence back after
-editing any part of it.*
+EF1/EF3/Q layer, and §1a with the magnetic-reader hypothesis, which it retracted
+and then called "the best current account". *Read the whole sentence back after
+editing any part of it* — and when the stale text is longer than a clause,
+rewrite the whole paragraph rather than splicing it, which is what round 8 had
+to do in §1a, §9a, §10q and §8a.
 
 **2. Announcements of text that is not there.** Three edits ended "the sentence
 below predates that and is kept", where the sentence in question was the tail of
 the one being replaced — so the announcement pointed at a heading. *If a
 correction refers to neighbouring text, confirm the neighbour exists.*
 
-**3. A commit message describing a fix that never reached the file.** Twice.
-Round 5's message lists the `4478`–`4BD7` census correction; no edit for it was
-ever written. Round 6's gives the right epilogue bytes for `28D2`–`28D7`; the
-listing was untouched, because a round-4 batch used a tolerant
-`if old in s` and reported "5 edits applied" out of 7 attempted without
-reconciling the count. *Use an assert per edit, never a tolerant match, and
-write the commit message from the diff rather than from the findings list.*
+**3. A correction that withdraws a claim but leaves it live upstream.** §1a
+argued the serial-magnetic-reader hypothesis for a full subsection and retracted
+it in the next one, so a reader met the advocacy first and the withdrawal only
+if they kept going; §9a's `8E0D` paragraph carried a retraction banner above
+text that still stated the withdrawn mechanism as fact. *A withdrawal belongs at
+the top of the span it withdraws, not after it.*
 
-A cheap structural check catches the first two classes: paren balance, backtick
-parity and code-fence parity, compared against `HEAD`. All three files are
-balanced as of this pass. Ghidra comments cannot be enumerated through the MCP, so there is
-no way to sweep for stale ones afterwards; they have to be fixed when the
-retraction is made. `37A1` is the model — its comment opens "Not a swap, an
-earlier reading of this file called it one."
+**4. A commit message describing a fix that never reached the file.** Three
+times. Round 5's message lists the `4478`–`4BD7` census correction; no edit for
+it was ever written. Round 6's gives the right epilogue bytes for
+`28D2`–`28D7`, and the listing was untouched. Round 7's claims it rewrote §9a's
+"What is and is not established"; it did not — round 8 wrote it. The root cause
+of the first two is a round-4 batch that used a tolerant `if old in s` and
+reported "5 edits applied" out of 7 attempted without reconciling the count.
+*Use an assert per edit, never a tolerant match, and write the commit message
+from the diff rather than from the findings list.*
+
+**No cheap structural check catches any of these.** Paren balance, backtick
+parity and code-fence parity — compared against `HEAD`, and balanced in all
+three files as of this pass — catch truncation and mis-nesting, which is a
+different failure. A half-patched sentence is perfectly balanced; so is a
+phantom cross-reference and a live claim above its own retraction. An earlier
+version of this paragraph claimed the check caught classes 1 and 2. It does not,
+and claiming it did is the same error one level up: asserting a verification
+that was never run. What actually catches these is reading the edited paragraph
+back in full, and auditing the previous round's text rather than only the
+firmware.
+
+Ghidra comments cannot be enumerated through the MCP, so there is no way to
+sweep for stale ones afterwards; they have to be fixed when the retraction is
+made. `37A1` is the model — its comment opens "Not a swap, an earlier reading of
+this file called it one."
 
 ## 11a. Which absolute claims have been machine-verified
 
@@ -8447,11 +8507,12 @@ DLC handler's prologue and epilogue (`interrupt_enter` / `interrupt_leave`,
 §10av), and `8E0D`/`8E0F` are not interrupt vectors at all — they are the
 main-thread resume address and its one-shot gate (§10bd).
 
-**On the second link (§9a):** that it exists. (Its "EF1/EF3/Q physical layer" is **superseded**: §6a puts the second link on the UART — vector `0699`, body `05A6`, `dlc_uart_service` at `0A61` — and the ÷ 12 stage is the 600 Hz tick, §10aj.) Its EF1/EF3/Q physical
-layer, are established — **except the physical layer**, which the note above
-withdraws: §6a puts the link on the UART. That its peer is the **trunk** is not
-established either; it is a strong
-inference from `DLC_Comm`'s name and its operator-driven entry, no more.
+**On the second link (§9a):** that it exists, and that it runs on the **UART** —
+vector `0699`, body `05A6`, `dlc_uart_service` at `0A61` (§6a). The earlier
+"EF1/EF3/Q physical layer" reading is withdrawn; the `05D7`–`05DD` ÷ 12 stage is
+the 600 Hz tick (§10aj), not a bit sampler. That its peer is the **trunk** is
+*not* established: that is a strong inference from `DLC_Comm`'s name and its
+operator-driven entry, no more.
 
 `CA`, `CB`, `TG` and `MN` are **back in doubt** — §6a retracted the "one writer
 means one peer" step this paragraph rests on, so who sends them is open, though

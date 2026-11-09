@@ -56,10 +56,17 @@ an open question without a next action tends to stay open.
 
 ## The DLC link
 
-- [ ] **What actually travels over it, in either direction** (§9a). The
-      handler, physical layer and entry point are known; the payload is not.
-      *Settle by:* reading the RAM code copied from ROM `040D` and `3011`, and
-      the chained vector at `8E0D`.
+- [ ] **What the payload tags mean** (§10bj). Narrowed: the record and its
+      framing are traced end to end (§8a), the CRC is CRC-16/Modbus (§10au) and
+      the Isranet session is read in full (§10at), so "what travels over it" is
+      no longer open as a whole. What is open is the *semantics* of the
+      interpreter's command tags — `0A`, `0F`, `0B`, `01`, `02` are known as
+      values but not as meanings.
+      *Settle by:* a capture of a live session, or a DLC-side specification.
+      The two settle-by steps this item used to list are both done and neither
+      bore on the payload: the RAM code copied from ROM `040D` and `3011` is a
+      checksum and a magic-byte pointer-list compare (§10am), and `8E0D` is the
+      main thread's resume address, not a chained vector (§10bd).
 - [ ] **Who reads the 40-byte ASCII record at `81BA`–`81E1`** (§10r). The
       `;` `=` `?` separators and `M(845C)` suggest a DLC report, but **nothing
       loads that buffer by absolute address** — the three writes in
