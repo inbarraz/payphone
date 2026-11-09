@@ -398,18 +398,30 @@ Collected separately because they are not worth static effort:
       two — the write-back target — yet both set `RLDI R7,8E7B`, the buffer's
       bottom. Right for an ascending read, wrong for `9708`'s descending one,
       which walks into `8E7A`/`8E79`/`8E77`, the programmer's own control bytes.
-      Reachability settled: `9577` sets `M(8E79) = 0` and `M(8E7A) = 2`, the
-      exact pair routing `9603` → `9656` → `96AE`, and `9577` is dispatched from
-      `1882` under feature flag `0x13` (§10bh, §10bi). It would need
-      `RLDI R7,8EBA`.
+      Reachability settled: **`9561`** sets `M(8E79) = 0` and `M(8E7A) = 2`, the
+      exact pair routing `9603` → `9656` → `96AE`, and `9561` is dispatched from
+      **`188F`** as **command `0A`** under feature flag `0x13` (§10bh, §10bi).
+      (An earlier version of this item named `9577`/`1882`; that is command
+      `09`, the working ascending rewrite.) It would need `RLDI R7,8EBA`.
 
-- [ ] **Does the verify side carry the same mistake?** `RA` walks up from the
-      saved source while `R8` walks down from the saved destination, so `9725`
-      compares a forward walk against a backward one — which cannot be right for
-      `copy_page64_down`, since that preserves order rather than reversing it.
-      Same shape as the `96AE` bug and quite possibly the same slip twice, but
-      it needs the register state traced through `program_flash_pages`' callers
-      to confirm (§10bh).
+- [x] **The verify side is worse than a matching mistake** — on the rewrite path
+      its *direction is read from a clobbered register*. Both cycles do
+      `SEX RE / RNX R7` (`9679`, `96C4`), leaving `RE = source + 64`, and
+      nothing reloads it before `9630 LDN RE / SMI 1`. So every rewritten page
+      picks its verify direction from `M(source + 64)` — a byte of the data
+      being programmed. Command `09` therefore verifies correctly only when that
+      byte happens to be 1, and command `0A` matches **neither** verifier. The
+      clobbered selector hits both rewrite commands, including the one that
+      writes correctly; only the wrong-ended source is unique to `0A` (§10bh).
+
+- [ ] **Why do 21 routines set feature flag `0x0E` when nothing reads it?**
+      There is no `test_feature_flag(0x0E)` or `clear_feature_flag(0x0E)`
+      anywhere in the image, and `0A3E` skips index `0x0E` while zeroing 0–4 and
+      6–`0x0D`; only the init wipe at `072A` clears it. It cannot signal
+      anything through `0278` either, since that clamps every index at or above
+      `0x0E` — including `0x1E`, "none set" — to `0x0E`, so a raised `0x0E` is
+      indistinguishable from no flag at all (§10bj). Either a consumer reads
+      `8DBA` by some route not found yet, or this is vestigial.
 
       To settle it, find what writes `M(8E7A)`. `9656` takes the descending
       branch when it is not 1, and nothing in the image anchors `8E7A` with an

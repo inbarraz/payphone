@@ -746,8 +746,9 @@ load serves both ports. The same idiom appears at `241D`, `2950` and `295E`.
 
 | Port | Direction | Shadow |
 |---|---|---|
+| **1** | output | **`0x8034`** (`PORT1_shadow`) |
 | **2** | output | **`0x8035`** (`PORT2_shadow`) |
-| **5** | output | **`0x8034`** (`PORT1_shadow`) |
+| **5** | select / strobe | — it carries `M(0x8033 + n − 1)` as the control word of the *following* `OUT n`, never its own data (§10u) |
 | 6 | UART data | — |
 | 7 | UART status / control | — |
 
@@ -2445,8 +2446,8 @@ exactly three:
 | `D == 0` | `5E20`, skip `5E28`, skip `5E5A` | 3 |
 | `D != 0`, `M(8167) & 0x20` | `5E20`, `5E36`, `5E55` | 3 |
 | `D != 0`, else, equal | `5E20`, `5E41`, `5E55` | 3 |
-| `D != 0`, else, less | `5E20`, `5E41`, `5E55` | 3 |
-| `D != 0`, else, greater | `5E20`, `5E41`, skip `5E5A` | 3 |
+| `D != 0`, else, **greater** | `5E20`, `5E41`, `5E55` | 3 |
+| `D != 0`, else, **less** | `5E20`, `5E41`, skip `5E5A` | 3 |
 
 So it is variable in *which* bytes it reads but uniform in how many, and one
 callee signature covers it. It is now declared in
@@ -3542,10 +3543,13 @@ qualify the write that follows, and those qualifier bits are the strobes.
 **So the array is `port n <- M(0x8033 + n)` for the data, with `M(0x8033 + n − 1)`
 as that write's control word.** That makes `8034` the **port 1** data byte
 (`758F OUT 5 <- 8033`, `7592 OUT 1 <- 8034`) *and* the control word of the port-2
-write. `PORT2_shadow` (`8035`) is correct. **`PORT1_shadow` (`8034`) is not —
-it is renamed `PORT1_shadow`.** `8033` is only ever a control word, never port
-data, which is why it keeps `strap_drive_and_flags` (§10k) and why §6b should
-not have called it a port-5 shadow either.
+write. `PORT2_shadow` (`8035`) is correct. **`8034` was `PORT5_shadow` and is
+renamed `PORT1_shadow`.** (A global rename of the old symbol turned this
+sentence into "`PORT1_shadow` is not — it is renamed `PORT1_shadow`"; that is
+what a blind search-and-replace does to a sentence *about* the rename.) `8033`
+is only ever a control word, never port data, which is why it keeps
+`strap_drive_and_flags` (§10k) and why §6b should not have called it a port-5
+shadow either.
 
 That reframes §10az's cadence: **bit 1 of `8034` is a bit of the port-1 output
 image**, so what the `705E` sequencer drives for 3 s at a time is a port-1 line,
@@ -7552,23 +7556,46 @@ anchor" was true as written but is no longer the relevant fact: the writers are
 the `STR RE / INC RE / STR RE` walks inside the command stubs, which start from
 `RLDI RE,8E79`. The two `RLDI *,8E7A` sites (`21C4`, `220D`) are reads.
 
-### The verify side carries the same defect — settled
+### The verify side is worse than a matching defect — its direction is read from a clobbered register
 
 `RA` and `R8` are copies of the *original* source and destination, taken once at
 `95DB`/`95DE` before the page loop. `9717` walks both **up**, matching
-`copy_page64_up`. `9725` walks `RA` up and `R8` **down**.
+`copy_page64_up`. `9725` walks `RA` up and `R8` **down** — the two verifiers
+differ in a single opcode, `IRX` (`60`) against `DEC R8` (`28`), whereas the two
+*writers* flip **both** directions. So the verify twin flips only the
+destination: a copy-paste leftover, not a reversing compare.
 
-The two verifiers differ in a single opcode — `IRX` (`60`) against `DEC R8`
-(`28`) — whereas the two *writers* flip **both** pointer directions. So the
-verify twin flips only the destination: a copy-paste leftover, not a reversing
-compare. `copy_page64_down` writes `dest[−i] = src[−i]`, while `9725` compares
-`src[+i]` against `dest[−i]`; they agree only at `i = 0`.
+**But which verifier runs is not chosen by the direction flag on the rewrite
+path.** A first draft said `9725` is reached "only when `8E7A ≠ 1`". That holds
+on the *direct* path, where `9603`'s `RLDI RE,8E7A` is still live in `RE` when
+`9630` does `LDN RE / SMI 1`. It does **not** hold on the rewrite path, because
+both cycles overwrite `RE` on their way through:
 
-**So command `0A` carries two defects, not one**, and fixing the source pointer
-to `8EBA` would not rescue it — the verify would still compare the original
-source walking up against the destination walking down. `9725` is reached only
-when `8E7A ≠ 1`, which among the handlers is `9561` alone, so both defects sit
-on exactly the same command.
+```
+9679 / 96C4   SEX RE / RNX R7     RE := R7, i.e. source + 64
+...           and nothing between there and 9630 reloads it -
+              ROM 21DB..21EB holds only the two R9 loads, the
+              0x294 delay count and the 0x40 byte count
+```
+
+So for every rewritten page, `9630` tests **`M(source + 64)`** — a byte of
+whatever was being programmed — and picks the verify direction from it. Each
+page re-samples its own `source + 64`, since the next cycle starts with
+`RE := RB` again.
+
+That makes the verify direction effectively **arbitrary on both rewrite
+commands**:
+
+| Command | Write-back | Verifier chosen by | Agrees? |
+|---|---|---|---|
+| `09` | `copy_page64_up` | `M(src+64)` | only if that byte is 1 |
+| `0A` | `copy_page64_down` from `8E7B` | `M(src+64)` | **neither verifier matches** |
+
+So the earlier "two defects, same command" account was too kind twice over: the
+wrong-ended source is unique to command `0A`, but the clobbered verify selector
+affects **both** rewrite commands, including the one that writes correctly. And
+fixing the source pointer to `8EBA` would still leave command `0A` with no
+verifier that matches its write.
 
 ### A counting trap, again
 
@@ -7626,11 +7653,21 @@ unambiguous: `9561` is `{0, 2}`, `9577` is `{0, 1}`.
 
 **Also corrected: `94EA` is not a 22-byte stub and is not dispatched from
 `1848`–`1891`.** It is the tail of `94DF` (cmd `15` at `192B`), and it reads
-*from* `7FC0` *into* the buffer — `R7 = 8E7B`… no: `20A1` loads `R7 = 8E7B` and
-`20A5` loads `R8 = 7FC0`, and the later `R6 = 0x40 / R7 = 8E7B / RB = 7FC0`
-before `LBR 95BF` is the **write-back**. So cmd `15` is a read-modify-write of
-the top flash page, with a 16-bit field near `8E77` compared against `0x0384` =
-900 and the result left at `8E0C`.
+*from* `7FC0` *into* the buffer: `20A1` loads `R7 = 8E7B`, `20A5` loads
+`R8 = 7FC0`, and the later `R6 = 0x40 / R7 = 8E7B / RB = 7FC0` before
+`LBR 95BF` is the **write-back**. So cmd `15` is a read-modify-write of the top
+flash page.
+
+It also maintains a counter with a 900 limit, and **the counter is the word at
+`8F77`**, not "a field near `8E77`" as a first draft said. `RLDI R7,8E7B` then
+`LDI 0xFC / SCAL 13BB`, and `13BB` is an *unsigned* 16-bit add (`STR R2 / GLO R7
+/ ADD / PLO R7 / GHI R7 / ADCI 0 / PHI R7`), so `R7 = 0x8E7B + 0x00FC = 0x8F77`.
+`0xFC` is not −4; `8E7B − 4` would be `8E77`, which is a different cell — the low
+half of the `R9` that `95BF` saves. The command's count is added into the word at
+`8F77`/`8F78` and compared against `0x0384` = 900, leaving 0 or 1 at `8E0C`.
+
+The byte pair `8F 77` appears **nowhere** in the image, which is why no anchor
+scan finds this cell: the address is only ever computed.
 
 **The dispatcher is a jump table at `1989`**, indexed by a command byte (checked
 `≤ 0x15`, then `SHL`), 22 entries from `cmd 00`. The `1848`–`1891` block holds
@@ -7712,27 +7749,56 @@ Commands `00`–`0x15` are valid, which is exactly the table's 22 entries, and t
 bound is checked before the index is formed — `SDI` gives `D = 0x15 − cmd`, so a
 borrow (`LBNF`) means out of range.
 
-### Tag `0x02` means "not authorised"
+### Tag `0x02` is a pre-armed reply, not a rejection
 
 The reply built at `1809` is one byte with **`0x02` as the tag** in `dlc_record`
 (`8D26`), length 1 in `dlc_record_len` (`8DAB`), and `word(8DA9)` pointed at the
 record. It is built precisely when **neither** feature flag `0x14` nor `0x13` is
-set — and `0x13` is the same flag that gates every flash command in §10bi's
-table.
+set. That much holds, polarity included.
 
-So that is a fifth known tag, against the four in §10bi (`0x0A` nothing to
-report, `0x0F` two-value report, `0x0B` eight-byte report, `0x01` the 70-byte
-record). It also says the authorisation check happens **once, in the
-dispatcher**, before any command runs — the per-command `0x13` gates in the
-`1848`–`1891` block are a second line of defence rather than the only one.
+**But it does not reject anything.** There is no branch between `181D` and
+`181E`: the build falls straight through into `SCAL 13D9` and on to the dispatch.
+A first draft read this as an authorisation check running before any command,
+with the per-command `0x13` tests as a second line of defence. The opposite is
+true — **the per-command tests are the only rejection**, and the dispatcher has
+already let the command through by the time they run. What `1809` does is
+*pre-arm* the outgoing reply with `0x02`, so a command that runs unauthorised
+has a one-byte answer ready.
 
-### Flag `0x0E` is the interpreter's busy marker
+It is still a fifth known tag, against §10bi's four (`0x0A` nothing to report,
+`0x0F` two-value report, `0x0B` eight-byte report, `0x01` the 70-byte record) —
+"unauthorised" rather than "rejected".
 
-Raising it first ties back to §10bd. In the DLC scheduler, `0278` returns the
-lowest set feature flag and index `0x0E` routes to `1015`, which **clears** the
-resume gate at `8E0F` so a step already running is not rescheduled. So
-`set_feature_flag(0x0E)` here is how the interpreter tells that scheduler it is
-busy — the two subsystems interlock through the flag array.
+And the gating is less uniform than §10bi's table suggests. The five flash
+commands use `LBZ 1955`, i.e. run only if `0x13` is **set**. But commands `02`,
+`04`, `11`, `12` and `13` use `LBNZ` — they run only if the tested flag is
+**clear** — and commands `01`, `05`, `06`, `07`, `0B`–`0F`, `10` and `14` have no
+`0x13` test at all. The inverted and ungated ones are precisely those that run
+in the state that just armed tag `0x02`.
+
+### Flag `0x0E` is *not* an interlock — and nothing reads it
+
+A first draft claimed `set_feature_flag(0x0E)` here tells the DLC scheduler the
+interpreter is busy. **It cannot.** `0278` walks `8DAC` upward for the lowest
+byte equal to 1, and then clamps:
+
+```
+028D  GLO R7 / SMI 0x0E
+0290  LBDF 0297        index >= 0x0E - including 0x1E, "none set"
+0297  LDI 0x0E
+```
+
+So a *set* flag `0x0E` and *no flag at all* both return `0x0E`. A lower flag
+always wins, and the bit itself is never consulted. §10bd's narrower statement
+stands — the **return value** `0x0E` routes to `1015`, which clears the resume
+gate — but that is a property of the clamp, not of anything the interpreter
+sets.
+
+Stranger still, flag `0x0E` looks **write-only across the whole image**: 21
+sites call `set_feature_flag(0x0E)` and there is no `test_feature_flag(0x0E)` or
+`clear_feature_flag(0x0E)` anywhere. It even survives `0A3E`, which zeroes
+indices 0–4 and 6–`0x0D` and skips `0x0E`; only the init wipe at `072A` clears
+it. Why 21 routines raise a flag nothing reads is on the queue.
 
 ### `183B` is not this routine's tail
 
