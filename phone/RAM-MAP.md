@@ -453,8 +453,8 @@ dozen places has a dozen chances to give itself away.
 | `8EF4` | — | 1 — `06f3` | st=0 |
 | `8EF7` | — | 1 — `06ba` | st=0 |
 | `8EF8` | — | 3 — `0593` `06c7` `070f` | st=2 imm=00,01 |
-| `8EF9` | — | 1 — `1e7c` | st=0 |
-| `8EFA` | — | 1 — `0416` | st=0 |
+| `8EF9` | `banked_sum16_hi` *(no Ghidra label)* | 1 — `1e7c` | st=0 |
+| `8EFA` | `banked_sum16_lo` *(no Ghidra label)* | 1 — `0416` | st=0 |
 | `8EFC` | — | 2 — `1626` `1d4f` | st=1 |
 | `8EFD` | — | 2 — `15f0` `1cfa` | st=1 |
 
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **166 named**, 223 still unnamed.
+389 anchored cells, **168 named**, 221 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.

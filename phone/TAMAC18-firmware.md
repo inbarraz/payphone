@@ -7296,6 +7296,82 @@ So the same input is both debounced for timing here and read-back checked there,
 exactly as port 2 bit 1 is (§10ba) — and with a threshold of 3 rather than 1, so
 that one *does* debounce before logging.
 
+## 10bg. `9733` — a checksum taken with the memory window switched
+
+`proc_from_040D`, now `verify_banked_checksum`. The second of the three `97xx`
+overlays: `CopyCodeTo9733AndJump` (`026A`) copies `0x3F` bytes from ROM `040D`
+to `9733` and then `LBR 9733`.
+
+```
+9733  LDA R3                 ONE inline byte, from the caller of 026A
+9734  SEX R4 / DIS 0x24      interrupts OFF
+9737  RLDI R5,F000 / STR R5  that byte goes to the F000 CONTROL LATCH
+973C  R8 = 8EFA / RLDI R5,0 / RSXD R5     zero the 16-bit accumulator
+9748  IRX / LDA R7 / ADD / STXD / LDI 0 / ADC / STR R8
+      DBNZ R6,9748           sum R6 bytes from R7 into 8EF9/8EFA, with carry
+9756  RLXA R5                R5 = the sum
+9758  compare it against the two bytes immediately AFTER the data
+9762  SEX R2 / STXD          push the result
+9765  SCAL copy_byte_from_8E10_to_F000    restore F000 from its shadow
+976B  SEX R4 / RET 0x24      interrupts ON
+976E  SEX R2 / SRET R3       returns D = 0 on a match
+```
+
+So: select a window through `F000`, additively checksum a region read through
+it, put `F000` back from the `8E10` shadow. It is a plain **16-bit sum** — not
+the CRC-16/Modbus at `0837` (§10au) and not `Checksum_Test` at `0365`. All three
+live callers pass `0x02`, i.e. `F000` **bit 1**, the write-routing bit §10ay
+identified.
+
+### The ROM image cannot run in place, and the bytes prove it
+
+This is the cleanest evidence in the project for the whole relocation story.
+`042A` holds `DBNZ R6,9748` and `0435` holds `LBNZ 9762` — **branch targets
+already written as relocated addresses**. They resolve only at the destination:
+
+| In ROM | Target | − `0x9326` | Which is |
+|---|---|---|---|
+| `042A` | `9748` | `0422` | the loop top, `IRX` |
+| `0435` | `9762` | `043C` | `SEX R2 / STXD` |
+
+Disassembled in place, this reads as code branching into uninitialised RAM. It
+is not broken; it is **assembled to run at `9733`**. Anyone analysing `040D`
+without knowing that will conclude the listing has derailed.
+
+It has to be relocated for the obvious reason: it rewrites the latch that
+decides what the memory window exposes, then reads bytes through that window.
+Executing from the ROM it is remapping would pull the rug from under itself —
+the same argument as the flash programmer in §10ay, and here it is visible in
+nine instructions rather than 1658 bytes.
+
+### Mind which offset
+
+**This overlay's offset is `+0x9326`** (`9733 − 040D`), *not* the `1CB7` block's
+`+0x7449`. Three images land in `97xx` and each has its own:
+
+| Source | Dest | Length | Offset |
+|---|---|---|---|
+| `1CB7` | `9100` | `0x67A` | `+0x7449` |
+| `040D` | `9733` | `0x03F` | **`+0x9326`** |
+| `3011` | `9771` | `0x026` | `+0x6760` |
+
+### `026A` takes an argument it never reads
+
+The inline byte belongs to `SCAL 026A`, but `026A` never touches it: it memcpys,
+then `LBR 9733`, and by then `SRET` has restored `R3` to *its own caller's*
+stream — so the relocated copy's `LDA R3` picks the byte out of there. **No
+auto-detection can infer that**, since it inspects the callee's prologue and
+`026A`'s only reads the memcpy's three arguments. Now declared `026a b` in
+`cdp1806/data/inline_args.txt`. Without it the byte decodes as code at each
+site; at `4465` it reads as `LDN R2`, which looks harmless and shifts everything
+after it.
+
+Live callers: `92B8` (inside the relocated `1CB7` block), `4461` in `FUN_4455`,
+and `5C6D` in `FUN_5bfd`. **`1E6F` is not a fourth** — it is the dead ROM image
+of `92B8` (`92B8 − 0x7449 = 1E6F`, inside `1CB7`–`2330`), so Ghidra lists both
+and only one executes. A caller census over this region has to account for that
+or it double-counts.
+
 ## 11. Naming added in this session
 
 Renamed: `proc_333d` → **`dispatch_card_reader_message`**;

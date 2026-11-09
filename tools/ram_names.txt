@@ -195,5 +195,7 @@
 8ed5 dlc_1hz_counter|NOLABEL
 8ed7 dlc_1min_counter|NOLABEL
 8ed9 session_timer_8ed9|NOLABEL
+8ef9 banked_sum16_hi|NOLABEL
+8efa banked_sum16_lo|NOLABEL
 8efb ram_sentinel_8efb|NOLABEL
 97a1 code_shadow_job_state

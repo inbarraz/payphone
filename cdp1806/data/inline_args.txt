@@ -170,3 +170,20 @@ program TAMAC-18
 #
 # Observed arguments are 3a9e, 3aa0 and 3aa4, the three tone patterns (10ba).
 3aa8  p
+
+# 026a: CopyCodeTo9733AndJump. ONE inline byte - and the callee never reads it.
+#
+# 026A memcpys 0x3F bytes from 040D to 9733 and then LBR 9733, so the routine
+# that consumes the argument is the RELOCATED COPY: 9733 opens LDA R3, and by
+# then SRET has restored R3 to 026A's own caller's stream. Auto-detection cannot
+# possibly see this - it inspects the callee's prologue, and 026A's prologue
+# only reads the memcpy's three arguments.
+#
+# The byte is written straight to the F000 control latch at 9737-973B, so it
+# selects the memory window the checksum is then computed through. All three
+# live call sites pass 0x02: 92B8 (inside the relocated 1CB7 block), 4461 and
+# 5C6D. 1E6F is the dead ROM image of 92B8.
+#
+# Without this entry the byte decodes as code at each site - at 4465 it reads as
+# LDN R2, which is harmless-looking and shifts everything after it.
+026a  b

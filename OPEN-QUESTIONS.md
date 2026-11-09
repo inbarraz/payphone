@@ -491,6 +491,11 @@ Collected separately because they are not worth static effort:
       The sequencer states pay off most: each is a few instructions and they are
       currently invisible as code.
 
+- [ ] **Set `XP` at the four `verify_banked_checksum` sites** — `9735` and
+      `976C` in the live copy (`DIS 0x24` and `RET 0x24`), and `040F` and `0446`
+      in the ROM image if that is ever disassembled (§10bg). Ghidra currently
+      renders each operand as a spurious `DEC R4`.
+
 - [ ] **Set `XP` at `05E0` and `0658`.** Two confirmed `X == P` inline sites in
       `ISR_DLC_Link` where Ghidra's listing is wrong: it shows `RET` / `DEC R4`
       and `DIS` / `DEC R4`, decoding the `0x24` operand as a spurious
