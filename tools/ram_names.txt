@@ -191,6 +191,8 @@
 8e0f dlc_resume_armed|NOLABEL
 8e10 CTRL_F000_shadow
 8e6d dlc_frame_checksum
+8e7a flash_copy_direction|NOLABEL
+8e7b flash_page_buffer|NOLABEL
 8ec8 dlc_rx_count_saved
 8ed5 dlc_1hz_counter|NOLABEL
 8ed7 dlc_1min_counter|NOLABEL

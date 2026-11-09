@@ -7372,6 +7372,72 @@ of `92B8` (`92B8 − 0x7449 = 1E6F`, inside `1CB7`–`2330`), so Ghidra lists bo
 and only one executes. A caller census over this region has to account for that
 or it double-counts.
 
+## 10bh. The flash programmer's four inner loops
+
+`9708` and `9725`, with their mirrors `96F9` and `9717`. All four are inside the
+relocated `1CB7` block, so add `−0x7449` for the ROM image addresses the rest of
+§10ay cites.
+
+### Two writers, two verifiers, chosen by one flag
+
+| | ascending | descending |
+|---|---|---|
+| write a page | `96F9` (`SEX R7 / LDXA / STR RB / INC RB`) | **`9708`** (`SEX RB / LDN R7 / DEC R7 / STXD`) |
+| verify it | `9717` (`… / IRX / DBNZ`) | **`9725`** (`… / DEC R8 / DBNZ`) |
+
+`95BF` picks the pair from `M(8E7A)`: `== 1` takes `96F9` at `961F` and `9717`
+at `9630`; anything else falls into `9708` at `9617` and `9725` at `9636`. So
+ascending pairs with ascending and descending with descending.
+
+**`R9 = 0x40` in all four** — 64, the AT29C256 sector size. That is a second and
+independent confirmation of §10ay's page-size claim, the first having come from
+the divide-by-64 at `95BF`.
+
+`9725` bails on the **first** mismatch (`LBNZ 964A`) and reaches `9639` only if
+all 64 bytes match. There is no retry.
+
+### The cycle they sit in
+
+```
+96AE  RE := RB (save) ; RB = 8E7B      a 64-byte RAM staging buffer
+96B5  F000 = 0x02                      the read window
+96BC  SCAL copy_page64_up              flash -> buffer
+96C1  RB := RE (restore) ; RE := R7 ; R7 = 8E7B
+96CB  F000 = 0x01                      the write window
+96D2  AA->5555, 55->2AAA, A0->5555     the JEDEC unlock (§10ay)
+96E8  SCAL copy_page64_down            buffer -> flash
+96EF  F000 = 0x00                      window off
+96F6  LBR 9624                         the 0x294 = 660-iteration write delay,
+                                       then the verify
+```
+
+So a page is read out through one `F000` window and written back through
+another, with the unlock in between and the window closed afterwards — which is
+the same reason §10bg's checksum has to run from RAM, applied to writing instead
+of reading.
+
+### What is not established
+
+**The pointer conventions.** `RA` and `R8` are copies of `R7` and `RB`, made at
+`95DC`/`95DF` (`SEX RA / RNX R7` and `SEX R8 / RNX RB`; `RNX` is `R(X) ← R(N)`
+per the slaspec). But the verify directions do not obviously line up with where
+the write left those pointers — `RA` walks *up* from the saved source start
+while `R8` walks *down* from the saved destination start. Settling that needs
+the register setup traced from `95BF`'s callers.
+
+The loop mechanics above are certain. **Which byte is compared against which is
+not**, and the same caveat applies to `96AE`'s buffer: `copy_page64_up` fills
+`8E7B` upward, yet `96C7` sets `R7 = 8E7B` for a routine that reads downward,
+which would walk below the buffer. Either a register is set elsewhere than I
+have traced, or the two halves disagree. Flagged rather than guessed.
+
+### A counting trap, again
+
+`96AE`'s callers list as `2217` and `9660`. Those are **one** site: `2217` is
+inside `1CB7`–`2330` and `2217 + 0x7449 = 9660`. The same double-listing caught
+the `026A` census in §10bg, where `1E6F` is the dead image of `92B8`. Any caller
+count over this block has to fold the ROM image into its relocated twin first.
+
 ## 11. Naming added in this session
 
 Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
