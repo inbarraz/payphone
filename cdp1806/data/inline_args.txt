@@ -187,3 +187,10 @@ program TAMAC-18
 # Without this entry the byte decodes as code at each site - at 4465 it reads as
 # LDN R2, which is harmless-looking and shifts everything after it.
 026a  b
+
+# 746d: clear_block_range(lo, hi) - two 16-bit pointers. Present in
+# tools/ram_map.py's PTR_ARGS but missing here, so tools/dis.py decoded the
+# arguments as code: at 2F09 the bytes 88 65 88 B9 read as
+# GLO R8 / OUT 5 / GLO R8 / PHI R9, inventing a port-5 write inside
+# init_8865_block. They are the range 8865..88B9 that section 10bf describes.
+746d  p,p

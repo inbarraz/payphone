@@ -4043,18 +4043,25 @@ polling for keypresses and servicing the card reader.
 
 ### The pattern table at `6D17`
 
-Twelve 2-byte pairs — a value for `M(8033)` and a hold count for `M(812B)`,
-which is **24 in every entry**:
+> **Superseded by §10bb — read that instead.** This section said "twelve 2-byte
+> pairs … **24 in every entry**". The table is **65 entries**, `6D17`–`6D98`,
+> terminated by the `00` at `6D99`, with dwells of `0x0C`, `0x18`, `0x24` and
+> `0x30` (46 of them `0x18`) summing to 1536 ticks ≈ 30.7 s. Twelve is where the
+> dwell stops being uniform, not where the table ends. §10bb was written as a
+> correction of the Ghidra comment and this copy of the same claim was missed.
+
+Entries are two bytes: a value for `M(8033)` and a hold count for `M(812B)`. The
+first twelve are
 
 ```
 3C 3C 3D 3E 3E 3D 3C 29 39 39 29 3C
 ```
 
-Low five bits: `11100 11100 11101 11110 11110 11101 11100 01001 11001 11001
-01001 11100`. Those are the same low bits of `M(8033)` that
-`read_hardware_straps` drives (§10k), so this walks that field through a
-fixed sequence while the technician exercises the dial and inserts a card.
-What the lines physically reach is still not established.
+whose low five bits are the same field of `M(8033)` that
+`read_hardware_straps` drives (§10k), so the test walks that field through a
+fixed sequence while the technician exercises the dial and inserts a card. Bit 5
+is set in all 65 values. What the lines physically reach is still not
+established.
 
 ### A tension worth flagging
 
@@ -5003,7 +5010,8 @@ itself mid-loop. So the inference is:
 | `0` | the real ROM |
 
 The sharper form of the argument is about **which sites set bit 0**, not which
-clear it. Bit 0 is set at exactly three places — `1ECA` (`0x03`), `2237` and
+clear it. Bit 0 is set by exactly three *immediate* stores — `1ECA` (`0x03`),
+`2237` and
 `2282` (`0x01`) — and all three are inside `1CB7`–`2330`, the relocated block.
 **Nothing that executes from ROM ever sets bit 0.** That is what you would
 require if setting it takes the ROM away. Clearing it is done both from RAM and,
@@ -5079,7 +5087,9 @@ banked. That is visible on the board, so it is cheap to settle — and it would
 explain why a phone whose firmware lives in a shadow RAM has a dormant ROM
 integrity check (§10am) and a relocatable 1658-byte subsystem.
 
-`F000` bit 1 remains unidentified: it is set in `0x03` and `0x02`, cleared in
+`F000` bit 1 is **write routing** (§10ay), though its physical decode is still
+unobserved. The sentence below predates that and is kept for the bit pattern it
+records: it is set in `0x03` and `0x02`, cleared in
 `0x01`, `0x00` and by the failed integrity check.
 
 ### A hazard in the RAM layout
@@ -5937,7 +5947,7 @@ why `REVIEW.md` leaves M10 unapplied: giving `RET` a flow break in the SLEIGH
 module would truncate every one of these.
 
 `proc_51e8` (`51E8`–`5226`) is the next routine, called from the tick chain at
-`40A3`, so `51B6`–`51E7` is the gap between them.
+`409F`, so `51B6`–`51E7` is the gap between them.
 
 ### Two exits — but both of them return
 
@@ -5997,13 +6007,14 @@ Both swaps are the same five steps:
 
 Because the handler returns, `RET` resumes at the byte *after* the `IDL` — so
 `IDL` followed by a forward branch is simply **"wait for exactly one
-interrupt"**. `1A7C` differs in one byte: its `LBR` points back at the `IDL`, so
-the thread wakes on each interrupt, tests nothing, and parks again. Those two
-sites are the whole mechanism, and they are also why `1A7C` stays a puzzle — a
-park whose continuation is restored and which tests nothing is a *terminal* park
-unless some handler rewrites the saved `R4` and `(X,P)` bytes on the stack at
-`M(R2)` before its epilogue runs. No such path has been found. Either `1A7C` is
-a deliberate halt awaiting the watchdog, or that rewrite exists and is unread.
+interrupt"**. `1A7C` differs in one byte: its `LBR` points back at the `IDL`, so the thread
+wakes on each interrupt, tests nothing, and parks again.
+
+**That rewrite does exist — see §10bd.** An earlier version of this paragraph
+ended "no such path has been found", and that sentence survived the pointer to
+§10bd added later. The path is `0664`–`0676` in the DLC handler, which stores
+the word from `8E0D` over the saved `R4` in the interrupt frame. `1A7C` is a
+coroutine yield, not a terminal park.
 
 `RLDI R1` occurs at exactly ten sites, which is the complete census of vector
 handling: `6E0C` (reset arms the reader vector), `06E4` and `0CD8` (the swap and
@@ -6145,7 +6156,10 @@ still rest on §10aj's inferred off-chip divider.
 
 ### The `812x` block is entirely the timer bank
 
-With the tables enumerated, every cell in `8128`–`8138` is accounted for:
+With the tables enumerated, every cell in `8128`–`8137` is accounted for — the
+range was written `8128`–`8138`, but `8138` is **not** in the list below. It is
+`charge_step`, anchored at `2D18`, and belongs to the charging path rather than
+the timer bank:
 
 | Cells | Role |
 |---|---|
@@ -6789,8 +6803,9 @@ down as an independent installer, which it is not.
 An earlier draft of this section credited `6FFF` with that transition and put
 `7014` in a footnote. **That was wrong, and it mattered.** `7014` is not a
 variant caller; it is a second entry that falls into the same tail
-unconditionally. `7011 LBR 701B` is the *only* control transfer anywhere in
-`6FB3`–`705C`, so the region is three straight-line entries and one join:
+unconditionally. `7011 LBR 701B` is the only *branch* anywhere in `6FB3`–`705C`
+(the span also holds an `IDL` at `6FC0` and four `SCAL`s, so "control transfer"
+was the wrong word), so the region is three straight-line entries and one join:
 
 ```
 6FB3 ──────────────────────────────────► SRET 6FFD    7 callers
@@ -6877,18 +6892,33 @@ And the fault in slot 24 is a self-test result. `5DDD` logs
 `INP 2 / ANI 0x02 / XRI 0x02` — **bit 1 of the port 2 input**, one of three
 read-back checks in a row at `5DC8`–`5DF0`.
 
-So: **the cadence is armed only while the port-2-input bit-1 self-test is
-passing, and suppressed once that fault is logged.** That is a much tighter
-handle on bit 1 of `PORT1_shadow` than §10az had. A signal that is driven on a
-3 s / 3 s cadence and whose suppression is tied to a *read-back* check is most
-likely an output the firmware can verify, rather than an indicator. The two
-"bit 1"s are on different ports, so this is a correlation and not yet a
-loop-back proof — but it is the first evidence that the driven line is sensed at
-all, and it is what to chase next.
+### What this does *not* show — a claim withdrawn
 
-It also corrects §10az's conclusion. The cadence does **not** run during every
-connected call: a call entered through `7014` is fully billable and has no
-cadence at all.
+Two earlier drafts said the cadence is "armed only while the port-2-input bit-1
+self-test is passing, and suppressed once that fault is logged", and treated
+that as the strongest handle yet on bit 1 of `PORT1_shadow`. **That is wrong,
+and the error was one of scope.**
+
+`6FFF` arms sequencer state `7065` **unconditionally** — `7004 RLDI R9,7065`,
+with no test of `843A` anywhere between `6FFF` and that store, and that is the
+only `RLDI` of `7065` in the image. The fault-slot test is not in `6FFF` at all;
+it is in **one caller**. `6FFF` has seven:
+
+| Caller | Gated on `M(843A) & 0x7F`? |
+|---|---|
+| `3B37` | **yes** — the `LBZ` side of the test at `3B24` |
+| `0C7F`, `1C31`, `2CB1`, `41E8`, `45BD`, `48F1` | no |
+
+So six of the seven arm the 3 s / 3 s cadence regardless of whether slot 24
+holds the fault. What the test at `3B24` chooses is which *entry* that one call
+site uses — `6FFF` with tone `3AA0` and the cadence, or `7014` with tone `3AA4`
+and without it. It says nothing about the other six.
+
+The narrow facts stand: `7014` does skip the arm, `3B24` does test fault slot
+24, and that slot does record the `INP 2 / ANI 0x02` read-back check at `5DD7`.
+What does not stand is generalising a single call site's gate into a property of
+the cadence. **Bit 1 of `PORT1_shadow` therefore has no self-test gate**, and the
+"output the firmware can verify" inference built on it is withdrawn.
 
 **And this closes a loop on §10az.** The tone player's countdown is
 `delay_timer_812d`, and `812D` is one of only two cells decremented by *both*
@@ -6994,12 +7024,13 @@ that *block* on that timer, which is what closed the overlap question above.
 after a 28 s delay, and it is now clearer *when*: `6FFF` arms that one-shot and
 `6FB3` returns the sequencer to its idle state `70C3`, which holds bit 1 high.
 
-But **not** on every call. `7014` enters the same billable state without arming
-it, and the choice between the two is the fault-slot test above. So the cadence
-runs during calls entered through `6FFF` only, and is suppressed for the life of
-a logged port-2-input bit-1 fault. §6a still has nothing on `8034` traced to a
-component, but the suppression condition is the strongest lead so far, and it is
-on the queue in that form.
+But **not** on every call: `7014` enters the same billable state without arming
+it. That is the whole of the difference, though — `6FFF` arms the one-shot
+unconditionally, and only *one* of its seven callers (`3B37`) reaches it through
+the fault-slot test at `3B24`. An earlier draft generalised that one site's gate
+into "suppressed for the life of a logged port-2-input bit-1 fault"; see the
+withdrawal in §10ba. §6a still has nothing on `8034` traced to a component, and
+this no longer narrows it as much as it appeared to.
 
 ## 10bc. `scan_keypad` does not end at its `RET`, and the census that proves it
 
@@ -7167,8 +7198,12 @@ main thread at that step; the step runs and parks again. `IDL` + `LBR` to itself
 is the yield instruction, and the handler is the scheduler.
 
 This also explains the shape §10at found and could not justify: twenty-four
-sites ending in `LBR 1A7C`, each recording a result code in `feature_flags_8dac`
-before parking. The result code *is* the scheduler's input — `0278` returns the
+sites ending in `LBR 1A7C`. **Seventeen** of them record a result code in
+`feature_flags_8dac` first (`LDI <index> / SEX R2 / SCAL set_feature_flag`, with
+`197F` passing `RE.1` instead of an immediate). The other seven are not session
+steps at all — six are the `131C` table stubs `1A6A`, `1A6D`, `1A70`, `1A73`,
+`1A76`, `1A79`, and the seventh is the park's own `LBR` at `1A7E`. An earlier
+draft said "each recording a result code"; it is seventeen of twenty-four. The result code *is* the scheduler's input — `0278` returns the
 lowest set flag, and that selects the next step.
 
 **Credit and caution.** Found by a Grok review tasked with closing gaps; every
@@ -7180,7 +7215,7 @@ be checked.
 
 ## 10be. `2A4B` — a writer of fault 23, gated on the charge phase
 
-`FUN_2a4b`, now `log_reader_fault23_if_charging`. Nineteen instructions,
+`FUN_2a4b`, now `log_reader_fault23_if_charging`. Twenty-one instructions,
 `2A4B`–`2A77`, one caller at `4C0A`. It does three things.
 
 **1. It is gated on `charge_phase`.** `2A4B`–`2A52` returns at once unless
@@ -8141,7 +8176,7 @@ image, and the handler census was added on the same footing. **All fifteen held:
 | the byte at each of the seven `0048` addresses equals its `00F7` entry | all seven match |
 | nothing branches or `SCAL`s to any of the seven | none |
 | the two-byte constant `0048` occurs nowhere | `find` → −1 |
-| `F000` bit 0 is set at exactly three places | `1ECA`→`03`, `2237`→`01`, `2282`→`01` |
+| `F000` bit 0 is set by exactly three *immediate* stores | `1ECA`→`03`, `2237`→`01`, `2282`→`01`. **Narrowed:** a fourth instruction also writes bit 0 — `2198` (live `95E1`) copies `M(8E79)` to `F000`, and the cmd-`08` stub sets `8E79 = 1`. All four are inside `1CB7`–`2330`, so "nothing executing from ROM sets bit 0" survives; "exactly three places" does not |
 | the only transfer to `000C`/`000F` is `6E15: SCAL 000C` | one hit, none to `000F` |
 | `rewrite_code_space_if_requested`'s only caller is `6F07` | one hit |
 | `build_dlc_record` copies exactly 11 bytes from `8501` | `1CE8: RLDI R8,000B` |
@@ -8201,7 +8236,8 @@ uses. That it **gates the code space** is strongly supported, by
 `rewrite_code_space` rewriting all 32 KB through it (§10an). **Bit 0's polarity
 is inference, not proof** — it rests on every site that *sets* bit 0 living
 inside the block relocated to RAM, and on `0056` executing from ROM while bit 0
-is clear. Bit 1 is unidentified.
+is clear. Bit 1 is **write routing** (§10ay) — superseding the "unidentified"
+this line used to carry — with the physical decode still unobserved.
 
 **Settled since this section was first written:** `36C2` is
 `account_one_unit_spent`, not a stepper pulse (§7, §10ak). `851A` is a minute
@@ -8210,9 +8246,15 @@ meter, `8520` counts charged periods and `8526` counts card units burned
 pulse (§10ak).
 
 **Unknown:** what the mnemonics actually *do* — the parser gives each one a
-handler address, but those handlers are not yet read; why four templates have
-no literal call site; the other interrupt vectors (`0699`, `8E0D`, `8E0F`,
-`067E`); what fills the `8060` buffer that `33C5` parses.
+handler address, but those handlers are not yet read; why **two** templates
+(`0x30` `?S` and `0x50` `?CD012`) have no literal call site, the `0x38`/`0x40`
+pair having turned out to be called through the `3658` entry (§10i); what fills
+the `8060` buffer that `33C5` parses.
+
+*No longer unknown, though this list carried them:* `0699` and `067E` are the
+DLC handler's prologue and epilogue (`interrupt_enter` / `interrupt_leave`,
+§10av), and `8E0D`/`8E0F` are not interrupt vectors at all — they are the
+main-thread resume address and its one-shot gate (§10bd).
 
 **On the second link (§9a):** that it exists, and its EF1/EF3/Q physical
 layer, are established. That its peer is the **trunk** is not — it is a strong

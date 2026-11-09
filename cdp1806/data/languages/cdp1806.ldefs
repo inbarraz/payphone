@@ -5,7 +5,7 @@
             endian="big"
             size="16"
             variant="default"
-            version="1.1"
+            version="1.2"
             slafile="cdp1806.sla"
             processorspec="cdp1806.pspec"
             id="cdp1806:BE:16:default">

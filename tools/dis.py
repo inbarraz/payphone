@@ -62,9 +62,15 @@ SHORT = {0x30: 'BR', 0x31: 'BQ', 0x32: 'BZ', 0x33: 'BDF', 0x34: 'B1',
          0x35: 'B2', 0x36: 'B3', 0x37: 'B4', 0x38: 'NBR', 0x39: 'BNQ',
          0x3a: 'BNZ', 0x3b: 'BNF', 0x3c: 'BN1', 0x3d: 'BN2', 0x3e: 'BN3',
          0x3f: 'BN4'}
-LONGB = {0xc0: 'LBR', 0xc1: 'LBQ', 0xc2: 'LBZ', 0xc3: 'LBDF', 0xc8: 'LSKP',
+LONGB = {0xc0: 'LBR', 0xc1: 'LBQ', 0xc2: 'LBZ', 0xc3: 'LBDF',
          0xc9: 'LBNQ', 0xca: 'LBNZ', 0xcb: 'LBNF'}
-SKIP  = {0xc4: 'NOP', 0xc5: 'LSNQ', 0xc6: 'LSNZ', 0xc7: 'LSNF',
+# C8 is LSKP and belongs HERE, not in LONGB: it is one byte and skips the next
+# two (RP+2 -> RP). Sized as a 3-byte branch it swallowed the two bytes it is
+# meant to step over and printed them as a target - `000E c8 f8 03` came out as
+# `LSKP F803`, hiding the LDI 0x03 at 000F that section 10an depends on. A
+# linear sweep stayed aligned anyway, because skipping two bytes and consuming
+# them lands on the same next address, which is why it went unnoticed.
+SKIP  = {0xc4: 'NOP', 0xc5: 'LSNQ', 0xc6: 'LSNZ', 0xc7: 'LSNF', 0xc8: 'LSKP',
          0xcc: 'LSIE', 0xcd: 'LSQ', 0xce: 'LSZ', 0xcf: 'LSDF'}
 # Every 2-byte immediate. 7C/7D/7F are easy to miss because the rest of the 7x
 # block is 1-byte register ops, and ALU below also names them - but `op in IMM`
@@ -204,7 +210,9 @@ def run(start, end):
         note = ''
         # X == P inline form: SEX R4 immediately before, P is always R4 here.
         if n == 1 and d[i] in INLINEABLE and i > start and d[i - 1] == 0xe4:
-            txt = '%-4s %02X' % (txt.split()[0], d[i + 1])
+            # Keep the whole mnemonic: splitting on whitespace turned
+            # `OUT  6` into `OUT`, so 51A7 printed without its port number.
+            txt = '%-8s %02X' % (txt.strip(), d[i + 1])
             n, raw = 2, d[i:i + 2].hex(' ')
             note = '   ; X==P inline form'
         print('%04X  %-11s  %-16s%s' % (i, raw, txt, note))
@@ -240,6 +248,8 @@ SELFTEST = [
     (0x7063, 'RLXA R4'), (0x40a7, 'SCAL R3,4EFC'), (0x1423, 'DBNZ RD,142A'),
     (0x05ed, 'OUT  6'),  (0x706b, 'RSXD R5'), (0x70cc, 'SRET R3'),
     (0x048e, 'ADCI #00'), (0x1454, 'ADCI #00'), (0x06ee, 'SDBI #82'),
+    (0x000e, 'LSKP'),                       # one byte, not a 3-byte branch
+    (0x000f, 'LDI  #03'),                   # the byte LSKP skips, now visible
 ]
 
 def selftest():

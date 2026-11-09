@@ -32,6 +32,17 @@ PTR_ARGS = {
     0x36b0: (0,), 0x3866: (0,), 0x6e6b: (0,),
     0x28f9: (0, 1),        # memcpy(dest, src, len)
     0x746d: (0, 1),        # clear_block_range(lo, hi)
+    # Added after a review found the scan narrower than the callees' own
+    # prologues: each of these reads a pointer with the canonical
+    # SEX R3 / RLXA idiom and is passed a RAM address at least once, so the
+    # cells they name were invisible to the map.
+    0x0837: (0, 1),        # crc16-modbus(frame, out) - 8C29/8E6D at 03EE,
+                           # 8E68/8E6B at 030C
+    0x13af: (0,),          # increase_counter_until_0xFF - 11 sites, 8DD9 etc.
+    0x56c3: (0,),          # StoreDigitAndSeparator - 8500 at 55A0
+    0x56d1: (0, 1),        # numstring_to_ASCstring - 8516 at 55E2
+    0x16f2: (0,),          # 8E2A at 07E2
+    0x5751: (0,),          # number_field_dialog - 8501 at 5735
 }
 rejected = 0
 for i in range(len(d) - 6):
@@ -42,9 +53,13 @@ for i in range(len(d) - 6):
             if 0x8000 <= t < 0x9900:
                 anchors[t].append(i + 4 + 2 * w)
         if callee not in PTR_ARGS:
-            t = (d[i + 4] << 8) | d[i + 5]
-            if 0x8000 <= t < 0x9900:
-                rejected += 1
+            # Count BOTH candidate words, not just the first: the old version
+            # looked at word 0 only, so a second pointer argument in RAM range
+            # (8E6D at 03EE, say) was never even reported as rejected.
+            for w in (0, 1):
+                t = (d[i + 4 + 2 * w] << 8) | d[i + 5 + 2 * w]
+                if 0x8000 <= t < 0x9900:
+                    rejected += 1
 
 sig = {}
 for line in io.open('tools/ram_cells.txt'):

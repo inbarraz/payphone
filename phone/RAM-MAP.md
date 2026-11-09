@@ -233,7 +233,7 @@ dozen places has a dozen chances to give itself away.
 | `844B` | — | 3 — `3e50` `3fc2` `5da4` | st=2 imm=00,05 cmp=04 |
 | `844C` | — | 1 — `5de4` | st=0 |
 | `844D` | `coldstart_sentinel_844d` | 1 — `306f` | st=1 imm=aa |
-| `844E` | `ysm_number` | 4 — `3ae4` `3af8` `5b7b` `54a3` | st=0 |
+| `844E` | `ysm_number` | 5 — `3ae4` `3af8` `5b7b` `54a3` `574c` | st=0 |
 | `845A` | `pulse_count_event` | 6 — `23ae` `2f4c` `3f5f` `4252` `4cee` `76c6` | st=4 imm=00 cmp=2d |
 | `845C` | — | 19 — `1c1a` `1c26` `1c35` `1c41` `2cda` `2f30` +13 | st=10 imm=00,80,c0 mask=01,f0,fc cmp=c0,ca |
 | `845D` | `ram_sentinel_845d` | 1 — `6112` | st=1 imm=00 |
@@ -242,19 +242,19 @@ dozen places has a dozen chances to give itself away.
 
 | Addr | Name | Sites | Signature |
 |---|---|---|---|
-| `8500` | — | 2 — `3084` `3bf0` | st=1 |
-| `8501` | `own_phone_number` | 7 — `1cec` `2e36` `3ae8` `3afd` `5655` `5b6e` +1 | st=0 |
+| `8500` | — | 3 — `3084` `3bf0` `55a4` | st=1 |
+| `8501` | `own_phone_number` | 8 — `1cec` `2e36` `3ae8` `3afd` `5655` `5b6e` +2 | st=0 |
 | `850D` | — | 4 — `2f26` `5437` `55ab` `308e` | st=1 cmp=40 |
-| `850E` | `accept_list_count` | 2 — `33f0` `5ce0` | st=0 |
+| `850E` | `accept_list_count` | 3 — `33f0` `5ce0` `55c2` | st=0 |
 | `850F` | `accept_list_0` | 2 — `568e` `5ce9` | st=0 |
-| `8513` | — | 4 — `1a52` `4db6` `5479` `7041` | st=1 cmp=01 |
-| `8514` | `credit_divisor` | 1 — `347d` | st=0 cmp=01 |
-| `8515` | — | 2 — `2d3e` `5342` | st=0 cmp=01 |
-| `8516` | `totalizer4_8516` *(no Ghidra label)* | 2 — `4298` `2f3f` | st=0 |
-| `851A` | `minute_meter` *(no Ghidra label)* | 1 — `422e` | st=0 |
-| `8520` | `charged_period_counter` *(no Ghidra label)* | 1 — `2d1f` | st=0 |
-| `8526` | `units_burned_counter` *(no Ghidra label)* | 1 — `36c9` | st=0 |
-| `852C` | — | 6 — `4e15` `4e3e` `4e42` `4e71` `4e9d` `4e3a` | st=0 |
+| `8513` | — | 5 — `1a52` `4db6` `5479` `7041` `55ce` | st=1 cmp=01 |
+| `8514` | `credit_divisor` | 2 — `347d` `55d6` | st=0 cmp=01 |
+| `8515` | — | 3 — `2d3e` `5342` `55de` | st=0 cmp=01 |
+| `8516` | `totalizer4_8516` *(no Ghidra label)* | 3 — `4298` `2f3f` `55e6` | st=0 |
+| `851A` | `minute_meter` *(no Ghidra label)* | 2 — `422e` `55ef` | st=0 |
+| `8520` | `charged_period_counter` *(no Ghidra label)* | 2 — `2d1f` `55f8` | st=0 |
+| `8526` | `units_burned_counter` *(no Ghidra label)* | 2 — `36c9` `5601` | st=0 |
+| `852C` | — | 7 — `4e15` `4e3e` `4e42` `4e71` `4e9d` `4e3a` +1 | st=0 |
 | `852E` | — | 1 — `4e3c` | — |
 | `852F` | — | 5 — `5614` `70fc` `7128` `71b4` `71b0` | st=0 |
 | `8544` | — | 2 — `2f41` `71b2` | — |
@@ -346,6 +346,7 @@ dozen places has a dozen chances to give itself away.
 | `8C26` | — | 1 — `0949` | st=0 |
 | `8C27` | `dlc_tx_frame` | 3 — `039e` `03e9` `0bec` | st=1 imm=cc |
 | `8C28` | — | 1 — `0be1` | st=0 |
+| `8C29` | `dlc_tx_len_field` | 1 — `03f2` | — |
 | `8C37` | — | 1 — `77dd` | st=0 |
 | `8C59` | — | 1 — `1674` | st=0 cmp=02 |
 
@@ -358,7 +359,7 @@ dozen places has a dozen chances to give itself away.
 | `8DA7` | `dlc_link_address` | 5 — `03af` `0772` `0953` `0e2a` `0f26` | st=3 imm=00 |
 | `8DA9` | `dlc_reply_ptr` *(no Ghidra label)* | 2 — `1dfb` `1e56` | st=0 |
 | `8DAA` | — | 1 — `1809` | st=0 |
-| `8DAB` | `dlc_record_len` | 7 — `0798` `0e6b` `1817` `1ddf` `1e46` `1e74` +1 | st=4 imm=00,01 cmp=02 |
+| `8DAB` | `dlc_record_len` | 8 — `0798` `0e6b` `1817` `1ddf` `1e46` `1e74` +2 | st=4 imm=00,01 cmp=02 |
 | `8DAC` | `feature_flags_8dac` | 7 — `0222` `0278` `0338` `0352` `05fb` `072e` +1 | st=2 imm=00,01 |
 | `8DAD` | — | 2 — `04c8` `04da` | st=2 imm=01 |
 | `8DAE` | `feature_flag_idx2` *(no Ghidra label)* | 1 — `060a` | st=1 imm=01 |
@@ -380,15 +381,15 @@ dozen places has a dozen chances to give itself away.
 | `8DD6` | — | 1 — `1fbc` | st=0 |
 | `8DD7` | — | 3 — `0581` `058c` `1d88` | st=2 imm=00 |
 | `8DD8` | — | 3 — `0b83` `0e3a` `0ec2` | st=3 imm=00 |
-| `8DD9` | — | 1 — `056d` | st=1 |
-| `8DDA` | — | 2 — `0563` `1bf6` | st=1 |
-| `8DDB` | — | 1 — `055e` | st=1 |
-| `8DDC` | — | 2 — `0568` `1bfe` | st=1 |
-| `8DDD` | — | 2 — `0557` `0e4d` | st=2 imm=00 |
+| `8DD9` | — | 6 — `056d` `0d0f` `0e7f` `0ede` `0ef6` `0f0e` | st=1 |
+| `8DDA` | — | 3 — `0563` `1bf6` `0ee5` | st=1 |
+| `8DDB` | — | 2 — `055e` `0d16` | st=1 |
+| `8DDC` | — | 3 — `0568` `1bfe` `0efd` | st=1 |
+| `8DDD` | — | 3 — `0557` `0e4d` `0f4c` | st=2 imm=00 |
 | `8DDE` | — | 1 — `163d` | st=0 |
 | `8DE2` | `charge_event_count` | 1 — `0650` | — |
 | `8DE6` | — | 5 — `079d` `0e5a` `0f7d` `1519` `152e` | st=4 imm=00 |
-| `8DE7` | — | 2 — `0572` `0e52` | st=2 |
+| `8DE7` | — | 3 — `0572` `0e52` `0f15` | st=2 |
 | `8DE8` | — | 4 — `1387` `191b` `1d71` `0e9c` | st=0 |
 | `8DEC` | — | 3 — `02a9` `155d` `0e9e` | st=1 |
 | `8DF0` | — | 2 — `0ea7` `1d81` | st=1 |
@@ -417,15 +418,15 @@ dozen places has a dozen chances to give itself away.
 | `8E12` | — | 1 — `097c` | st=0 |
 | `8E13` | — | 1 — `0978` | st=0 |
 | `8E14` | — | 2 — `0d37` `0d69` | st=2 imm=00 |
-| `8E2A` | — | 1 — `07cc` | st=1 imm=00 |
+| `8E2A` | — | 2 — `07cc` `07e6` | st=1 imm=00 |
 | `8E2C` | — | 1 — `07c8` | st=1 |
 | `8E2D` | — | 1 — `0980` | st=2 imm=01 cmp=09 |
 | `8E2E` | — | 4 — `09bb` `09d4` `09fe` `0a07` | st=1 |
 | `8E36` | `dlc_rx_frame_len` *(no Ghidra label)* | 2 — `090e` `0925` | st=1 |
 | `8E38` | — | 1 — `08d1` | st=1 |
-| `8E68` | — | 1 — `0306` | st=0 |
-| `8E6B` | — | 1 — `0317` | st=0 |
-| `8E6D` | `dlc_frame_checksum` | 1 — `03f7` | st=0 |
+| `8E68` | — | 2 — `0306` `0310` | st=0 |
+| `8E6B` | — | 2 — `0317` `0312` | st=0 |
+| `8E6D` | `dlc_frame_checksum` | 2 — `03f7` `03f4` | st=0 |
 | `8E76` | `flash_saved_R9` *(no Ghidra label)* | 1 — `21f7` | st=0 |
 | `8E77` | — | 1 — `2176` | st=0 |
 | `8E79` | `flash_window_value` *(no Ghidra label)* | 7 — `20f4` `210a` `2120` `2136` `214d` `219c` +1 | st=5 imm=00,01 cmp=00 |
@@ -442,7 +443,7 @@ dozen places has a dozen chances to give itself away.
 | `8ED7` | `dlc_1min_counter` *(no Ghidra label)* | 1 — `0769` | st=1 imm=00 |
 | `8EDD` | — | 4 — `06d3` `0fa0` `0fc7` `0ff3` | st=3 imm=00 |
 | `8EE0` | — | 3 — `1fd8` `2016` `205d` | st=1 cmp=00 |
-| `8EE1` | — | 2 — `1ff8` `203e` | st=1 |
+| `8EE1` | — | 3 — `1ff8` `203e` `200c` | st=1 |
 | `8EE4` | — | 2 — `200e` `2083` | st=1 |
 | `8EE6` | — | 1 — `1f4d` | st=0 |
 | `8EE7` | — | 1 — `2026` | st=0 |
@@ -487,9 +488,9 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **184 named**, 205 still unnamed.
+390 anchored cells, **185 named**, 205 still unnamed.
 
-57 further `SCAL` inline words happened to hold a value in RAM range but
+163 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.
 Some are real anchors whose callee signature is simply not worked out yet;
 the rest are ordinary instruction bytes. See `PTR_ARGS` in `tools/ram_map.py`.
