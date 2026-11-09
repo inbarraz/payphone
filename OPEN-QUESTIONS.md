@@ -421,6 +421,22 @@ Collected separately because they are not worth static effort:
       saved source while `R8` walks down from the saved destination, which has
       exactly the same shape.
 
+- [ ] **`97A6` is used two incompatible ways — which wins?**
+      `count_fault_occurrence` stores the immediate `6` there whenever a fault
+      crosses its threshold (`5E4D`, `5E60`), while `1C60` passes `97A6` to
+      `increment_counter16` (`04F0`), a **saturating 16-bit counter**, in a row
+      with `97AA`, `97AE` and `979F` at `1C67`/`1C6E`/`1C75`. A byte store of
+      `6` and a 16-bit increment on the same address clobber one another, so
+      either one of the two readings is wrong or the cell is genuinely shared
+      across modes that never overlap. Spotted by the Grok review and verified
+      here: the `SCAL 04F0` inline pointer at `1C64` really is `97A6`.
+
+- [ ] **Two cells noted but deliberately not named.** `8E0C` holds 0 or 1 from
+      comparing a running total against `0x0384` = 900 at `20DE`, inside the
+      interpreter, and `8EBC` is anchored only at `5C72` — exactly one past
+      `flash_page_buffer + 64`, which is suggestive but not a role. Both left
+      unnamed rather than guessed.
+
 - [ ] **What drives bit 1 of `PORT1_shadow` (`8034`)?** It now has a precise
       waveform, which is the strongest handle yet on any bit of that port: the
       `705E` sequencer holds it high in the idle state `70C3`, and the cycle

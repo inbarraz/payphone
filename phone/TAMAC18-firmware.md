@@ -7270,7 +7270,22 @@ toggles bit 0 of `M(8867)`. The "other counter either way" is the `LSNZ` at
 `DEC RC`, while a zero `D` takes `INC RC` and the `NBR` swallows the `DEC`.
 
 So: a 2-tick debounce on port 1 bit 4 that publishes the opposite phase's count
-and flips a phase flag. **What `886A` is consumed for is not established.**
+and flips a phase flag.
+
+**And `886A` is the state machine's input.** `step_state_machine` (`5227`) opens
+by comparing `M(8866)` against `M(8867)`; equal means nothing has changed and it
+skips. When they differ it latches the new value into `8866` and then reads
+`M(886A)` and passes it to `classify_into_range` (`328E`) and
+`next_state_from_table` (`3270`).
+
+So `proc_51e8` is the **input stage** of that state machine, and the three cells
+already carried names saying so from an earlier session: `8866`
+`sm_change_shadow`, `8867` `sm_change_current`, `886A` `sm_input_value`.
+`proc_51e8` debounces the port-1 input, publishes the measured count to
+`sm_input_value`, and toggles `sm_change_current` as the "new input available"
+signal; `step_state_machine` consumes it on the next pass. A clean producer /
+consumer handshake, and `8865` — the sentinel `init_8865_block` arms — is the
+enable for the whole input stage, so it is named `sm_input_enable`.
 
 ### Two things that bite a reader here
 

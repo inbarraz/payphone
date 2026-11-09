@@ -304,20 +304,20 @@ dozen places has a dozen chances to give itself away.
 | `8862` | — | 1 — `4fd5` | st=0 |
 | `8863` | — | 6 — `3567` `383c` `4eea` `4efc` `4f33` `4fca` | st=4 imm=00,aa cmp=aa |
 | `8864` | — | 2 — `3548` `3551` | st=1 imm=aa cmp=aa |
-| `8865` | — | 3 — `2f0d` `51e8` `2f09` | st=1 imm=aa cmp=aa |
+| `8865` | `sm_input_enable` *(no Ghidra label)* | 3 — `2f0d` `51e8` `2f09` | st=1 imm=aa cmp=aa |
 | `8866` | `sm_change_shadow` | 1 — `522a` | st=0 |
 | `8867` | `sm_change_current` | 2 — `51da` `521c` | st=1 cmp=01 |
-| `8868` | — | 1 — `51f2` | st=0 |
+| `8868` | `sm_debounce_set` *(no Ghidra label)* | 1 — `51f2` | st=0 |
 | `886A` | `sm_input_value` | 2 — `5214` `5238` | st=1 |
 | `886B` | `sm_bracket` | 2 — `3278` `32aa` | st=1 |
 | `886C` | `sm_state` | 3 — `3270` `51d3` `5503` | st=2 imm=00 cmp=04 |
 | `8890` | — | 1 — `2f14` | st=0 |
-| `8891` | — | 1 — `2f18` | st=0 |
+| `8891` | `buf8891` *(no Ghidra label)* | 1 — `2f18` | st=0 |
 | `88B9` | — | 1 — `2f0b` | — |
 | `88BA` | — | 3 — `2a11` `2cf6` `46ea` | st=2 imm=00 cmp=aa |
 | `88BB` | `optical_reader_fault_flag` | 2 — `23a6` `29e9` | st=0 |
 | `88BD` | `units_spent_marker` | 3 — `36c2` `5063` `51b9` | st=2 imm=00,aa |
-| `88BE` | — | 3 — `75e7` `75f9` `7680` | st=3 imm=00 |
+| `88BE` | `nopulse_flush_gate` *(no Ghidra label)* | 3 — `75e7` `75f9` `7680` | st=3 imm=00 |
 | `88C0` | — | 1 — `77a6` | st=0 |
 | `88C1` | — | 1 — `39de` | st=0 |
 | `88C5` | — | 5 — `3992` `44bc` `48a9` `48f5` `6f19` | st=6 imm=00,aa cmp=aa |
@@ -342,7 +342,7 @@ dozen places has a dozen chances to give itself away.
 | `8C21` | `uart_tx_count` | 4 — `077b` `0ad6` `0ae1` `0bc5` | st=2 imm=00 |
 | `8C22` | — | 1 — `0c20` | st=0 |
 | `8C23` | `uart_tx_index` | 4 — `0afb` `0bd5` `0c27` `0b0f` | st=2 imm=00 |
-| `8C25` | — | 2 — `0e2e` `0f2a` | st=0 |
+| `8C25` | `dlc_rx_link_address` *(no Ghidra label)* | 2 — `0e2e` `0f2a` | st=0 |
 | `8C26` | — | 1 — `0949` | st=0 |
 | `8C27` | `dlc_tx_frame` | 3 — `039e` `03e9` `0bec` | st=1 imm=cc |
 | `8C28` | — | 1 — `0be1` | st=0 |
@@ -421,7 +421,7 @@ dozen places has a dozen chances to give itself away.
 | `8E2C` | — | 1 — `07c8` | st=1 |
 | `8E2D` | — | 1 — `0980` | st=2 imm=01 cmp=09 |
 | `8E2E` | — | 4 — `09bb` `09d4` `09fe` `0a07` | st=1 |
-| `8E36` | — | 2 — `090e` `0925` | st=1 |
+| `8E36` | `dlc_rx_frame_len` *(no Ghidra label)* | 2 — `090e` `0925` | st=1 |
 | `8E38` | — | 1 — `08d1` | st=1 |
 | `8E68` | — | 1 — `0306` | st=0 |
 | `8E6B` | — | 1 — `0317` | st=0 |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **172 named**, 217 still unnamed.
+389 anchored cells, **178 named**, 211 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.

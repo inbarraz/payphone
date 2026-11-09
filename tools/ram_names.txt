@@ -154,14 +154,20 @@
 8853 tick_task_byte_timer|NOLABEL
 8854 tick_task_word_timer|NOLABEL
 885d pulse_count_report
+8865 sm_input_enable|NOLABEL
 8866 sm_change_shadow
 8867 sm_change_current
+8868 sm_debounce_set|NOLABEL
+8869 sm_debounce_clear|NOLABEL
 886a sm_input_value
 886b sm_bracket
 886c sm_state
 888e slow_timer_888e
+888f buf8891_ptr|NOLABEL
+8891 buf8891|NOLABEL
 88bb optical_reader_fault_flag
 88bd units_spent_marker
+88be nopulse_flush_gate|NOLABEL
 88c4 ram_sentinel_88c4|NOLABEL
 89fa stack_top|NOLABEL
 8a00 ram_sentinel_8a00|NOLABEL
@@ -172,6 +178,7 @@
 8c1f uart_tx_ptr
 8c21 uart_tx_count
 8c23 uart_tx_index
+8c25 dlc_rx_link_address|NOLABEL
 8c27 dlc_tx_frame
 8c29 dlc_tx_len_field
 8d26 dlc_record
@@ -190,6 +197,8 @@
 8e0d dlc_resume_addr|NOLABEL
 8e0f dlc_resume_armed|NOLABEL
 8e10 CTRL_F000_shadow
+8e36 dlc_rx_frame_len|NOLABEL
+8e37 dlc_rx_frame|NOLABEL
 8e6d dlc_frame_checksum
 8e76 flash_saved_R9|NOLABEL
 8e79 flash_window_value|NOLABEL
