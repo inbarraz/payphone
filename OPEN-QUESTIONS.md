@@ -393,6 +393,24 @@ Collected separately because they are not worth static effort:
       this reader rejects `CE`, perhaps a variant for different reader
       firmware. Needs the reader image.
 
+- [ ] **Is `page_rewrite_cycle_down` (`96AE`) dead, or a flash-corrupting bug?**
+      It and the ascending twin at `9663` are 75 bytes differing in exactly two —
+      the write-back target, `9708` against `96F9`. Both set `RLDI R7,8E7B`
+      beforehand, which is the buffer's **bottom**: right for an ascending read,
+      wrong for `9708`'s descending one, which then walks into `8E7A`/`8E79`/
+      `8E77`, the programmer's own control bytes (§10bh). It would need
+      `RLDI R7,8EBA`.
+
+      To settle it, find what writes `M(8E7A)`. `9656` takes the descending
+      branch when it is not 1, and nothing in the image anchors `8E7A` with an
+      `RLDI` — it is written by a register walk from `8E79`, which has not been
+      traced. If the branch is reachable, this corrupts a flash page on the
+      remote-update path.
+
+      Then check the verify side for the same mistake: `RA` walks up from the
+      saved source while `R8` walks down from the saved destination, which has
+      exactly the same shape.
+
 - [ ] **What drives bit 1 of `PORT1_shadow` (`8034`)?** It now has a precise
       waveform, which is the strongest handle yet on any bit of that port: the
       `705E` sequencer holds it high in the idle state `70C3`, and the cycle

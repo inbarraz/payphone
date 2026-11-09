@@ -7416,20 +7416,47 @@ another, with the unlock in between and the window closed afterwards — which i
 the same reason §10bg's checksum has to run from RAM, applied to writing instead
 of reading.
 
-### What is not established
+### The buffer asymmetry resolved: a probable bug
 
-**The pointer conventions.** `RA` and `R8` are copies of `R7` and `RB`, made at
-`95DC`/`95DF` (`SEX RA / RNX R7` and `SEX R8 / RNX RB`; `RNX` is `R(X) ← R(N)`
-per the slaspec). But the verify directions do not obviously line up with where
-the write left those pointers — `RA` walks *up* from the saved source start
-while `R8` walks *down* from the saved destination start. Settling that needs
-the register setup traced from `95BF`'s callers.
+The previous draft flagged an unresolved problem — `copy_page64_up` fills `8E7B`
+*upward*, yet `96C7` sets `R7 = 8E7B` for a routine that reads *downward*.
+Chasing it down settles the matter.
 
-The loop mechanics above are certain. **Which byte is compared against which is
-not**, and the same caveat applies to `96AE`'s buffer: `copy_page64_up` fills
-`8E7B` upward, yet `96C7` sets `R7 = 8E7B` for a routine that reads downward,
-which would walk below the buffer. Either a register is set elsewhere than I
-have traced, or the two halves disagree. Flagged rather than guessed.
+**There are two page-rewrite cycles, and they are the same 75 bytes differing in
+exactly two.** `9663`–`96AD` (inside `FUN_9639`) and `96AE`–`96F8`
+(`page_rewrite_cycle_down`) are byte-identical except at offset `+0x3C`, the
+write-back call target: `96F9` ascending at `969F`, `9708` descending at `96EA`.
+`9656` selects between them on `M(8E7A) == 1`.
+
+Both set `RLDI R7,8E7B` before that call. For the ascending twin that is right —
+`copy_page64_up` reads upward from `R7`, so it walks the buffer `8E7B`–`8EBA`.
+For the descending one it is **wrong-ended**: `copy_page64_down` reads downward,
+so from `8E7B` it takes one correct byte and then walks into `8E7A`, `8E79`,
+`8E77` — this very routine's own control state — and on down to `8E3C`. It would
+need `RLDI R7,8EBA`.
+
+The buffer bounds are independently fixed, which is what makes this a finding
+rather than a guess: `5C72` anchors `8EBC`, exactly one past `8E7B + 64 = 8EBB`,
+and `8E76`/`8E77`/`8E79`/`8E7A` immediately below are control bytes — `8E7A` is
+the direction flag itself and `8E77` holds a saved `R9` from `95BF`.
+
+**Not called a bug outright, for two reasons.** The *destination* side is
+defensible: `RB` comes from the caller via `RE`, so it could legitimately be a
+page top for a descending write. And it is not established that this branch is
+ever taken — nothing in the image sets `8E7A` through an `RLDI` anchor, so it is
+written by a register walk from `8E79` that has not been traced. So either the
+descending path is dead, or it writes back 63 bytes of the wrong data into
+flash. Queued.
+
+### What is still not established
+
+**The verify-side pointer conventions.** `RA` and `R8` are copies of `R7` and
+`RB` made at `95DC`/`95DF`, but the verify directions do not line up with where
+the write left those pointers either — `RA` walks up from the saved source start
+while `R8` walks down from the saved destination start. That has the same shape
+as the bug above and may well be the same mistake a second time, but settling it
+needs the register setup traced from `95BF`'s callers. The loop mechanics are
+certain; which byte is compared against which is not.
 
 ### A counting trap, again
 
