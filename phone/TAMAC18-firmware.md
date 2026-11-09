@@ -7484,13 +7484,16 @@ rather than a guess: `5C72` anchors `8EBC`, exactly one past `8E7B + 64 = 8EBB`,
 and `8E76`/`8E77`/`8E79`/`8E7A` immediately below are control bytes — `8E7A` is
 the direction flag itself and `8E77` holds a saved `R9` from `95BF`.
 
-**Not called a bug outright, for two reasons.** The *destination* side is
-defensible: `RB` comes from the caller via `RE`, so it could legitimately be a
-page top for a descending write. And it is not established that this branch is
-ever taken — nothing in the image sets `8E7A` through an `RLDI` anchor, so it is
-written by a register walk from `8E79` that has not been traced. So either the
-descending path is dead, or it writes back 63 bytes of the wrong data into
-flash. Queued.
+**Reachability settled in §10bi: it is a live bug.** The handler at `9577` sets
+`M(8E79) = 0` and `M(8E7A) = 2`, exactly the pair that routes `9603` → `9656` →
+`96AE`, and `9577` is dispatched by the `LBR` at `1882` under feature flag
+`0x13`. So on that command the flash page receives one correct byte followed by
+63 read downward from `8E7B` — the direction flag itself, the window value, the
+saved `R9`, and whatever lies below.
+
+The *destination* side remains defensible on its own (`RB` comes from the caller
+and could be a page top), but the source is hardcoded to the buffer's bottom, so
+that does not rescue it.
 
 ### What is still not established
 
@@ -7508,6 +7511,88 @@ certain; which byte is compared against which is not.
 inside `1CB7`–`2330` and `2217 + 0x7449 = 9660`. The same double-listing caught
 the `026A` census in §10bg, where `1E6F` is the dead image of `92B8`. Any caller
 count over this block has to fold the ROM image into its relocated twin first.
+
+## 10bi. `95BF` and its five command handlers — and the bug is reachable
+
+`FUN_95bf`, now `program_flash_pages`, is the page-programming engine. `958D`,
+now `cmd_flash_write_inline`, is one of five command handlers that drive it.
+Together they close §10ay's picture of the remote-update facility.
+
+### `program_flash_pages` (`95BF`–`9638`)
+
+```
+95BF  save R9 (the command-stream pointer) as the word at 8E76/8E77
+95C6  RLDI RC,0006 ; six-iteration right shift of the 16-bit R6
+      -> R6 = count >> 6, i.e. DIVIDE BY 64: the page count
+95D8  LBZ 964A              page count zero -> failure, status 4
+95DB  RA := R7, R8 := RB    source and destination, saved for the verify
+----- per-page loop -----
+95E1  F000 = M(8E79)
+95EB  DIS 0x24              interrupts off
+95EE  the JEDEC unlock
+9603  M(8E79) == 0 ? -> 9656        the read-modify-write mode
+960D  M(8E7A) == 1 ? -> copy_page64_up : copy_page64_down
+9624  660-iteration write delay ; 962C R9 = 0x40 ; 9630 the matching verify
+      -> 9639, flash_page_loop_tail
+```
+
+So **`M(8E79)` is the `F000` window value and doubles as the mode selector** —
+zero means "no single window, use the two-window cycle" — and **`M(8E7A)` is the
+direction**, 1 for ascending.
+
+### The five handlers
+
+Each is a 22-byte stub that loads the register set and the two control bytes,
+then enters the engine:
+
+| Handler | Reads from the stream | `8E79` | `8E7A` | Mode |
+|---|---|---|---|---|
+| `954B` | `{src, dst, cnt}` | 1 | 1 | direct write, ascending |
+| `9561` | `{src, dst, cnt}` | 1 | 1 | direct write, ascending |
+| **`9577`** | `{src, dst, cnt}` | **0** | **2** | rewrite cycle, **descending** |
+| `958D` | `{dst, cnt}` + **inline data** | 1 | 1 | direct write, ascending |
+| `94EA` | nothing — `R6 = 64`, `R7 = 8E7B`, `RB = 7FC0` | 1 | 1 | writes the buffer to `7FC0`–`7FFF`, the ROM's top page |
+
+All are dispatched from the ROM block at `1848`–`1891`, and **every one is gated
+on feature flag `0x13`**: `LDI 0x13 / SCAL test_feature_flag / LBZ 1955`. So flag
+`0x13` is the authorisation for the entire update facility. `9218` at `1862` is
+the exception — it uses `LBNZ`, so it is the path taken when the flag is *clear*.
+
+### `cmd_flash_write_inline` (`958D`) is the odd one out
+
+The other stubs read a third word for the source address. This one does
+`SEX R7 / RNX R9`, pointing the source at **the command stream itself**, so the
+bytes to be programmed travel inline behind the count — and afterwards it
+re-reads the count and adds it to `R9` as a 16-bit sum to step the stream past
+the payload. That makes it the natural primitive for pushing new firmware down
+the DLC link.
+
+It is also the only one that **calls** the engine (`SCAL` at `95A1`) rather than
+branching into it. The other three `LBR` in and never return, letting
+`flash_page_loop_tail`'s `LBR 1938` return on their behalf; this one has to come
+back to advance `R9`, so it calls.
+
+### The §10bh bug is on a live path
+
+§10bh could not say whether `page_rewrite_cycle_down` (`96AE`) was dead or
+broken, because nothing was known to set `M(8E7A)` to anything but 1. **`9577`
+sets `M(8E79) = 0` and `M(8E7A) = 2`** — which is exactly the pair that routes
+`9603` → `9656` → `96AE` — and `9577` is dispatched by the `LBR` at `1882`.
+
+So the descending rewrite cycle is reachable, and its wrong-ended source pointer
+is a **live bug**: on that command the flash page receives one correct byte
+followed by 63 bytes read downward from `8E7B` — `8E7A`, `8E79`, `8E78`, the
+saved `R9` at `8E76`/`8E77`, and whatever lies below.
+
+*A caution about how this was nearly missed.* A first scan reported `954B`,
+`9561` and `9577` as having no inbound reference anywhere, which would have made
+the whole family dead and the bug moot. That scan was searching the addresses of
+the `RLDI RE,8E79` instructions *inside* the stubs rather than the stub entry
+points — `9569`, `957F` and so on instead of `954B`, `9577`. Re-run against the
+entries, all four have a plain `LBR`. The lesson is the same one as the `365C`
+census in §10i: **a reference scan is only as good as the address you hand it**,
+and "no references" should always prompt a check that the address is the one
+callers would actually name.
 
 ## 11. Naming added in this session
 
