@@ -22,22 +22,24 @@ an open question without a next action tends to stay open.
       are decoded; the question is now what is on the other end.
       *Settle by:* tracing the CPU's N0–N2 decode on the board.
       **Needs hardware.**
-- [ ] **What port 5 actually receives.** §10u reads each pair as
-      `port n <- M(8033+n)`, but the other flush at `399D` makes
-      `port 5 <- M(8034)`. **Settled in §10u:** there is no disagreement. Both
-      are the same strobe-then-data pair at different offsets — `399D` strobes
-      with `M(8034)` and writes port 2 from `M(8035)`; the flush strobes with
-      `M(8033)` and writes port 1 from `M(8034)`. `8034` is the port-1 shadow,
-      and the `OUT 5` byte is emitted, not ignored.
-      Either `OUT 5` is a latch-enable whose data is ignored, or the two
-      routines drive different devices.
-      *Settle by:* scoping port 5's latch while both routines run, or finding
-      a third flush site.
+- [x] **What port 5 actually receives** — nothing of its own. §10u's rule is
+      `port n <- M(0x8033+n)` for the data, with `M(0x8033+n−1)` as that write's
+      control word, and both flushes obey it: `399D` strobes with `M(8034)` then
+      writes port 2 from `M(8035)`; `7572` strobes with `M(8033)` then writes
+      port 1 from `M(8034)`. `M(0x8038)` is never an `OUT 5` source, so port 5
+      has no data byte. The `OUT 5` byte's bits **are** observed — bit 6 of
+      `8034` changes between two otherwise identical port-2 writes, and bits 1
+      and 4 of `8036` do the same around port 4. Two alternatives this item used
+      to offer ("the data is ignored" / "the two routines drive different
+      devices") are both withdrawn.
 - [ ] **How `M(8033)`'s low bits reach the strap hardware.** `read_hardware_straps`
-      (§10k) writes them and `IDL`s, but `8033` is flushed by no shadow-flush
-      site — `399D` covers only `8034`/`8035`. `flush_output_latches` is the
-      best candidate, but it has not been shown to run from the interrupt path.
-      *Settle by:* finding what calls `7572`, or scoping the strap lines.
+      (§10k) writes them and `IDL`s. **Two sentences here were wrong and are
+      fixed:** `8033` *is* flushed — `758B RLDI R5,8033 / 758F OUT 5 / 7592
+      OUT 1` inside `7572` — and `7572` *is* reached from the interrupt path, by
+      `SCAL` at `0638` inside the DLC service at `05A6`, as well as from `4A94`
+      on the main thread. So the mechanism is known; what remains is the
+      hardware question of whether those low bits reach the strap pins.
+      *Settle by:* scoping the strap lines.
 - [ ] **Find the ÷4096 divider chip** feeding EF1, and scope EF1 to confirm
       600 Hz (§10aj). The ÷12 and ÷50 are in the ROM; the divider is not.
       **Needs hardware.**
@@ -320,8 +322,10 @@ Collected separately because they are not worth static effort:
       nothing in the image reaches the `0x03` entry point at `000F`, so the
       phone boots and runs from the **ROM**, not the shadow (§10an — this
       corrects an earlier claim). The shadow is filled on request and switched
-      in only transiently by RAM-resident code. Runtime patching is the obvious
-      guess and no more than that.
+      in only transiently by RAM-resident code. **Answered** (§10ay): the shadow is where the CPU executes while the flash
+      underneath is being programmed, because an AT29C256 cannot be read and
+      programmed at once. An earlier wording called runtime patching "the
+      obvious guess and no more than that".
 - [x] **Where inbound reader digits get converted from ASCII** — in the link
       ISR, exactly where this item guessed. After `INP 6` stores the byte at
       `8185`, `ISR_Card_Reader_Link` classes it by the receive index: `≥ 0x27`
@@ -330,7 +334,11 @@ Collected separately because they are not worth static effort:
       (via `SMI 0x41 / ADI 0x07 / ADI 0x0A`) before `STR R7`. So `'0'` arrives
       at `5144` as 0 and `'A'` as `0x0A`, which is what `digits_to_binary16`
       expects. The `'>'`, `'?'`, CR and LF cases are the §6 handshake bits.
-- [ ] **What does `F000` bit 1 do?** Set in `0x03` and `0x02`, cleared in
+- [x] **What `F000` bit 1 does** — **write routing** (§10ay, §10an, §12); only
+      its physical decode is unobserved. The original framing, kept for the bit
+      pattern it records:
+
+- [ ] **(superseded) What does `F000` bit 1 do?** Set in `0x03` and `0x02`, cleared in
       `0x01`, `0x00`, and by a failed integrity check (§10a, §10am, §10an).
 - [x] **What the relocated `1CB7`–`2330` block does** — the
       **memory-operation interpreter with an AT29C256 page programmer**, i.e.

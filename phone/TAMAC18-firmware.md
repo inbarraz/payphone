@@ -1239,7 +1239,9 @@ adjustment mode.
 
 **`?CE007` (selector `08`) has no counterpart.** The reader's parser has no
 `CE` branch, and no `EC` branch either, so this one command is not accounted
-for by this reader firmware. It is a candidate for the trunk link (§9a), or
+for by this reader firmware. It is **not** a trunk-link candidate — the phone
+sends it in place of `?CD007` once `TG` has set `M(802A)` (§8) — though it may
+still be
 for a different reader revision.
 
 ## 9a. The second link — "DLC"
@@ -1339,8 +1341,11 @@ to disarm), and finishes with `ClearBytesAt_Array8dac` (`0A3E`).
 
 So the second link can **hand off to a dynamically installed handler**: code
 registers a callback, and the next interrupt vectors to it instead of the
-default. `8E0F` is the one-shot gate. Writers of `8E0D` are `066F` (the ISR
-reading it) and `1003` (the installer); writers of `8E0F` are `05CD`, `065C`
+default. `8E0F` is the one-shot gate. **Writer list corrected.** `066F`/`0673` and `065C` are *reads*, not writes.
+The resume word is stored at `1007` and `100A` (after `RLDI RA,8E0D` at `1003`),
+and the gate is written at `1011` (`LDI 0x01`), `101B` (`LDI 0x00`), `05D3`
+(after `05CD`) and `075A` (after `0756`). The original list said writers of
+`8E0D` are `066F` and `1003`, and of `8E0F` are `05CD`, `065C`
 (the ISR), `0756`, `100B` and `1015`.
 
 ### What is and is not established
@@ -2187,7 +2192,7 @@ What it does:
 
 | Step | |
 |---|---|
-| `48E8` | `M(8034) \|= 0x04` — PORT5 shadow, opens the audio path |
+| `48E8` | `M(8034) \|= 0x04` — `PORT1_shadow`, opens the audio path (the byte was called the port-5 shadow until §10u settled the port map) |
 | `48F1` | `SCAL 6FFF` → `play_toggle_pattern` (`3AA8`) with inline arg `3AA0` — **an audible beep** |
 | `4901` | `PLO RF` with D still 0 — **clears the state** |
 | `4902` | `M(8034) &= ~0x04` — closes the audio path; the pair around the tone is a pulse |
@@ -3106,7 +3111,7 @@ the phone tells card types apart — `0x30` is the cleaning card, `0x78` a card
 barred from international calls. (**Correction:** an earlier draft said this is
 "the same cell the idle selector reads for card presence". It is not — §10l's
 selector at `2E17` is `RLDI RE,8062`, a different cell. `8060` has exactly three
-references: `2A1F`, `33CA` and `46FE`.) That is the cell the idle selector
+references: `2A1F`, `33CA` and `46FE`.) `8062` is the cell the idle selector
 reads for card presence (§10l), so one byte carries both "is there a card"
 and "what kind".
 
@@ -5187,8 +5192,10 @@ records: it is set in `0x03` and `0x02`, cleared in
 ### A hazard in the RAM layout
 
 The three relocated payloads overlap. The `1CB7` block occupies
-`9100`–`9779`; the `040D` payload lands at `9733`–`9771` and the `3011` payload
-at `9771`–`9796`, both **inside its tail**. So whatever uses `9733`/`9771` must
+`9100`–`9779`; the `040D` payload lands at `9733`–`9771`, inside its tail, while
+the `3011` payload at `9771`–`9796` **starts inside it and runs 29 bytes past
+the end** (`9796 − 9779 = 29`), as §8a says. An earlier draft here put both
+"inside its tail". So whatever uses `9733`/`9771` must
 run before the big block is copied, or after it is finished with. Worth knowing
 before patching anything in that region.
 
@@ -5705,6 +5712,11 @@ out. Same shape: `IDL`, let the ISR advance the state, re-test.
 references anywhere in the image** — dead, and most likely a jump table whose
 entries were all stubbed to the park loop.
 
+> **Not dead.** Those six are entries in the `131C` macro-step table — `1324`,
+> `1328`, `132E`, `1336`, `1344`, `1350` — reached by the computed jump at
+> `0FE6` (§10bd). Nothing *branches* to them, which is all the scan tested; the
+> same trap as `51B3`, `2439` and `0AD6`.
+
 ### The session, end to end
 
 Chasing the park loop's callers assembles the whole thing.
@@ -5944,10 +5956,10 @@ shape as the string sends, different source.
 
 | Evidence | Meaning |
 |---|---|
-| `084D` `LDI FF`, `084F` `STXD`, `0850` `STR R7` | init `0xFFFF` |
-| `0857` `XOR` | `crc.lo ^= data byte` |
-| `0851` `RLDI R6,0009` + `DBNZ` | eight bit iterations |
-| `0873` `XRI A0` and `086F` `XRI 01` | reflected polynomial `0xA001` |
+| `084C` `LDI FF`, `084E` `STXD`, `084F` `STR R7` | init `0xFFFF` |
+| `0856` `XOR` | `crc.lo ^= data byte` |
+| `0850` `RLDI R6,0009` + `DBNZ` | eight bit iterations |
+| `0872` `XRI A0` and `086E` `XRI 01` | reflected polynomial `0xA001` |
 | `0841` `SDI A0` / `LBNF` | rejects a length above `0xA0` = 160 |
 
 It takes **two inline pointers**, and `03EE` passes `8C29` and `8E6D` — but
@@ -6363,7 +6375,15 @@ into that field (§10ai). Seven callers: `35A6`, `400E`, `4093`, `52C4`, `541A`,
 | `6E32` | `STR R5` | `0x00` on the reset path — the `D` being stored is `clear_block_range`'s return from the `8000`–`8185` clear at `6E2A`, and `8785` sits *outside* that range, which is why the store is needed |
 | `509D` | `LDA R8` | the only read — the owner split (§10av) |
 
-### The DLC arm never reaches `0AD6`
+### `0AD6` IS reached — by fall-through, not by a branch
+
+> **Heading corrected.** It read "The DLC arm never reaches `0AD6`", which the
+> paragraph below already contradicts by calling the engine "fall-through from
+> `0A61`". The bytes settle it: `0AD1 GLO R9 / SHL / 0AD3 LBNF 0B2A`, so when
+> the shifted bit leaves `DF` **set**, control carries straight into
+> `0AD6 RLDI R5,8C21`. What is true is that no *address word* `0AD6` exists, and
+> that is all a branch scan reports — the same trap as `51B3` and `2439`
+> (§10bc).
 
 Worth recording as a negative result, because §10au implied otherwise. Nothing
 in the image `SCAL`s, branches to, or even contains the word `0AD6`. The
@@ -6389,7 +6409,7 @@ and `D = 0x13`. A **second caller at `18E3`** enters with `D = 0x14`, after
 `test_feature_flag(0x14)` came back clear. The entry stores `D` at `8EE0`, saves
 `R9`/`R7`/`R8`, copies two bytes out of the `R9` structure, calls ROM `16F2` and
 `17C5`, and for a non-zero command brackets the work with that feature flag. So
-**`D` is a command number, not a length**, and `build_dlc_record` is simply the
+**`D` is an execution-context flag index (§10ay's correction, which also names a third caller at `1FC2` with `D = 0`), not a command number and not a length**, and `build_dlc_record` is simply the
 front of the same copy — the 11-byte number move is at ROM `1CE8`. The `F000`
 shadow windows of §10an are inside this copy too, which is why they run from
 RAM. Still unmapped: the 1658 bytes past the entry, the record builder and those
@@ -6434,8 +6454,12 @@ to run from RAM.
 > ```
 > 1366  SCAL memcpy(28F9)  args 9100, 1CB7, 067A   then calls 9421 directly
 >
->   source  1CB7..2330   data only; nothing transfers control into it, and its
->                        only reference is the descriptor at 07A9
+>   source  1CB7..2330   data only; nothing transfers control into it, but it
+>                        has TWO references, not one: 07A3 and 1366 are both
+>                        SCAL memcpy(28F9) with the same arguments
+>                        9100, 1CB7, 067A, and the word 1CB7 appears at
+>                        exactly 07A9 and 136D. An earlier draft said "only
+>                        reference ... 07A9" while quoting 1366 two lines up
 >   dest    9100..9779   where it runs
 >   offset  +0x7449      upper = lower + 0x7449
 > ```
@@ -7179,7 +7203,7 @@ would be unreachable — and so would `FUN_2500` and `FUN_280f`, since each is
 reached only by the preceding tail branch — and the keypad would never be read at
 all. Meanwhile `2439` onward is unmistakably live: `INP 2` reads the columns,
 `ANI 0xF8` and three `SHR`s form an index, and that index walks the table at
-`2408`–`2418` which the prologue loaded into `RE` at `2425`, using `R5`, `R6` and
+`2400`–`2418` which the prologue points `RE` into at `2425`, using `R5`, `R6` and
 `RD` exactly as `2419`–`2425` set them.
 
 **Note the asymmetry, because it is the real lesson.** At `51B3` this project read
@@ -7208,9 +7232,14 @@ So Ghidra's body `2419`–`24BB` is a defensible boundary (it ends at the 3-byte
 `LBR` at `24B9`), but "where does `scan_keypad` end" has two answers: `24BB` as a
 registered function, and `28F8` as a unit of control entered once and left once.
 
-Its key-code table sits at `2408`–`2418`, immediately *below* the entry point —
-loaded into `RE` at `2425`, with `24A8`'s comment already noting `2418` as the
-last entry.
+Its tables sit immediately *below* the entry point, and the range matters:
+`2400`–`240B` are the **twelve key codes**, `240C`–`2417` the display characters
+`147*2580369` plus `01`, and `2418` a lone `0x0D` — the layout §10ax gives.
+`2425` loads `RE = 2408`, and `2493`–`249F` then rebuilds it as `2400`, `2404`
+or `2408` to pick a column, with `24AE GLO RE / ADI 0x0C` stepping from a code to
+its character. An earlier draft here called `2408`–`2418` "the key-code table",
+which runs from the last code column through the display characters and the
+`0x0D`.
 
 ## 10bd. The park loop IS resumed — the DLC handler rewrites the saved `R4`
 
@@ -8341,18 +8370,24 @@ pulse (§10ak).
 handler address, but those handlers are not yet read; why **two** templates
 (`0x30` `?S` and `0x50` `?CD012`) have no literal call site, the `0x38`/`0x40`
 pair having turned out to be called through the `3658` entry (§10i); what fills
-the `8060` buffer that `33C5` parses.
+~~the `8060` buffer that `33C5` parses~~ — `PackCardNibbles` (`36B0`) fills it,
+via `33C6` (§10m), and the data table already names the cell
+`card_packed_byte`.
 
 *No longer unknown, though this list carried them:* `0699` and `067E` are the
 DLC handler's prologue and epilogue (`interrupt_enter` / `interrupt_leave`,
 §10av), and `8E0D`/`8E0F` are not interrupt vectors at all — they are the
 main-thread resume address and its one-shot gate (§10bd).
 
-**On the second link (§9a):** that it exists, and its EF1/EF3/Q physical
+**On the second link (§9a):** that it exists. (Its "EF1/EF3/Q physical layer" is **superseded**: §6a puts the second link on the UART — vector `0699`, body `05A6`, `dlc_uart_service` at `0A61` — and the ÷ 12 stage is the 600 Hz tick, §10aj.) Its EF1/EF3/Q physical
 layer, are established. That its peer is the **trunk** is not — it is a strong
 inference from `DLC_Comm`'s name and its operator-driven entry, no more.
 
-`CA`, `CB`, `TG` and `MN` are no longer in doubt: the receive buffer has
+`CA`, `CB`, `TG` and `MN` are **back in doubt** — §6a retracted the "one writer
+means one peer" step this paragraph rests on, so who sends them is open, though
+`TG` is partly placed: it sets `M(802A)` at `337F`, which makes the phone send
+`?CE007` in place of `?CD007` (§8). The original reasoning: the receive buffer
+has
 exactly one writer, so the dispatcher sees only reader traffic. **`?CE007`
 remains genuinely unexplained.**
 

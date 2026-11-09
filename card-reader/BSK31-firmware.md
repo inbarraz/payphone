@@ -13,7 +13,7 @@ Last updated: 2026-10-29.
 > **Addresses here are the reader's.** The phone is a separate CPU with its
 > own 32 KB space, and both put working state at `80xx`, so the same number
 > means different things in the two documents — `8034` is the **stepper
-> phase index** here and `PORT5_shadow` in
+> phase index** here and `PORT1_shadow` in
 > [`phone/TAMAC18-firmware.md`](../phone/TAMAC18-firmware.md); `8035` is the
 > **live phase pattern** here and `PORT2_shadow` there. Never carry a bare
 > address between the two.
