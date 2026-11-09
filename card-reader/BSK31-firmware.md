@@ -331,7 +331,9 @@ eighth interrupt stub.
 | `032C` | `1 0` | |
 | `0330` | `1 1` | |
 
-Thirteen two-letter prefixes contiguous at `02FF`–`0323`; four gain/order pair
+Thirteen reply prefixes contiguous at `02FF`–`0323` — **eleven** of two letters
+plus the single-letter `X` and `Y` that the table above already marks as such;
+an earlier wording called all thirteen two-letter. Four gain/order pair
 strings at `0324`–`0333`. Table ends at `0333`; `0334` is `07 FF` and
 `"Step number = "` begins at `0336`.
 
@@ -474,7 +476,7 @@ The payphone firmware is the other half of this conversation.
 
 | | |
 |---|---|
-| Model | **TAMAC-18 V2.8** (banner `"TAMAC18"` at `0x7BDF`) |
+| Model | **TAMAC-18 V2.8** (banner `"TAMAC18"` at `0x7BEF`) |
 | CPU | CDP**1806** (uses `SCAL`, `68 8N`) |
 | Image | `TAMAC-18 V2.8 9513.bin` ≡ `Binary versions/PH00.bin` |
 | Second version | `PH06.bin` ≡ `B01.bin` ≡ `DLC.bin`; `B02.bin` a near-sibling |

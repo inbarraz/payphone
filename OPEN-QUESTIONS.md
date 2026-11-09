@@ -24,7 +24,11 @@ an open question without a next action tends to stay open.
       **Needs hardware.**
 - [ ] **What port 5 actually receives.** §10u reads each pair as
       `port n <- M(8033+n)`, but the other flush at `399D` makes
-      `port 5 <- M(8034)`. They agree on port 2 and disagree on port 5.
+      `port 5 <- M(8034)`. **Settled in §10u:** there is no disagreement. Both
+      are the same strobe-then-data pair at different offsets — `399D` strobes
+      with `M(8034)` and writes port 2 from `M(8035)`; the flush strobes with
+      `M(8033)` and writes port 1 from `M(8034)`. `8034` is the port-1 shadow,
+      and the `OUT 5` byte is emitted, not ignored.
       Either `OUT 5` is a latch-enable whose data is ignored, or the two
       routines drive different devices.
       *Settle by:* scoping port 5's latch while both routines run, or finding
@@ -90,7 +94,12 @@ an open question without a next action tends to stay open.
 - [ ] **What writes `M(88BB)`**, the flag that raises fault 23 "optical
       reader" ahead of the log (§10n). It has **no write cross-reference**, so
       it is set through a pointer register.
-      *Settle by:* reading the link ISR around `504C` with correct alignment.
+      *Settle by:* not this — `504C` is a **false lead**. Those bytes are the
+      opcodes `GLO R8` / `PHI RB`, not an address; `51CF` is the same pair after
+      `LBR 5729`. Both real references to `88BB` are reads (`23A6` and `29E9`,
+      each `LDN` / `LBZ`), `2A24` writes the *neighbour* `88BA`, and `2F05`'s
+      `clear_block_range(8865, 88B9)` stops short of both. No `PHI`/`PLO` pair
+      builds the address either. Still open, and it needs a different approach.
 - [ ] **Is `M(8062) == 5` really the empty-reader signature?** (§10l) The code
       path is solid — `8062` of 4 or 5 gives card status `0xAA`, and `== 5` is
       what reaches the insert-card prompt — but *why* an empty slot yields
@@ -225,8 +234,17 @@ an open question without a next action tends to stay open.
 - [ ] **`M(8144)` has two incompatible meanings in the notes** — §1a ties it
       to the credit screen, §10t to "the dial pulse arrived". Neither is
       argued from the cell itself; the §10t reading was taken from the module
-      title. The §1a citation also points at `3A0B`, which reads `813E` and
-      `8127`, not `8144`.
+      title.
+
+      **Correction:** this item used to add that §1a's citation "points at
+      `3A0B`, which reads `813E` and `8127`, not `8144`". `3A51`, inside that
+      selector, *is* `RLDI R6,8144 / LDN / LBZ 3A63`, and the non-zero arm shows
+      descriptor `6672` (`CREDIT:`) — so §1a's claim is argued from the cell
+      after all. The question stays open for a better reason: the thirteen
+      `RLDI …,8144` sites are all reads and two have **opposite** polarity —
+      `3A51` shows `CREDIT:` when it is non-zero, `2DEB`/`2E0E` show the same
+      descriptor when it is zero. One name does not cover both, and no immediate
+      store to `8144` has turned up.
 - [ ] **`KEY_*` may be off by one.** The enum puts `*` at `0x0C`, but the
       matrix table at `2400` gives index `0x0B` = `*` and `0x0C` = `#`
       (§10f). Worth settling — it changes how every `XRI 0x0C` reads.
@@ -304,17 +322,22 @@ Collected separately because they are not worth static effort:
       corrects an earlier claim). The shadow is filled on request and switched
       in only transiently by RAM-resident code. Runtime patching is the obvious
       guess and no more than that.
-- [ ] **Where do inbound reader digits get converted from ASCII?** The wire
-      carries ASCII and the dispatcher compares `8022`/`8023` against ASCII
-      prefixes, but `digits_to_binary16` adds `8024`–`8026` as raw values with
-      no `0x30` subtracted (§10al). Something between the two converts them;
-      the link ISR at `5071`/`514B` is the candidate.
+- [x] **Where inbound reader digits get converted from ASCII** — in the link
+      ISR, exactly where this item guessed. After `INP 6` stores the byte at
+      `8185`, `ISR_Card_Reader_Link` classes it by the receive index: `≥ 0x27`
+      resets the index to `0x22` and stores nothing; `< 0x24` stores `'A'`–`'Z'`
+      raw; `≥ 0x24` maps `'0'`–`'9'` to 0–9 and `'A'`–`'F'` to `0x0A`–`0x0F`
+      (via `SMI 0x41 / ADI 0x07 / ADI 0x0A`) before `STR R7`. So `'0'` arrives
+      at `5144` as 0 and `'A'` as `0x0A`, which is what `digits_to_binary16`
+      expects. The `'>'`, `'?'`, CR and LF cases are the §6 handshake bits.
 - [ ] **What does `F000` bit 1 do?** Set in `0x03` and `0x02`, cleared in
       `0x01`, `0x00`, and by a failed integrity check (§10a, §10am, §10an).
-- [ ] **What does the relocated `1CB7`–`2330` block do?** 1658 bytes copied to
-      RAM `9100` from two call sites, entered at `9421` with `D = 0x13` and
-      `R9 = 8DD2`, holding twelve of the image's `F000` writes (§10an). It is
-      the largest piece of this firmware with no described purpose.
+- [x] **What the relocated `1CB7`–`2330` block does** — the
+      **memory-operation interpreter with an AT29C256 page programmer**, i.e.
+      the remote firmware-update facility over the DLC link (§10ay, and
+      §10bg–§10bj for the dispatcher, the engine, the handlers and the two
+      bugs). This item is a leftover duplicate of the settled one further down;
+      it was answered and this copy was missed.
 - [ ] **What did `123…` reach?** `dialed_prefix_is_123` (`008F`) suppresses the
       on-screen echo once four or five digits are in and the number starts
       `1 2 3`, which reads as a calling-card or PIN prefix (§10ao). The
@@ -423,7 +446,12 @@ Collected separately because they are not worth static effort:
       indistinguishable from no flag at all (§10bj). Either a consumer reads
       `8DBA` by some route not found yet, or this is vestigial.
 
-      To settle it, find what writes `M(8E7A)`. `9656` takes the descending
+      *(The paragraph that used to follow pointed at the `96AE` page-programmer
+      bug — a stray from the item above, which already answers it: `9561` sets
+      `M(8E7A) = 2`, from command `0A` at `188F`. It has no bearing on flag
+      `0x0E`.)*
+
+      To settle the `8E7A` question instead, see that item. `9656` takes the descending
       branch when it is not 1, and nothing in the image anchors `8E7A` with an
       `RLDI` — it is written by a register walk from `8E79`, which has not been
       traced. If the branch is reachable, this corrupts a flash page on the
@@ -449,13 +477,27 @@ Collected separately because they are not worth static effort:
       deliberately shared between modes that never overlap, or a genuine
       aliasing bug. Ruled out: a mis-read pointer at either site.
 
+- [x] **What consumes `M(886A)`** — nothing beyond the state machine. The only
+      two references are `5216` (where `proc_51e8` publishes the opposite
+      phase's count and then zeroes that counter) and `523A`, where
+      `step_state_machine` loads it and passes it to `classify_into_range`
+      (`328E`) and `next_state_from_table` (`3270`). `328E` leaves a bracket
+      index at `886B` and `3270` folds it into `886C`; the raw value goes no
+      further. What the count physically measures is still open, but the
+      consumer chain is complete (§10bf).
+
 - [ ] **What is `8E0C`'s 900-threshold flag for?** It holds 0 or 1 from
       comparing a 16-bit field near `8E77` against `0x0384` = 900, at `20DE`
       (live `9527`) — inside **`94DF`**, the cmd-`15` top-page read-modify-write
       stub, not "the interpreter" generally as a first draft put it. The
       threshold looks like a wear or write-count limit on the top flash page,
       which would make `8E0C` a "page is near its endurance limit" flag, but the
-      consumer has not been found.
+      consumer has not been found — and a review now says there is **no reader
+      at all**: the one executed reference is the store at `20E2`, and the other
+      `8E 0C` bytes in the image sit inside a descriptor after `LBR 32F9`. A
+      pointer built at runtime could still reach it, so this is "no reader
+      found" rather than "write-only", but it joins feature flag `0x0E` as a
+      value the firmware computes and appears never to consult.
 
       (`8EBC`, listed here alongside it, is resolved: it is where `5C72` stores
       `verify_banked_checksum`'s result, now `banked_checksum_result`. The claim
@@ -475,8 +517,12 @@ Collected separately because they are not worth static effort:
       there is `INP 2 / ANI 0x02` at `5DDD` — a **port-2-input bit-1 read-back
       check**.
 
-      So the cadence is armed only while that self-test passes, and suppressed
-      once the fault is logged.
+      **WITHDRAWN (§10ba).** The cadence is *not* gated on that self-test.
+      `6FFF` arms sequencer state `7065` unconditionally — `7004 RLDI R9,7065`,
+      the only `RLDI` of `7065` in the image, with no test of `843A` in
+      `6FFF`–`7003`. The fault-slot test is in **one** of its seven callers
+      (`3B37`); the other six arm the cadence regardless. What `3B24` chooses is
+      which *entry* that one site uses.
 
       **Narrowed again by §10u's port correction: the bit is a `PORT 1` output
       bit, not port 5.** `port n <- M(0x8033+n)`, so `8034` is what `OUT 1`
@@ -749,7 +795,11 @@ Kept as a record of what the method looks like when it works.
       byte**. That is why no search for a store to `805C` found it. It also
       explains `card_units_shadow`: `5032` leaves `X = R8 = 805C`, so `MO`'s
       `SM` at `348E` yields the units consumed since the last report (§10al).
-- [x] **Whether the firmware uses port 4** — **no.** The two apparent `OUT 4`
-      sites, `2EA8` and `2EC5`, are the inline digit weights 100/10/1 that
-      `binary_to_ascii_digits` reads through `X = R3`. §10k's port list should
-      drop port 4 (§10al).
+- [ ] **What is on port 4?** An earlier version of this item answered "the
+      firmware does not use port 4" and told §10k to drop it. **Too strong.**
+      The two *apparent* sites it names, `2EA8` and `2EC5`, really are inline
+      digit weights read through `X = R3` — but `flush_output_latches` executes
+      a genuine `OUT 4` twice, at `75AB` and `75B5`, with bits 1 and 4 of
+      `M(8036)` strobing between them (§10u). So port 4 is driven; what it
+      reaches is the open question, as the ports-1-and-4 item above already has
+      it.

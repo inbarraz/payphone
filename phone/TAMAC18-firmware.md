@@ -16,7 +16,7 @@ Started: 2026-10-30.
 
 | | |
 |---|---|
-| Model | **TAMAC-18 V2.8** — banner string `TAMAC18` at `0x7BDF` |
+| Model | **TAMAC-18 V2.8** — banner string `TAMAC18` at `0x7BEF` |
 | CPU | **CDP1806ACE** |
 | Ghidra language | `cdp1806:BE:16:default` |
 | ROM | 32 KiB, based at `0x0000` |
@@ -277,7 +277,11 @@ port reaches.
 
 Per the block diagram in `cdp1806 diagram.pdf`, the counter/timer's **mode
 control takes EF1, EF2 and TPA** as its possible clock sources. So the
-`SCM1`/`SCM2` ambiguity noted in §9a is not academic: it decides whether the
+`SCM1`/`SCM2` ambiguity noted in §9a is **settled** — the slaspec has `6805` =
+`SCM1` (EF1) and `6803` = `SCM2` (EF2), matching the RCA table, and
+`tools/dis.py` decodes `05DD` as `SCM1` with the self-test pinning it, so the
+divisor is the EF1 ÷ 12 stage of §10aj. The paragraph below predates that and
+is kept for the hardware question it raises, which decides whether the
 second link counts **EF1 or EF2**, and tracing both resolves it from hardware.
 
 ### What differs between builds
@@ -361,7 +365,13 @@ reader sends "CO<digits>"
      and stores 7 - popcount at 8062
 ```
 
-So **`M(0x8062)` is the card's unit count** and `M(0x8060)` the raw packed
+So `M(0x8062)` holds `7 − popcount(M(8060))`, which **reads as** the card's
+remaining units — but §12 is the careful version: that is inferred, not proven.
+`33C5` then classes the value (3 checks the `850E` table, 4 or 5 sets status
+`0xAA`, anything else `0x69`), §10l uses `== 5` as the insert-card path and
+leaves "why empty yields 5" unverified, and the *decimal* unit count lives in
+`805C` via `5032` with the debit in `8064`. An earlier draft asserted the unit
+count flatly here. `M(0x8060)` is the raw packed
 byte from the message.
 
 That the firmware computes **7 minus the population count** rather than
@@ -508,12 +518,22 @@ The `RLDI R4` / `SEP R4` pair is the same trick cold start uses at `6E03`.
 ```
 
 The deliberate `P=1` window at `28D2` is the **only** place in the firmware
-where R4 can be loaded without branching.
+where R4 can be loaded without branching — **but not the only place it is
+loaded that way.** `6E03 RLDI R4,6E08`, `28F1 RLDI R4,28F6` and
+`06B2 RLDI R4,06B7` each load it while `P` is still another register and then
+`SEP R4`, and `0693` is a second `RLXA R4` inside `interrupt_leave`. §3 quotes
+the reset pair itself, so the "only" was already false within this file.
 
 ### Other vectors
 
 `RLDI R1` also appears at `05A6`→`0699`, `05CD`→`8E0F`, `065C`→`8E0F`,
 `066F`→`8E0D`, `0679`→`067E`, `06E4`→`0699`. Two of those point into RAM.
+
+> **`8E0D` is not an interrupt vector** (§10bd). `066F`/`0673` *read* the word
+> there into `R1`, and `0679` then overwrites `R1` with `067E` before the `SEP`,
+> so it is never the address `SEP` uses. It is the main thread's resume address,
+> and `8E0F` is its one-shot gate. Its only writers are `1007`/`100A`; `065C`
+> reads the gate and `05CD` clears it.
 Not yet investigated — there appear to be several interrupt modes.
 
 ## 6. The card reader link
@@ -780,7 +800,11 @@ top two bits do not come back set. A failure there is fatal.
   `8034`–`8037`, so the remaining question is which devices they reach, not
   whether they are decoded.
 
-**Port 3 is an input port**, and **bit 6 is the hardware-strap sense line** —
+**Port 3 is both an input and an output**, and **bit 6 is the hardware-strap
+sense line** — `read_hardware_straps` does `INP 3`, while `flush_output_latches`
+does `OUT 3` at `75A6` (§10u); the 1802 uses one N code for both directions with
+`MRD` deciding. An earlier wording called it an input port only, and the pin
+table in §6a still omits `OUT 1`, `OUT 2` and `OUT 3` for the same reason —
 see §10k. `read_hardware_straps` (`6173`) drives five lines through the low
 bits of `M(8033)` and reads them back one at a time on `INP 3`, assembling a
 5-bit hardware version in `M(8074)`.
@@ -914,7 +938,7 @@ Remaining candidates for the select line, in rough order of likelihood:
 | `U202` **CD4099BE** addressable latch | the right part for individually settable control bits |
 | an `MC14094BCP` output | five of them on the board, serial-loaded |
 | `CTRL_F000` bit 0 or 1 | a 2-bit write-only control register already identified (§10a) |
-| a port bit — note `OUT 7` appears at `0701`, `4997`, `7592`, `75A6` | direct, if port 7 writes reach a latch |
+| a port bit — `OUT 7` appears **once**, at `0701` (with its inline `0x32`). An earlier version of this row also listed `4997`, `7592` and `75A6`; §6b withdrew those and this copy was missed. `7592` is `0x61` `OUT 1`, `75A6` is `0x63` `OUT 3`, and `4997` is not an instruction — it is the high byte of a descriptor pointer at `4990` | direct, if port 7 writes reach a latch |
 
 **Next measurements**
 
@@ -999,6 +1023,16 @@ absent from the BSK31's reply vocabulary at `0x02FF` *and* from its command
 parser at `0x0EC0`. Eleven of the fifteen entries do match that vocabulary,
 which is what ties this table to the reader at all; these four do not, and are
 the prime candidates for the trunk link (§9a).
+
+> **These four prefixes are described four different ways across this file**,
+> and the disagreement is unresolved rather than settled: here as trunk-link
+> candidates, in §1 as the magnetic reader's prefixes, in §9a's body as codes
+> this reader never sends "because the receive buffer has one writer", and in
+> §12 as no longer in doubt for that same reason. §6a has since retracted the
+> "one writer means one peer" step those last two rest on, so **who sends
+> `CA`/`CB`/`TG`/`MN` is open.** One of them is now partly placed: `TG` sets
+> `M(802A)` at `337F`, which is what makes the phone send `?CE007` instead of
+> `?CD007` (§8).
 
 ### Return convention — `0x34FE`
 
@@ -1127,11 +1161,37 @@ Two special cases corroborate the reading:
 |---|---|---|
 | `310C` | `48` | `?EF000` with a runtime number |
 | `3114` | `28` | `?F` |
-| `3145` | `08` | `?CE007` |
+| `3145` | `08` | `?CE007` — **gated on `M(802A)`**, see below |
 | `314D` | `00` | `?CD007` |
 | `318C` | `10` | `?MD` |
 | `31E2` | `20` | `?EJ` |
 | `3954` | `18` | `?CC` |
+
+### `?CE007` is the `TG` variant of `?CD007`
+
+The phone-side mechanism, which §1, §7 and §9a had all left unexplained:
+
+```
+313D  RLDI RB,802A
+3141  LDN RB
+3142  LBZ 314D          M(802A) == 0 -> skip to the 00 selector
+3145  SCAL 365C  08     ?CE007
+3149  LBR 3152
+314D  SCAL 365C  00     ?CD007
+```
+
+The two are alternatives on one decision, and the flag is `M(802A)`. The **only**
+other reference to that cell is `337F` — `RLDI RB,802A / LDI 0xFF / STR RB` —
+the **`TG` handler**. So `?CE007` is what the phone sends in place of `?CD007`
+once a `TG` message has been seen; it is not a command to a second peripheral,
+which §1 and §7 both offered.
+
+It is not sticky: `6E2A` clears `8000`–`8185` inclusive and the cold start at
+`305B` zeroes `8000`–`DFFF`, so it does not survive a reset.
+
+**Only the reader half stays open.** `CE` is absent from the fourteen commands
+the BSK31 parser accepts (§10i), and settling whether *this* reader honours it
+needs the reader image, which the repo does not hold.
 
 Selectors `0x30` (`?S`) and `0x50` (`?CD012`) have **no call site with a literal
 selector** — either issued through a computed selector, or dead.
@@ -1226,11 +1286,21 @@ operator starts from the keypad: confirm, put the handset down, then hand off
 to `proc_06ba`. What `DLC` stands for, and whether it is the trunk itself or
 equipment behind it, is still unknown.
 
-### Physical layer — not a UART
+### Physical layer — superseded
+
+> **§6a settles this: the second link *is* on the UART.** Vector `0699`, body
+> `05A6`, `dlc_uart_service` at `0A61`, with the ring buffers §2 lists. The
+> ÷ 12 stage at `05D7`–`05DD` is the 600 Hz tick (§10aj), not a bit sampler, and
+> §8a and §10at trace the frame, the CRC and the Isranet session to NUA
+> `34011503`. What is still open is the meaning of the payload tags, which is a
+> separate queue item. The text below predates that and is kept for its
+> EF1/EF3/Q observations.
+
+### Physical layer — the original reading, not a UART
 
 | Line | Use |
 |---|---|
-| **EF1** | counted in hardware by the 1806 counter — `05D7` `STPC`, `05DB` `LDI 0C`/`LDC`, then the counter-mode opcode `68 05` at `05DD`. **Note:** the Ghidra module decodes `68 05` as `SCM2`, while the RCA opcode table has `68 03` = SCM2 and `68 05` = SCM1. One of the two is wrong and it has not been checked against `Documentation/Datasheets/CDP1805AC.PDF`. Either way it is a counter mode counting an EF line |
+| **EF1** | counted in hardware by the 1806 counter — `05D7` `STPC`, `05DB` `LDI 0C`/`LDC`, then the counter-mode opcode `68 05` at `05DD`. **Resolved:** the module and the RCA table agree — `68 05` is `SCM1` (EF1), `68 03` is `SCM2` (EF2). This note said the module decoded `68 05` as `SCM2`; it does not. So this is the EF1 ÷ 12 stage of §10aj |
 | **EF3** | **the hook switch** — not a data line; see the correction below |
 | **Q** | driven by `SEQ`/`REQ` — but see §1a: Q most likely clocks the five HEF4094 output shift registers, so it is probably **not** a link data line |
 
@@ -1373,9 +1443,15 @@ pointer. Fields in order:
 counter once its value is captured for reporting, so this is an **accounting
 record**, not merely an identity block.
 
-The ROM constants sit just after the banner at `7BDF`, which also carries
+The ROM constants sit just after the banner at `7BEF`, which also carries
 author credits (`...I SHABTAI and BERENIKE SHAMSHON`, then `TAMAC18`). Their
-meaning — version, build, checksum — is **not established**.
+meaning — version, build, checksum — was called **not established** here, which
+§1a has since overtaken for two of the three: `7BFA` is `04 30` in all three
+builds and `show_version_and_comm` renders it beside "software edition" as
+**version 4.30**, while `7C02` varies by build (`00 9E` / `00 A9` / `00 A2`) and
+`build_dlc_record` copies it twice. `7BFE` (`7A AE`) is the one still open — and
+§10bg now identifies *that* as the whole-ROM additive checksum, since
+`sum(ROM[0:7BFC])` is `0x7AAE` and `verify_banked_checksum` compares against it.
 
 ### The framer, `038D`
 
@@ -1639,7 +1715,9 @@ check fits a capability-withdrawal or protection latch.
 **Bit 0 is now identified — see §10an.** `rewrite_code_space` (`0056`) reads
 every byte of `0000`–`7FFF` and writes it straight back, which is only
 meaningful if reads and writes there reach different devices, and the
-distribution of the `F000 = 0x02` writes says which way round. Bit 1 is still
+distribution of the `F000 = 0x02` writes says which way round. **Bit 1 is write
+routing** (§10ay), with only its physical decode unobserved; the sentence that
+followed here called it still
 unknown.
 
 ## 10b. The display: HD44780 and the display list
@@ -2628,7 +2706,7 @@ label מהד' חמרה: (*hardware edition*).
 61A0  LDN RC / ANI 0xE0 / STR RC   release the drive lines
 ```
 
-### Port 3 is an input port
+### Port 3 is **both** — input and output
 
 Bit 6 carries the strap sense line. This is the first identification of one
 of the three unknown ports (§6). The `INP 3` is verified against the raw
@@ -2640,7 +2718,18 @@ The top three bits of `M(8033)` survive every `ANI 0xE0`, so bits 7–5 are
 unrelated flags, consistent with `setFlags_8033_and_8036` and the `ANI 0xC0`
 at `2B22`.
 
-### The drive side is not established
+### The drive side — corrected
+
+> **Both claims below are wrong, and §10u has the right account.** `M(8033)`
+> **is** flushed: `flush_output_latches` does `758B RLDI R5,8033 / 758F OUT 5 /
+> 7592 OUT 1`, so `M(8033)` goes out as the `OUT 5` control word and `M(8034)`
+> as port 1's data. And `399D` is **not** the only such site — `7572` is the
+> other, called from `0638` inside the DLC service at `05A6` and from `4A94` on
+> the main path. The two are the same strobe-then-data rule at different offsets
+> into the array (§10u). What remains genuinely open is whether the low bits of
+> `8033` reach the strap pins, which is a hardware question.
+
+The earlier text, kept for the listing it quotes:
 
 `M(8033)` is **not** flushed to any port by the shadow-flush idiom. The only
 such site in the whole image is `399D`:
@@ -3014,7 +3103,10 @@ The same byte is discriminated immediately below the cleaning check:
 
 So the packed nibble pair the reader returns (`PackCardNibbles`, §10m) is how
 the phone tells card types apart — `0x30` is the cleaning card, `0x78` a card
-barred from international calls. That is the same cell the idle selector
+barred from international calls. (**Correction:** an earlier draft said this is
+"the same cell the idle selector reads for card presence". It is not — §10l's
+selector at `2E17` is `RLDI RE,8062`, a different cell. `8060` has exactly three
+references: `2A1F`, `33CA` and `46FE`.) That is the cell the idle selector
 reads for card presence (§10l), so one byte carries both "is there a card"
 and "what kind".
 
@@ -3305,7 +3397,7 @@ three writes here are the only `RLDI` references to them. The buffer must be
 reached through a pointer computed elsewhere, so the claim that this record
 is transmitted is unproven. Find the reader before relying on it.
 
-## 10s. `periodic_report_check` (`0x769C`) — every 45 calls
+## 10s. `periodic_report_check` (`0x769C`) — every 45 metering pulses
 
 Called once per pass of the main idle loop, from `4B81`, and from nowhere
 else. Two independent threshold checks, both at 45 (`0x2D`):
