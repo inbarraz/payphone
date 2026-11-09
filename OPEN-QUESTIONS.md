@@ -676,10 +676,16 @@ Collected separately because they are not worth static effort:
       exactly the two cells that must keep counting under either vector. What
       remains unread is the XI path proper — `0A61` itself and the frame
       assembly behind it. (The `8E0D`/`8E0F` reads at `05CD`/`065C`/`066F` are
-      *not* part of the gap — §2 already has them as a RAM-resident chained
-      vector and its one-shot gate, installed at `1003`/`100B`/`1015`.)
-      *Also open:* who sets bit 7 of `8785`, and whether the transmit engine at
-      `0AD6`–`0B2A` is reached at all (§10au found no reference to `0AD6`).
+      *not* part of the gap: §10bd has them as the main-thread resume address and
+      its one-shot gate, stored at `1007`/`100A` and gated at `1011`, `101B`,
+      `05D3` and `075A`. An earlier wording credited §2 with a "RAM-resident
+      chained vector … installed at `1003`/`100B`/`1015`" — §2 never said that,
+      `1003` is the `RLDI` rather than a store, and §10bd supersedes the reading.)
+
+      *Also open:* who sets bit 7 of `8785`. The transmit engine at
+      `0AD6`–`0B2A` **is** reached, by fall-through when `0AD3 LBNF 0B2A` leaves
+      `DF` set — §10au's "no reference to `0AD6`" was a branch scan, which
+      cannot see a fall-through.
 - [ ] **Find Isranet PAD documentation, circa the early 1990s.** Two questions
       hang on it (§10at):
       **(a) Is `D1` a terminal type or a login identifier?** The ROM shows it is
