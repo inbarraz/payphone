@@ -426,9 +426,9 @@ dozen places has a dozen chances to give itself away.
 | `8E68` | — | 1 — `0306` | st=0 |
 | `8E6B` | — | 1 — `0317` | st=0 |
 | `8E6D` | `dlc_frame_checksum` | 1 — `03f7` | st=0 |
-| `8E76` | — | 1 — `21f7` | st=0 |
+| `8E76` | `flash_saved_R9` *(no Ghidra label)* | 1 — `21f7` | st=0 |
 | `8E77` | — | 1 — `2176` | st=0 |
-| `8E79` | — | 7 — `20f4` `210a` `2120` `2136` `214d` `219c` +1 | st=5 imm=00,01 cmp=00 |
+| `8E79` | `flash_window_value` *(no Ghidra label)* | 7 — `20f4` `210a` `2120` `2136` `214d` `219c` +1 | st=5 imm=00,01 cmp=00 |
 | `8E7A` | `flash_copy_direction` *(no Ghidra label)* | 2 — `21c4` `220d` | st=0 cmp=01 |
 | `8E7B` | `flash_page_buffer` *(no Ghidra label)* | 7 — `20a1` `20bb` `20ec` `221d` `2233` `2268` +1 | st=1 |
 | `8EBC` | — | 1 — `5c72` | st=1 |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **170 named**, 219 still unnamed.
+389 anchored cells, **172 named**, 217 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.

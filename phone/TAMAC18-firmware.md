@@ -7396,6 +7396,50 @@ the divide-by-64 at `95BF`.
 `9725` bails on the **first** mismatch (`LBNZ 964A`) and reaches `9639` only if
 all 64 bytes match. There is no retry.
 
+### The loop they sit in, end to end
+
+`flash_page_loop_tail` (`9639`) closes it, and with that the whole programmer
+reads as one loop:
+
+```
+95BF  R6 = byte count >> 6        the page count (divide by 64)
+95D8  LBZ 964A                    count zero -> failure exit
+95DB  RA := R7, R8 := RB          save source and destination for the verify
+----- per-page body, top at 95E1 -----
+95E1  F000 = M(8E79)
+95EB  DIS 0x24                    interrupts off
+95EE  the JEDEC unlock
+9603  M(8E79) == 0 ? -> 9656      the read-modify-write mode
+960D  M(8E7A) == 1 ? -> copy_page64_up : copy_page64_down
+9624  R9 = 0x294, DBNZ            660 iterations, the AT29C256 write cycle
+962C  R9 = 0x40
+9630  M(8E7A) == 1 ? -> 9717 : 9725        the matching verify
+      mismatch -> 964A  |  all 64 match -> 9639
+----- the tail -----
+9639  DBNZ R6,95E1                next page
+963D  status 0; restore R9 from 8E76
+964A  status 4                    <- the failure entry
+964D  restore F000 from its 8E10 shadow; D = status; LBR common_1938
+```
+
+**The programmer returns a two-value status in `D`: `0` if every page read back
+correctly, `4` otherwise** — and there is **no retry**. One bad byte ends the
+whole operation. Three paths reach `964A`: `95D8` (a page count of zero), and
+the two verify loops at `971A` and `9728`.
+
+Note the asymmetry at the exits: the success path restores `R9` from the save at
+`8E76`, the failure path does not, so `R9` is left advanced on an error.
+
+`9603` is the mode switch. When `M(8E79)` is zero there is no single window value
+to put in `F000`, so it diverts to `9656`, which dispatches on the same
+direction flag into the two read-modify-write cycles — each of which manages
+`F000 = 0x02` / `0x01` / `0x00` itself and rejoins the delay and verify at
+`9624`.
+
+`FUN_9639`'s registered body `9639`–`96AD` therefore holds **three** things: the
+tail and exits (`9639`–`9655`), the mode dispatcher (`9656`–`9662`), and the
+ascending page-rewrite cycle (`9663`–`96AB`). Worth splitting.
+
 ### The cycle they sit in
 
 ```

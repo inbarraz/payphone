@@ -502,6 +502,7 @@ Collected separately because they are not worth static effort:
       | `70C3`, `7065`, `7074`, `7086`, `70A5` | the five `705E` sequencer states | 10az |
       | `70B9` | `set_next_tick_task` | 10az |
       | `3B24` | the fault-slot test that chooses between the entries | 10ba |
+      | `9656`, `9663` | **split out of `flash_page_loop_tail`** (`9639`–`96AD`), which holds three routines: the tail and exits, the mode dispatcher at `9656`, and the ascending page-rewrite cycle at `9663` — the twin of `96AE` | 10bh |
       | `28D8` | `interrupt_enter_reader` — **split it out of `28B7`**, whose body currently merges the card-reader epilogue and prologue into one function; the DLC side is correctly split into `interrupt_leave` / `interrupt_enter` | 10av |
       | `6E0C` | the reset block — no function at all | 10ay |
       | `1CB7` | the flash programmer's **ROM source image**, 1658 bytes — no function. Low priority: it never executes (§10ay), so a function here would only document the source. The executing copy at `9100`–`9779` already has ~21 functions. |
