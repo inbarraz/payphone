@@ -431,7 +431,7 @@ dozen places has a dozen chances to give itself away.
 | `8E79` | `flash_window_value` *(no Ghidra label)* | 7 — `20f4` `210a` `2120` `2136` `214d` `219c` +1 | st=5 imm=00,01 cmp=00 |
 | `8E7A` | `flash_copy_direction` *(no Ghidra label)* | 2 — `21c4` `220d` | st=0 cmp=01 |
 | `8E7B` | `flash_page_buffer` *(no Ghidra label)* | 7 — `20a1` `20bb` `20ec` `221d` `2233` `2268` +1 | st=1 |
-| `8EBC` | — | 1 — `5c72` | st=1 |
+| `8EBC` | `banked_checksum_result` *(no Ghidra label)* | 1 — `5c72` | st=1 |
 | `8EC8` | `dlc_rx_count_saved` | 1 — `14c1` | st=1 |
 | `8EC9` | — | 1 — `14da` | st=0 cmp=08 |
 | `8ECC` | — | 1 — `0ba8` | st=1 |
@@ -487,7 +487,7 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **178 named**, 211 still unnamed.
+389 anchored cells, **179 named**, 210 still unnamed.
 
 57 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.

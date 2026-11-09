@@ -422,20 +422,32 @@ Collected separately because they are not worth static effort:
       exactly the same shape.
 
 - [ ] **`97A6` is used two incompatible ways — which wins?**
-      `count_fault_occurrence` stores the immediate `6` there whenever a fault
-      crosses its threshold (`5E4D`, `5E60`), while `1C60` passes `97A6` to
-      `increment_counter16` (`04F0`), a **saturating 16-bit counter**, in a row
-      with `97AA`, `97AE` and `979F` at `1C67`/`1C6E`/`1C75`. A byte store of
-      `6` and a 16-bit increment on the same address clobber one another, so
-      either one of the two readings is wrong or the cell is genuinely shared
-      across modes that never overlap. Spotted by the Grok review and verified
-      here: the `SCAL 04F0` inline pointer at `1C64` really is `97A6`.
+      `count_fault_occurrence` stores the immediate `6` at `97A6` from **two**
+      places — `5E4D`, the threshold hit, and `5E60`, which is on the
+      keep-only-bit-7 path instead (a first draft called both the threshold) —
+      while `1C60` passes `97A6` to `increment_counter16` (`04F0`), a
+      **saturating 16-bit** counter, in a row with `97AA`, `97AE` and `979F`.
 
-- [ ] **Two cells noted but deliberately not named.** `8E0C` holds 0 or 1 from
-      comparing a running total against `0x0384` = 900 at `20DE`, inside the
-      interpreter, and `8EBC` is anchored only at `5C72` — exactly one past
-      `flash_page_buffer + 64`, which is suggestive but not a role. Both left
-      unnamed rather than guessed.
+      Both readings are correct; they collide. `04F0` increments the *second*
+      byte and carries into the first, so `97A6` is the **high** byte of a
+      big-endian pair at `97A6`/`97A7` — which matches the §10z channel-0
+      `varC` slot — and the fault store puts `6` in that high byte, making the
+      counter `0x06xx`. `97A6` sits past every `97xx` overlay, so this is not
+      two uses taking turns behind a bank switch; both run from ROM. So: a cell
+      deliberately shared between modes that never overlap, or a genuine
+      aliasing bug. Ruled out: a mis-read pointer at either site.
+
+- [ ] **What is `8E0C`'s 900-threshold flag for?** It holds 0 or 1 from
+      comparing a 16-bit field near `8E77` against `0x0384` = 900, at `20DE`
+      (live `9527`) — inside **`94DF`**, the cmd-`15` top-page read-modify-write
+      stub, not "the interpreter" generally as a first draft put it. The
+      threshold looks like a wear or write-count limit on the top flash page,
+      which would make `8E0C` a "page is near its endurance limit" flag, but the
+      consumer has not been found.
+
+      (`8EBC`, listed here alongside it, is resolved: it is where `5C72` stores
+      `verify_banked_checksum`'s result, now `banked_checksum_result`. The claim
+      that it marked one-past the page buffer was wrong — §10bh.)
 
 - [ ] **What drives bit 1 of `PORT1_shadow` (`8034`)?** It now has a precise
       waveform, which is the strongest handle yet on any bit of that port: the

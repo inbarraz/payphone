@@ -2464,7 +2464,7 @@ that is exactly the kind of false lead to guard against.
 5E1C  RLDI R8,8442
 5E20  LDA R3 / PLO R8  arg1 is a LOW BYTE, so R8 = 84:arg1
 ...   increment M(R8), saturating; compare against arg2; on reaching the
-      threshold set M(97A6) = 6
+      threshold set M(97A6) = 6  -- but see below: only 5E4D is that path
 5E54  DEC R8 / LDA R3 / OR / STR R8    OR arg3 into the byte BELOW
 5E67  LDN R8 / ANI 0x80 / STR R8       otherwise keep only bit 7
 ```
@@ -6925,13 +6925,15 @@ open question.
 `test_dial_and_reader`, the technician-menu **"CHECK DIAL / READER"** test.
 
 Entries are two bytes: a value written to `M(8033)` (`strap_drive_and_flags`)
-and a dwell count loaded into `fast_timer_812b`. The loop from `53C9` sets
+and a dwell count loaded into `fast_timer_812b`. The cursor is **`R7`**
+(`53B1 RLDI R7,6D17`), not `RE` as a first draft had it. The loop from `53C1`
+sets
 `M(8033) = 0x20`, ORs `0x10` into `M(8036)`, writes the entry's value and its
 dwell, then spins on `get_key_with_timeout(1)` and the reader dispatcher at
 `5F35` until the dwell reaches zero, and advances. Three nested loops:
 
 ```
-restart:  RE = 6D17
+restart:  R7 = 6D17
   step:   M(8033) = entry[0] ;  M(812B) = entry[1]
     wait: poll keys, service the reader   while M(812B) != 0
           advance 2                        while next entry[0] != 0
@@ -7101,8 +7103,9 @@ handler, nine instructions before its epilogue.
 0665  RNX R2               RA := R2        (RNX is R(X) <- R(N), and X is RA)
 0667  LDI 0x16
 066A  SCAL add_D_to_RA     RA := R2 + 0x16
+066E  SEX R1               (omitted from a first draft of this listing)
 066F  RLDI R1,8E0D
-0673  RLXA R1              R1 := the word at 8E0D/8E0E
+0673  RLXA R1              R1 := the word at 8E0D/8E0E, read through X = R1
 0675  SEX RA / RSXD R1     store that word AT R2 + 0x16
 0679  RLDI R1,067E / SEP R1   the epilogue, with P = R1
 ```
@@ -7202,7 +7205,13 @@ So bit 7 reads as "counted and acknowledged, pending clear". The `SHL` at
 | `0x01` | the threshold | the counter is incremented and compared at `5E41` (`LDA R3 / SM`, `X = R8`); `1 − 1 = 0` takes the `LBZ`, so **the first occurrence raises it**. No debounce, unlike `5DDD`'s threshold of 3 |
 | `0x55` | OR'd into `841A` — the fault code | |
 
-Crossing the threshold also sets `M(97A6) = 6`.
+**One of the two `M(97A6) = 6` stores is not the threshold path.** `5E4D` is —
+it is reached by the `LBZ` from the compare, and also by the `M(8167) & 0x20`
+arm. `5E60` is **not**: it sits on the `5E5A` keep-only-bit-7 path
+(`INC R3 / LDN R8 / SHL / LBZ 5E67`, storing `6` when that test falls through),
+i.e. the branch taken when the counter has *not* reached its threshold. Both
+stores are real; only one means "a fault was raised". An earlier draft here and
+in the queue filed both as the threshold hit.
 
 ### Which fault, and why it matters
 
@@ -7257,15 +7266,23 @@ entry; everything else on this path is counted and logged.
 
 `proc_51e8` opens `RLDI RC,8865 / LDN / XRI 0xAA / LBNZ 5224` — it does nothing
 at all unless that byte is `0xAA`. So **this routine is what enables it**, and
-`proc_51e8` runs from the tick chain at `40A3`. `8865` is one of the image's
+`proc_51e8` runs from the tick chain at **`409F`** (an earlier draft said
+`40A3`, which is the `SCAL 77A6` one instruction later). `8865` is one of the image's
 `0xAA`/`0x55` validity sentinels (§12).
 
 `proc_51e8` is also the only consumer that explains these cells. It reads
 **port 1 bit 4** (`INP 1 / ANI 0x10 / XRI 0x10`), picks counter `8868` or `8869`
 and threshold `M(2F02)` or `M(2F03)` by that bit — both thresholds are 2 —
 increments the chosen counter saturating, and when it equals the threshold reads
-**the other** counter, stores it into `886A`, zeroes the current one, and
-toggles bit 0 of `M(8867)`. The "other counter either way" is the `LSNZ` at
+**the other** counter, stores it into `886A`, **zeroes that same other one**, and
+toggles bit 0 of `M(8867)`.
+
+An earlier draft said it zeroes the *current* counter. It does not: the
+`INC RC`/`DEC RC` trick at `520F` leaves `RC` pointing at the opposite counter,
+`5213 LDN RC` reads it and `5214` publishes it, and then `5219 LDI 0 / STR RC`
+clears **that** one. The phase's own counter is left sitting at its threshold —
+which is consistent, since the next pass through that phase will find it already
+at the threshold and fire again. The "other counter either way" is the `LSNZ` at
 `520F`: `C6 1C 38 2C`, so a non-zero `D` skips `INC RC` and the `NBR` to land on
 `DEC RC`, while a zero `D` takes `INC RC` and the `NBR` swallows the `DEC`.
 
@@ -7324,8 +7341,9 @@ to `9733` and then `LBR 9733`.
 973C  R8 = 8EFA / RLDI R5,0 / RSXD R5     zero the 16-bit accumulator
 9748  IRX / LDA R7 / ADD / STXD / LDI 0 / ADC / STR R8
       DBNZ R6,9748           sum R6 bytes from R7 into 8EF9/8EFA, with carry
+9754  INC R7 / INC R7        ** TWO increments - the checksum is NOT adjacent **
 9756  RLXA R5                R5 = the sum
-9758  compare it against the two bytes immediately AFTER the data
+9758  compare it against the two bytes at start + len + 2
 9762  SEX R2 / STXD          push the result
 9765  SCAL copy_byte_from_8E10_to_F000    restore F000 from its shadow
 976B  SEX R4 / RET 0x24      interrupts ON
@@ -7337,6 +7355,16 @@ it, put `F000` back from the `8E10` shadow. It is a plain **16-bit sum** — not
 the CRC-16/Modbus at `0837` (§10au) and not `Checksum_Test` at `0365`. All three
 live callers pass `0x02`, i.e. `F000` **bit 1**, the write-routing bit §10ay
 identified.
+
+**The stored checksum is at `start + len + 2`, not immediately after the data.**
+An earlier draft said adjacent; the `INC R7` pair at `042E`/`042F` (live
+`9754`/`9755`) skips two bytes first. The image proves it: `5C6D` is the
+whole-ROM self-check, called with `R6 = 0x7BFC` and `R7 = 0`, and
+`sum(ROM[0x0000:0x7BFC])` is `0x7AAE`. The four bytes at `7BFC` are
+`00 00 7A AE` — so the two `INC`s step over the `00 00` and land exactly on the
+stored `7AAE`. Read as adjacent it would have compared against `00 00` and
+always failed, which is how one knows the draft was wrong rather than merely
+imprecise. `5C72` then stores the result at `8EBC`.
 
 ### The ROM image cannot run in place, and the bytes prove it
 
@@ -7494,31 +7522,53 @@ so from `8E7B` it takes one correct byte and then walks into `8E7A`, `8E79`,
 `8E77` — this very routine's own control state — and on down to `8E3C`. It would
 need `RLDI R7,8EBA`.
 
-The buffer bounds are independently fixed, which is what makes this a finding
-rather than a guess: `5C72` anchors `8EBC`, exactly one past `8E7B + 64 = 8EBB`,
-and `8E76`/`8E77`/`8E79`/`8E7A` immediately below are control bytes — `8E7A` is
-the direction flag itself and `8E77` holds a saved `R9` from `95BF`.
+The buffer bounds are fixed by the copy loops themselves: both rewrite cycles do
+`RLDI RB,8E7B` and then `copy_page64_up`, which walks *up*, and `94EA` fills the
+same 64 bytes upward from `8E7B`. The image contains **no** `RLDI *,8EBA`. And
+`8E76`/`8E77`/`8E79`/`8E7A` immediately below are control bytes — `8E7A` is the
+direction flag itself and `8E77` holds a saved `R9` from `95BF`.
 
-**Reachability settled in §10bi: it is a live bug.** The handler at `9577` sets
-`M(8E79) = 0` and `M(8E7A) = 2`, exactly the pair that routes `9603` → `9656` →
-`96AE`, and `9577` is dispatched by the `LBR` at `1882` under feature flag
-`0x13`. So on that command the flash page receives one correct byte followed by
-63 read downward from `8E7B` — the direction flag itself, the window value, the
-saved `R9`, and whatever lies below.
+**Corrected:** an earlier draft offered `5C72` as independent confirmation,
+claiming it anchors `8EBC` "exactly one past `8E7B + 64`". It does not. `5C72` is
+`RLDI RC,8EBC / STR RC` immediately after `SCAL 026A`, and it **stores the
+checksum result** `D` there (§10bg). `8EBC` is two past `8EBA`, adjacent RAM
+rather than a one-past marker, and it says nothing about the buffer. The claim
+was wrong and the conclusion did not need it.
+
+**Reachability settled in §10bi: it is a live bug, on command `0A`.** The handler
+at `9561` sets `M(8E79) = 0` and `M(8E7A) = 2`, exactly the pair that routes
+`9603` → `9656` → `96AE`, and `9561` is dispatched from `188F` under feature flag
+`0x13`. (An earlier draft named `9577`/`1882`; those are command `09`, the
+*working* ascending rewrite.) So on command `0A` the flash page receives
+`M(8E7B)` followed by 63 bytes read downward — the direction flag, the window
+value, the saved `R9`, and on down.
 
 The *destination* side remains defensible on its own (`RB` comes from the caller
 and could be a page top), but the source is hardcoded to the buffer's bottom, so
 that does not rescue it.
 
-### What is still not established
+Note also that the remark "nothing in the image sets `8E7A` through an `RLDI`
+anchor" was true as written but is no longer the relevant fact: the writers are
+the `STR RE / INC RE / STR RE` walks inside the command stubs, which start from
+`RLDI RE,8E79`. The two `RLDI *,8E7A` sites (`21C4`, `220D`) are reads.
 
-**The verify-side pointer conventions.** `RA` and `R8` are copies of `R7` and
-`RB` made at `95DC`/`95DF`, but the verify directions do not line up with where
-the write left those pointers either — `RA` walks up from the saved source start
-while `R8` walks down from the saved destination start. That has the same shape
-as the bug above and may well be the same mistake a second time, but settling it
-needs the register setup traced from `95BF`'s callers. The loop mechanics are
-certain; which byte is compared against which is not.
+### The verify side carries the same defect — settled
+
+`RA` and `R8` are copies of the *original* source and destination, taken once at
+`95DB`/`95DE` before the page loop. `9717` walks both **up**, matching
+`copy_page64_up`. `9725` walks `RA` up and `R8` **down**.
+
+The two verifiers differ in a single opcode — `IRX` (`60`) against `DEC R8`
+(`28`) — whereas the two *writers* flip **both** pointer directions. So the
+verify twin flips only the destination: a copy-paste leftover, not a reversing
+compare. `copy_page64_down` writes `dest[−i] = src[−i]`, while `9725` compares
+`src[+i]` against `dest[−i]`; they agree only at `i = 0`.
+
+**So command `0A` carries two defects, not one**, and fixing the source pointer
+to `8EBA` would not rescue it — the verify would still compare the original
+source walking up against the destination walking down. `9725` is reached only
+when `8E7A ≠ 1`, which among the handlers is `9561` alone, so both defects sit
+on exactly the same command.
 
 ### A counting trap, again
 
@@ -7560,18 +7610,39 @@ direction**, 1 for ascending.
 Each is a 22-byte stub that loads the register set and the two control bytes,
 then enters the engine:
 
-| Handler | Reads from the stream | `8E79` | `8E7A` | Mode |
-|---|---|---|---|---|
-| `954B` | `{src, dst, cnt}` | 1 | 1 | direct write, ascending |
-| `9561` | `{src, dst, cnt}` | 1 | 1 | direct write, ascending |
-| **`9577`** | `{src, dst, cnt}` | **0** | **2** | rewrite cycle, **descending** |
-| `958D` | `{dst, cnt}` + **inline data** | 1 | 1 | direct write, ascending |
-| `94EA` | nothing — `R6 = 64`, `R7 = 8E7B`, `RB = 7FC0` | 1 | 1 | writes the buffer to `7FC0`–`7FFF`, the ROM's top page |
+| Cmd | Dispatch | Handler | Reads from the stream | `8E79` | `8E7A` | Mode |
+|---|---|---|---|---|---|---|
+| `03` | `184B` | `958D` | `{dst, cnt}` + **inline data** | 1 | 1 | direct write, ascending |
+| `08` | `186B` | `954B` | `{src, dst, cnt}` | 1 | 1 | direct write, ascending |
+| `09` | `1878` | `9577` | `{src, dst, cnt}` | 0 | 1 | rewrite cycle, ascending |
+| `0A` | `1885` | **`9561`** | `{src, dst, cnt}` | **0** | **2** | rewrite cycle, **descending** |
+| `15` | `192B` | `94DF` | `{cnt}` | 1 | 1 | read-modify-write of the ROM's top page |
 
-All are dispatched from the ROM block at `1848`–`1891`, and **every one is gated
-on feature flag `0x13`**: `LDI 0x13 / SCAL test_feature_flag / LBZ 1955`. So flag
-`0x13` is the authorisation for the entire update facility. `9218` at `1862` is
-the exception — it uses `LBNZ`, so it is the path taken when the flag is *clear*.
+**Corrected: an earlier draft swapped `9561` and `9577`,** and that matters,
+because it put the bug on the wrong command. Each stub's own `RLDI RE,8E79` sits
+eight bytes past its entry — `954B`→`210A`, `9561`→`2120`, `9577`→`2136` — and
+the first draft paired the entries with the wrong `RLDI`s. The bytes are
+unambiguous: `9561` is `{0, 2}`, `9577` is `{0, 1}`.
+
+**Also corrected: `94EA` is not a 22-byte stub and is not dispatched from
+`1848`–`1891`.** It is the tail of `94DF` (cmd `15` at `192B`), and it reads
+*from* `7FC0` *into* the buffer — `R7 = 8E7B`… no: `20A1` loads `R7 = 8E7B` and
+`20A5` loads `R8 = 7FC0`, and the later `R6 = 0x40 / R7 = 8E7B / RB = 7FC0`
+before `LBR 95BF` is the **write-back**. So cmd `15` is a read-modify-write of
+the top flash page, with a 16-bit field near `8E77` compared against `0x0384` =
+900 and the result left at `8E0C`.
+
+**The dispatcher is a jump table at `1989`**, indexed by a command byte (checked
+`≤ 0x15`, then `SHL`), 22 entries from `cmd 00`. The `1848`–`1891` block holds
+the targets of five of those slots; it is not itself the dispatcher. Every flash
+command is gated on **feature flag `0x13`** (`LDI 0x13 / SCAL
+test_feature_flag / LBZ 1955`), so that flag authorises the whole update
+facility. `9218` at `1862` is the exception — it uses `LBNZ`, so it is taken
+when the flag is *clear*.
+
+**And one thing the correction reveals: `copy_page64_down` is dead as a *direct*
+writer.** No handler produces `8E79 ≠ 0` together with `8E7A ≠ 1`, which is the
+only combination that reaches `9617`. It runs solely as `96AE`'s write-back.
 
 ### `cmd_flash_write_inline` (`958D`) is the odd one out
 
@@ -7587,27 +7658,32 @@ branching into it. The other three `LBR` in and never return, letting
 `flash_page_loop_tail`'s `LBR 1938` return on their behalf; this one has to come
 back to advance `R9`, so it calls.
 
-### The §10bh bug is on a live path
+### The §10bh bug is on a live path — and it is command `0A`
 
 §10bh could not say whether `page_rewrite_cycle_down` (`96AE`) was dead or
-broken, because nothing was known to set `M(8E7A)` to anything but 1. **`9577`
-sets `M(8E79) = 0` and `M(8E7A) = 2`** — which is exactly the pair that routes
-`9603` → `9656` → `96AE` — and `9577` is dispatched by the `LBR` at `1882`.
+broken, because nothing was known to set `M(8E7A)` to anything but 1. **`9561`
+sets `M(8E79) = 0` and `M(8E7A) = 2`** — exactly the pair that routes `9603` →
+`9656` → `96AE` — and `9561` is dispatched from `188F`, reached as **command
+`0A`** through the `1989` table under flag `0x13`.
 
-So the descending rewrite cycle is reachable, and its wrong-ended source pointer
-is a **live bug**: on that command the flash page receives one correct byte
-followed by 63 bytes read downward from `8E7B` — `8E7A`, `8E79`, `8E78`, the
-saved `R9` at `8E76`/`8E77`, and whatever lies below.
+So the descending rewrite cycle is reachable and its wrong-ended source pointer
+is a **live bug**: on that one command the flash page receives `M(8E7B)` followed
+by 63 bytes read *downward* — the direction flag at `8E7A`, the window value at
+`8E79`, `8E78`, the saved `R9` at `8E76`/`8E77`, and on down to `8E3C`.
 
-*A caution about how this was nearly missed.* A first scan reported `954B`,
-`9561` and `9577` as having no inbound reference anywhere, which would have made
-the whole family dead and the bug moot. That scan was searching the addresses of
-the `RLDI RE,8E79` instructions *inside* the stubs rather than the stub entry
-points — `9569`, `957F` and so on instead of `954B`, `9577`. Re-run against the
-entries, all four have a plain `LBR`. The lesson is the same one as the `365C`
-census in §10i: **a reference scan is only as good as the address you hand it**,
-and "no references" should always prompt a check that the address is the one
-callers would actually name.
+Command `09` (`9577` via `1882`) is the **working** rewrite: same two-window
+cycle, ascending both ways.
+
+*Two cautions about how this nearly went wrong.* A first scan reported `954B`,
+`9561` and `9577` as having no inbound reference at all, which would have made
+the family dead and the bug moot — that scan was searching the addresses of the
+`RLDI RE,8E79` instructions *inside* the stubs rather than the entry points.
+Then, having found the entries, I paired each with the wrong `RLDI` and put the
+bug on command `09`. Both slips have the same root: **the stub entry and the
+instruction that characterises it are eight bytes apart, and I kept reaching for
+whichever one my previous query had returned.** When a family of routines is
+laid out as fixed-size stubs, the only safe way to tabulate them is to derive
+every field from the entry address.
 
 ## 11. Naming added in this session
 
