@@ -56,17 +56,23 @@ an open question without a next action tends to stay open.
 
 ## The DLC link
 
-- [ ] **What the payload tags mean** (§10bj). Narrowed: the record and its
-      framing are traced end to end (§8a), the CRC is CRC-16/Modbus (§10au) and
-      the Isranet session is read in full (§10at), so "what travels over it" is
-      no longer open as a whole. What is open is the *semantics* of the
-      interpreter's command tags — `0A`, `0F`, `0B`, `01`, `02` are known as
-      values but not as meanings.
+- [ ] **What the payload tags mean to the far end** (§10bj). Narrowed twice.
+      The record and its framing are traced end to end (§8a), the CRC is
+      CRC-16/Modbus (§10au) and the Isranet session is read in full (§10at), so
+      "what travels over it" is no longer open as a whole. Nor are the tags
+      themselves: §10bj identifies all five phone-side — `0A` nothing to
+      report, `0F` a two-value report, `0B` an eight-byte report, `01` the
+      70-byte record, `02` the pre-armed unauthorised reply. What is open is
+      only what the **DLC** does with each, and since the phone's own receive
+      parser at `0904`–`0976` never compares them, that is probably not
+      answerable from this ROM.
       *Settle by:* a capture of a live session, or a DLC-side specification.
       The two settle-by steps this item used to list are both done and neither
       bore on the payload: the RAM code copied from ROM `040D` and `3011` is a
       checksum and a magic-byte pointer-list compare (§10am), and `8E0D` is the
-      main thread's resume address, not a chained vector (§10bd).
+      main thread's resume address, not a chained vector (§10bd). An earlier
+      version of this item said the five tags were "known as values but not as
+      meanings", which §10bj contradicts.
 - [ ] **Who reads the 40-byte ASCII record at `81BA`–`81E1`** (§10r). The
       `;` `=` `?` separators and `M(845C)` suggest a DLC report, but **nothing
       loads that buffer by absolute address** — the three writes in
@@ -80,8 +86,15 @@ an open question without a next action tends to stay open.
       either an interrupt path advances a pointer through a register alias, or
       `25D4` is a different flow reusing the cells. **Do not assume the
       downward fill reverses the bytes until this is answered.**
-- [ ] **The meaning of the three-byte field in the DLC record** — version,
-      build or checksum (§8a, line ~1317).
+- [x] **The meaning of the ROM constants in the DLC record** — all three are
+      established (§8a, §1a, §10bg): `7BFA` = `04 30` is software version 4.30,
+      `7C02` varies by build and `build_dlc_record` copies it twice, and `7BFE`
+      = `7A AE` is the whole-ROM additive sum `sum(ROM[0:7BFC])`, which
+      `verify_banked_checksum` compares against. This item used to call it "the
+      three-byte field … version, build or checksum (§8a, line ~1317)". Two
+      errors besides being stale: they are three **2-byte** words, at record
+      offsets 24, 26 and 34, not one three-byte field; and line 1317 is now a
+      §9a heading, which is why these notes cite sections and not line numbers.
 - [ ] **`?CE007`, selector `08`** — the phone sends it, the reader has no
       parser branch for it (§8a).
 
@@ -664,11 +677,13 @@ Collected separately because they are not worth static effort:
       possibly not answerable from this ROM — and whether any other parser
       exists.
 
-- [ ] **What do the DLC payload tags mean, and type 0 vs type 1?**
-      `build_dlc_frame` accepts only types 0 and 1 and the first payload byte
-      is a tag — `0x0A` for "nothing to report", `0x0F` for a two-value report
-      (§10ar). The other four wrappers' tags, and whatever the receive side
-      expects, are unread.
+- [x] **What do the DLC payload tags mean, and type 0 vs type 1?** The
+      phone-side answer is complete: `build_dlc_frame` accepts only types 0 and
+      1, and §10bj identifies all five tags — `0A` nothing to report, `0F` a
+      two-value report, `0B` an eight-byte report, `01` the 70-byte record, `02`
+      the pre-armed unauthorised reply. An earlier version of this item said
+      "the other four wrappers' tags … are unread"; they are read. What the far
+      end expects is the live part, and it is the item above.
 - [ ] **Read the DLC interrupt handler — `0699` / `05A6`, not `5071`.** An
       earlier version of this item pointed at `5071` and would have sent the
       work into the wrong subsystem. `5071` is the **card-reader** handler; its

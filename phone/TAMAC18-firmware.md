@@ -943,11 +943,11 @@ In priority order, with what each would resolve:
 | Pin | Signal | What it answers |
 |---|---|---|
 | **19, 18, 17** | N0, N1, N2 | **Highest value.** Trace to the decoder (likely `U208`, a 74HC139) and then its outputs: that gives the **device behind every port number**. The firmware uses `INP 1/2/3/6/7` and `OUT 4/5/6/7` and only ports 6/7 are identified. |
-| **24, 23** | EF1, EF2 | The second link's clock source. If either reaches the `MC145443` modem, the DLC-over-modem reading is confirmed, and it settles `SCM1` vs `SCM2` from hardware. |
+| **24, 23** | EF1, EF2 | EF1 is the **timebase**: the 1806 counter runs in `SCM1` mode on it at `05DD` (`68 05`), giving the 600 Hz ÷ 12 stage of §10aj. That is settled from the slaspec and the RCA table, not pending a trace, and §9a puts the second link on the UART, so neither pin is a data line. An earlier version of this row called them "the second link's clock source" and said a trace would settle `SCM1` vs `SCM2` from hardware. Still worth tracing for its own sake: what EF2 is wired to is unknown, and if either pin reaches the `MC145443` modem that bears on the DLC-over-modem reading. |
 | **36** | /INTERRUPT | If it comes from the CDP1854's INT (its pin 13), **both** ISRs are UART-driven, which is strong support for the time-multiplexed-UART model. If something else raises it, the second link is not the UART at all. |
 | **4** | Q | Tests the claim in §1a that Q clocks the `MC14094` chain. **Also worth checking whether Q reaches U230 pin 9** — if it does, the peer select is software-driven after all. |
 | **22** | EF3 | Should reach J1 pins 15/37 (Hook). Would confirm the hook identification from hardware; currently it rests on firmware plus the J1 mapping. |
-| **21** | EF4 | Unidentified. **No** `BN4` appears in the credit-card span — the "lone `BN4`" an earlier version of this row cited was a misdecoded descriptor byte at `4997` (§1a). So there is no firmware evidence bearing on EF4 at all. |
+| **21** | EF4 | The **pin** is unidentified, but the firmware does sample it: `test_EF4_inverted` (`0108`) is called from `23B8` and from `4A13` — the latter inside the credit-card span, where the DF it returns gates a bit-1 test on `mode_flags_8167`. So what EF4 is wired to is worth tracing. Two earlier versions of this row were wrong in different ways: "Only one `BN4` appears in the whole credit-card span" (there is none — the only `0x3F` in `4478`–`4BD7` is `49BD`, the first byte of the string the descriptor at `4990` points at), and then "**No** `BN4` … so there is no firmware evidence bearing on EF4 at all", which put that misdecode on `4997` (it is `0x67`, the `OUT 7` misread and the high byte of pointer `674A`) and missed that EF4 is sampled **by SCRT call, not by branch** — which is why a `BN4` census never bore on it either way. |
 
 ### What drives the select line — still open
 
@@ -985,8 +985,11 @@ Remaining candidates for the select line, in rough order of likelihood:
 1. **Trace U230 pin 9 back to its driver.** That answers the question outright.
 2. **U230 pins 5 and 3, and pins 2 and 1** — the two peers. Whether they reach
    the Optical Reader pins on J1 (16, 32, 35, 38, 40), the Mag. Reader pins
-   (23, 25, 26, 44), or the modem, decides the serial-magnetic-reader
-   hypothesis above.
+   (23, 25, 26, 44), or the modem, says what the switches actually select. An
+   earlier version of this item said it "decides the serial-magnetic-reader
+   hypothesis above". That hypothesis is **withdrawn** (§1a): the Mag. Reader
+   socket was never fitted, so a yes here would show the path is wired, not
+   that anything ever spoke over it.
 3. **U230 pin 6 (INH)** — if driven rather than tied, the firmware can isolate
    the UART entirely.
 4. **U230 pins 12/13/14** — which third signal rides with TX and RX.
@@ -1412,9 +1415,16 @@ identified as CRC-16/Modbus (§10au) and the Isranet session read in full
 (§10at). The `05D7`–`05DD` ÷ 12 stage is the 600 Hz tick (§10aj), not a bit
 sampler.
 
-**Not established:** the **meaning of the payload tags** inside the record —
-`0A`, `0F`, `0B`, `01` and `02` are known as values but not as semantics
-(§10bj) — and whether `DLC` is the trunk itself or equipment behind it.
+**Not established:** what the payload tags mean **to the far end**. All five
+phone-side roles *are* identified — §10bj has `0A` as nothing-to-report, `0F` a
+two-value report, `0B` an eight-byte report, `01` the 70-byte record and `02`
+the pre-armed unauthorised reply — and the phone's own receive parser at
+`0904`–`0976` never compares any of them, so what the DLC does with each is
+probably not answerable from this ROM at all. Also not established: whether
+`DLC` is the trunk itself or equipment behind it.
+
+An earlier version of this block said the five tags were "known as values but
+not as semantics (§10bj)", which is the opposite of what §10bj says.
 
 An earlier version of this block said "what travels over it, in either
 direction" was unknown and named EF1 and Q as the only candidate data lines.
@@ -7355,14 +7365,19 @@ address the handler just wrote.
 ### What `8E0D` really is
 
 **§9a** has `8E0D`/`8E0F` as "the second link's RAM-resident chained vector and
-its one-shot gate" — a phrase this paragraph credited to §2 until round 7.
-That was wrong (the text is §9a's), and the correction then said "twice
-credited", which is wrong too: the misattribution was a single sentence here,
-and `git log -p` shows it in exactly one place in every revision that has it. Close, and wrong in the part that matters: **`8E0D` is a
+its one-shot gate". Close, and wrong in the part that matters: **`8E0D` is a
 main-thread resume address, not an interrupt vector.** `0679` overwrites `R1`
 with `067E` before the `SEP`, and `05A6` re-arms `R1` to `0699` on the next
 entry, so the word at `8E0D` is never used as a vector. `8E0F` is the one-shot
 gate — set to 1 when a step is scheduled, cleared when it is consumed.
+
+Attribution, since this paragraph has had it wrong twice: the phrase is §9a's.
+It was credited to §2 until round 7, and round 8's correction then said "twice
+credited", which is also wrong — `git log -p` shows the misattribution as a
+single sentence, here, in every revision that has it. Round 8 fixed the credit
+by splicing the housekeeping *into* the sentence above, which orphaned its
+"Close, and wrong in the part that matters"; that is class 1 of the four below,
+committed while documenting it.
 
 Renamed accordingly: `dlc_resume_addr` and `dlc_resume_armed`.
 
@@ -8358,10 +8373,14 @@ same pass.**
 
 ### Four ways a correction fails to land
 
-Eight review rounds produced more lessons about *corrections* than about the
-firmware: rounds 7 and 8 found no firmware errors at all, only defects in the
-earlier rounds' fix text. There are four distinct classes, and every one of them
-is silent.
+Nine review rounds produced more lessons about *corrections* than about the
+firmware. Rounds 7–9 turned up no new misreading of the image — but they did
+find false statements *about* the firmware still sitting in text the earlier
+corrections never reached: §10q described the `3011` payload as "walks a region
+XORing bytes" when §10am had it right as a pointer-list compare, and §6a's EF4
+row asserted a `BN4` census that is wrong twice over while missing that EF4 is
+sampled by SCRT call at `4A13`. So the failure is **propagation**, not fresh
+analysis, and it has four distinct and silent classes.
 
 **1. Half-patched sentences.** Replacing the lead-in of a sentence and leaving
 its tail produces text that withdraws a claim and then restates it. §10o did
@@ -8371,7 +8390,9 @@ EF1/EF3/Q layer, and §1a with the magnetic-reader hypothesis, which it retracte
 and then called "the best current account". *Read the whole sentence back after
 editing any part of it* — and when the stale text is longer than a clause,
 rewrite the whole paragraph rather than splicing it, which is what round 8 had
-to do in §1a, §9a, §10q and §8a.
+to do in §1a, §9a, §10q and §8a. Round 8 then committed the class again in
+§10bd, by splicing an attribution correction into the middle of a sentence and
+orphaning its second clause — fixed in round 9, and recorded there.
 
 **2. Announcements of text that is not there.** Three edits ended "the sentence
 below predates that and is kept", where the sentence in question was the tail of
@@ -8386,12 +8407,24 @@ text that still stated the withdrawn mechanism as fact. *A withdrawal belongs at
 the top of the span it withdraws, not after it.*
 
 **4. A commit message describing a fix that never reached the file.** Three
-times. Round 5's message lists the `4478`–`4BD7` census correction; no edit for
-it was ever written. Round 6's gives the right epilogue bytes for
-`28D2`–`28D7`, and the listing was untouched. Round 7's claims it rewrote §9a's
-"What is and is not established"; it did not — round 8 wrote it. The root cause
-of the first two is a round-4 batch that used a tolerant `if old in s` and
-reported "5 edits applied" out of 7 attempted without reconciling the count.
+times, each one landing a round or two later than its message claims.
+
+- Round 5's message lists the `4478`–`4BD7` census correction and that commit's
+  diff does not contain it. Round 7 is what wrote it.
+- Round 6's gives the right epilogue bytes for `28D2`–`28D7` and left the
+  listing untouched; at round 6 §10av still showed `28D6 LDA` / `28D7 RSHL`
+  against the image's `28D4 LDA`, `28D5 SHLC`, `28D6 LDA`, `28D7 RET`. Round 7
+  changed it.
+- Round 7's message says §9a's body "still taught the withdrawn readings" and
+  that the content was fixed. Two of the three it names it did fix — the
+  dispatcher strikethrough and the `8E0D` status-table row. The EF1/Q claim in
+  "What is and is not established" is unchanged in that diff; round 8 rewrote
+  it.
+
+The round-4 tolerant-match batch (`if old in s`, "5 edits applied" out of 7
+attempted, no reconciliation) is the root cause of the **epilogue** miss only.
+An earlier version of this bullet blamed it for the census too; round 4's own
+message never mentions the census, which first appears as an error in round 5's.
 *Use an assert per edit, never a tolerant match, and write the commit message
 from the diff rather than from the findings list.*
 
