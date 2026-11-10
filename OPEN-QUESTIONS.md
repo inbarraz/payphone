@@ -93,8 +93,13 @@ an open question without a next action tends to stay open.
       `verify_banked_checksum` compares against. This item used to call it "the
       three-byte field … version, build or checksum (§8a, line ~1317)". Two
       errors besides being stale: they are three **2-byte** words, at record
-      offsets 24, 26 and 34, not one three-byte field; and line 1317 is now a
-      §9a heading, which is why these notes cite sections and not line numbers.
+      offsets 24 (`7BFA`), 26 (`7BFE`) and 34 (`7C02`, copied again at 36), not
+      one three-byte field; and the "line ~1317" no longer lands on anything —
+      1317 is a blank line and 1318 is a §9a heading — which is why these notes
+      cite sections and not line numbers. A first attempt at this correction
+      said line 1317 *was* the heading; it is the blank line before it, and
+      quoting a line number to make the case against line numbers deserved the
+      off-by-one.
 - [ ] **`?CE007`, selector `08`** — the phone sends it, the reader has no
       parser branch for it (§8a).
 
@@ -656,7 +661,9 @@ Collected separately because they are not worth static effort:
       cells in the `40AE` ∩ `13EC` overlap are explained, and the intersection
       has no further content (§10bb).
 
-- [ ] **The DLC frame shape is read; the tag *meanings* are not.** A review
+- [ ] **The DLC frame shape and all five tags are read; what the far end
+      does with them is not.** The headline on this item used to say "the tag
+      *meanings* are not" read, which its own body below contradicts. A review
       worked out `038D` in full: it builds **one** frame shape — type 0 carries
       a payload whose first byte is a tag, type 1 carries none, and anything but
       0 or 1 returns `0xFF` at `0408`. Frame at `8C27`: `CC`, `00`, length+7,
@@ -683,7 +690,8 @@ Collected separately because they are not worth static effort:
       two-value report, `0B` an eight-byte report, `01` the 70-byte record, `02`
       the pre-armed unauthorised reply. An earlier version of this item said
       "the other four wrappers' tags … are unread"; they are read. What the far
-      end expects is the live part, and it is the item above.
+      end expects is the live part, tracked under **"What the payload tags mean
+      to the far end"** in *The DLC link* and in the frame-shape item above.
 - [ ] **Read the DLC interrupt handler — `0699` / `05A6`, not `5071`.** An
       earlier version of this item pointed at `5071` and would have sent the
       work into the wrong subsystem. `5071` is the **card-reader** handler; its
