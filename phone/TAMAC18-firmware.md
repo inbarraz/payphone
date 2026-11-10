@@ -32,6 +32,14 @@ Started: 2026-10-30.
 The labelled original and `PH00.bin` are byte-identical. Work below is against
 that image.
 
+**Only `TAMAC-18 V2.8 9513.bin` is actually in the repository.** `ROM/` holds
+that one file, and `git log --all -- "Binary versions"` is empty, so the other
+three were compared from outside the tree. The MD5s, the populated-to figures
+and the per-address table in "What differs between builds" were all derived
+while they were to hand and are kept, but **a fresh cross-build check cannot be
+run here** — §10bk's question about command `15`'s `0xFC` is the first one to
+hit that wall. Adding them, or recording where they live, would unblock it.
+
 ## 1a. Board hardware
 
 From photographs of the main card, front and back. Relevant to the firmware
@@ -46,8 +54,8 @@ reaches.
 
 Two boards have been photographed and they differ in that EPROM's label: one
 reads `TAMAC-18 V2.8 9451`, the other simply **`DLC`** (serial `27956 9630`).
-That is almost certainly the provenance of `Binary versions/DLC.bin` in this
-repo — which is byte-identical to `PH06.bin` and `B01.bin`, and *differs* from
+That is almost certainly the provenance of `DLC.bin` — which is byte-identical
+to `PH06.bin` and `B01.bin`, and *differs* from
 the `TAMAC-18 V2.8 9513` image these notes are written against. So the `DLC`
 label denotes a build, not a different product.
 
@@ -1777,6 +1785,14 @@ a block is declared.
 lies in the large unnamed span between `1C5F` and `24BC` and is where the
 register's individual bits should be identifiable. Only four sites touch the
 shadow: `0011`, `13A2`, `1ED1`, `1EEA`.
+
+**That block is now read, and the sites are not scattered** (§10bk): it is the
+DLC interpreter's command handlers, and `RLDI RC,F000 / LDI 02 / STR RC` is
+their **preamble** — 11 of the 19 occurrences of that exact shape in the image,
+paired with `SCAL copy_byte_from_8E10_to_F000` in the common tail. The preamble
+deliberately leaves the shadow alone, which is why the shadow-writer count is
+four: `1ED1` and `1EEA` are commands `0D` and `0C`, and they are **the only way
+the persistent mode changes after init**. §10bk has the table by value.
 
 ### What it probably gates
 
@@ -8057,6 +8073,179 @@ shape as the `RET 0x24` trap in §10bc, where an instruction that looks like an
 ending is not one, and its mirror image here, where an instruction that looks
 like a continuation is a jump.
 
+## 10bk. The other eleven interpreter commands
+
+§10bi read the five flash commands and §10bj the dispatcher. The thirteen
+functions in `9100`–`9779` that still had no name are the **rest of the command
+set** — and they are not firmware-update plumbing. They are a general-purpose
+remote memory interface.
+
+### The map
+
+Every entry below is derived from the `1989` jump table and `get_xrefs_to`, not
+from reading the unmapped `183B`–`1937` block.
+
+| Cmd | Entry | Handler | What it does |
+|---|---|---|---|
+| `01` | `183B` | `92E5` `cmd01_write_literal_block` | write an inline byte string to an inline address |
+| `02` | `183E` | `920E` `cmd02_append_region_to_record` | append a named region to the outgoing DLC record |
+| `04` | `1858` | `9218` `cmd04_append_region_to_record` | **byte-identical** to cmd `02` |
+| `05`, `07` | `1865` | `9345` | copy a region **upward** |
+| `06` | `1868` | `9368` `cmd06_copy_region_down` | copy a region **downward** |
+| `0C` | `18A7` | `932C` | leave programming mode, then **jump to an inline address** |
+| `0D` | `18AA` | `9313` `cmd0D_enter_prog_mode_and_jump` | enter programming mode, then **jump to an inline address** |
+| `10` | `18C9` | `938C` `cmd10_fill_with_repeated_pattern` | fill a region by repeating an inline pattern |
+| `11` | `18CC` | `9282` `cmd11_append_checksum_to_record` | checksum a named region, append the result to the record |
+| `12` | `18D9` | `9421` `run_interp_subblock` | run a nested command block |
+| `13` | `18F0` | `93F6` `cmd13_run_subblock_unflagged` | run a nested block with no flag held, set `0x16` on success |
+
+Commands `0B`, `0E`, `0F` and `14` still have no handler in this block; their
+slots are longer and their work is done before any call that leaves `18xx`.
+
+### `9421` is the way in, not just a command
+
+`run_interp_subblock` is reached from three distinct places — and `1378` is the
+important one. `relocate_1cb7_block_and_run` copies `1CB7`→`9100` and then calls
+`9421` with `R9 = 8DD2` and **`D = 0x13`**, the very flag §10bj identifies as
+authorising the flash commands. So the top-level entry *grants* `0x13` to
+everything inside the block it runs, and clears `0x16` afterwards.
+
+The routine reads the sub-block's address and length inline, pushes `word(8DCC)`
+and `word(8DCE)` (the interpreter's bounds), sets `word(8DCC)` to the inline
+length **+ 6** — the six `dispatch_interp_command` subtracts back off at `17CF`
+— calls `17C5` **recursively**, then restores both bounds and clears the flag.
+`SCAL 16F2` at `9451` is a guard; a non-zero result aborts before any flag is
+set. Command `12` is the same primitive exposed as a command, and `93F6`
+(cmd `13`) is the variant that holds **no** flag.
+
+### `9313` is three handlers, not one
+
+The same trap as §10bh's `9639`. `RLXA R4` loads the program counter when
+`P = R4`, so the two at `932A` and `9343` are **control transfers**, and Ghidra's
+single body `9313`–`9366` spans three routines that never fall through to each
+other:
+
+| Range | Cmd | Effect |
+|---|---|---|
+| `9313`–`932B` | `0D` | `F000 = 3`, `M(8E10) = 3`, `M(8E0A) = 1`, then jump inline |
+| `932C`–`9344` | `0C` | `F000 = 2`, `M(8E10) = 2`, `M(8E0A) = 0`, then jump inline |
+| `9345`–`9366` | `05`/`07` | the ascending region copy |
+
+`get_xrefs_to` confirms the three entries independently: `18AA`, `18A7` and
+`1865`. **They need splitting in Ghidra**, and `9313` carries a comment saying so.
+
+### Seven commands are ungated, and they are the dangerous seven
+
+§10bj established that the dispatcher does not reject: tag `0x02` is *pre-armed*
+and the command runs anyway, so the per-command `test_feature_flag` is the only
+gate. Which commands have one can be settled from the jump table alone, without
+decoding `183B`–`1937`: **an `LBR` is exactly three bytes**, so a slot three
+bytes long is a bare branch with no room for a test.
+
+```
+cmd 01 183B  3   cmd 05 1865  3   cmd 06 1868  3   cmd 07 1865  3
+cmd 0C 18A7  3   cmd 0D 18AA  3   cmd 10 18C9  3      <- bare LBR, ungated
+cmd 03 184B 13   cmd 08 186B 13   cmd 09 1878 13   cmd 0A 1885 13
+cmd 15 192B 13                                        <- the five flash commands
+```
+
+That confirms §10bj's gating list for the seven it can reach, and the seven are
+exactly the **memory primitives**: write a literal block anywhere (`01`), copy a
+region either direction (`05`/`06`/`07`), fill a region (`10`), and jump to an
+arbitrary address (`0C`, `0D`).
+
+So the authorisation flag `0x13` protects **writing flash** and nothing else.
+Arbitrary RAM writes and an arbitrary jump are available to any peer the
+dispatcher will talk to, in the same state that pre-arms the "unauthorised"
+reply. Whether that is reachable from outside depends on what sits in front of
+the link — which is a hardware question (§6a), not one this ROM answers.
+
+### The `F000 = 0x02` preamble, and who really changes the mode
+
+Noticed while reading these: the three instructions
+
+```
+68 CC F0 00   RLDI RC,F000
+F8 02         LDI  0x02
+5C            STR  RC
+```
+
+open almost every handler. They are a **preamble**, and §10a's bare list of 25
+`F000` sites does not bring out the discipline around them.
+
+Across the whole 32 KB image that exact shape — `RLDI RC,F000` / `LDI nn` /
+`STR RC` — occurs **19 times**, and **17 are inside the relocated `1CB7` block**.
+The two outside it are `0056` and `006C`, in `rewrite_code_space`. By value:
+
+| Value | Sites | Role |
+|---|---|---|
+| `0x02` | 11 | the preamble: the window the handler does its work through |
+| `0x01` | `9680`, `96CB` | the flash-program window, around the JEDEC byte write |
+| `0x00` | `96A4`, `96EF`, ROM `006C` | closing the window after it |
+| `0x03` | `9313` | cmd `0D` only — see below |
+
+The matching **epilogue** is `SCAL copy_byte_from_8E10_to_F000` (`13A1`), which
+re-commits the RAM shadow. Seven call sites, six of them the handlers' common
+tails: `927B` (cmd `02`/`04`), `92DE` (cmd `11`), `930B` (the shared `930A` exit
+for cmd `01`, `05`, `06`, `07`), `93EE` (cmd `10`), `952D` (cmd `15`) and `964E`
+(`flash_page_loop_tail`).
+
+**The preamble never touches the shadow.** That is what makes it a preamble
+rather than a mode change: `F000` is forced to `0x02` for the duration and the
+tail puts back whatever the persistent mode was. §10a's count is the proof —
+only four sites in the image write `8E10` at all, and two of them are `0011`
+(init) and `13A2` (the restore routine reading it).
+
+The other two are `931A` and `9333` — **commands `0D` and `0C`**. Those write
+the register *and* the shadow (`3` and `2` respectively), and set `M(8E0A)` to
+`1` and `0` alongside. So the pair is not really "jump to an address"; it is
+**the only way the persistent `F000` mode is changed after init**, with the
+inline jump as the means of resuming the script afterwards. Programming mode on,
+programming mode off.
+
+That also explains the `0x03` in the table above being unique to `9313`: it is
+the only value ever made persistent by a command.
+
+### Two smaller findings
+
+**Commands `02` and `04` are the same code.** `920E`'s ten bytes are a duplicate
+of `9218`'s `RLDI RC,F000` / `LDI 02` / `STR RC` prologue followed by
+`LBR 921F`, which skips past that very copy. The two differ only in the gate in
+their handler preambles — §10bj notes `9218`'s is inverted (`LBNZ`), so cmd `04`
+runs when the flag is *clear*.
+
+**Command `10` drops a remainder.** `938C` computes the repeat count by
+subtracting the pattern length from the total until it borrows, so a 10-byte
+region with a 3-byte pattern is filled for 9 bytes and the tenth is left alone.
+A pattern longer than the region writes nothing and returns `0x11`.
+
+### Command `15`'s counter cannot survive a power cycle
+
+§10bi establishes the arithmetic: `R7 = 0x8E7B + 0x00FC = 0x8F77`, and the byte
+pair `8F 77` appears nowhere in the image. What follows from that was not drawn
+out, and it is a **likely bug**:
+
+- `94EA` reads 64 bytes from `7FC0` into the page buffer at `8E7B`–`8EBA`.
+- The only arithmetic between that read and the write-back targets `8F77`/`8F78`
+  — `0xBC` bytes **past the end of the buffer**.
+- `9531` then programs those same 64 bytes back to `7FC0`, unchanged.
+
+So the flash write-back is a no-op that spends an AT29C256 erase/program cycle,
+and the counter it is supposed to persist lives in ordinary RAM and is lost at
+power-down. `0x3C` in place of `0xFC` would put it at `8EB7`, the last two bytes
+of the buffer, and make the whole routine coherent — one bit apart.
+
+Three things support the reading rather than an intended scratch counter: the
+literals `8F 77` and `8F 78` occur nowhere in the 32 KB image, so **nothing else
+ever reads the cell**; nothing writes `8E7B`–`8EBA` between the read and the
+write; and `7FC0`–`7FFF` is `FF` throughout this dump, so no count was ever
+committed. The 900 threshold it feeds (`0x0384`) does reach `M(8E0C)`, which the
+descriptor at `37E5` displays under the string at `6F94` —
+**"שיבוש בקריאת"**, *corruption in reading of*.
+
+This is an inference from the listing, not an observation of the phone
+misbehaving, and it is on the queue as such.
+
 ## 11. Naming added in this session
 
 Renamed: `proc_333d` → **`dispatch_card_reader_message`**;
@@ -8137,6 +8326,28 @@ Renamed from an earlier, inaccurate name:
 **`send_dlc_pending_record`**; `proc_02cf` →
 **`store_frame_length_or_error`**; `proc_0331` → **`set_feature_flag`**
 (all §10ar).
+
+`FUN_4a12` → **`poll_hook_ports_and_keypad`** (§6a, the EF4 row).
+
+The thirteen that still had no name in the relocated `9100`–`9779` block, all
+§10bk: `FUN_920e` → **`cmd02_append_region_to_record`**; `FUN_9218` →
+**`cmd04_append_region_to_record`**; `FUN_9282` →
+**`cmd11_append_checksum_to_record`**; `FUN_92e5` →
+**`cmd01_write_literal_block`**; `FUN_9313` →
+**`cmd0D_enter_prog_mode_and_jump`**; `FUN_9368` →
+**`cmd06_copy_region_down`**; `FUN_938c` →
+**`cmd10_fill_with_repeated_pattern`**; `FUN_93f6` →
+**`cmd13_run_subblock_unflagged`**; `func_9421` →
+**`run_interp_subblock`**; `FUN_94df` →
+**`cmd15_bump_counter_and_rewrite_7FC0`**; `FUN_954b` →
+**`cmd08_flash_write_pages_up`**; `FUN_9561` →
+**`cmd0A_flash_rewrite_pages_down`**; `FUN_9577` →
+**`cmd09_flash_rewrite_pages_up`**.
+
+Two more entries are **inside** `cmd0D_enter_prog_mode_and_jump`'s body and
+cannot be named until Ghidra splits them out: `932C` (cmd `0C`) and `9345`
+(cmd `05`/`07`). The same applies to `9656` and `9663` inside
+`flash_page_loop_tail` (§10bh). All four are on the queue.
 
 **The full RAM inventory is in [`RAM-MAP.md`](RAM-MAP.md)** — all 399 cells the
 firmware points a register at, 122 named and 267 not, each with the signature

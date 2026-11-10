@@ -102,6 +102,38 @@ an open question without a next action tends to stay open.
       off-by-one.
 - [ ] **`?CE007`, selector `08`** — the phone sends it, the reader has no
       parser branch for it (§8a).
+- [ ] **Is command `15`'s counter cell a bug?** (§10bk.) `94DF` reads 64 bytes
+      from `7FC0`, adds the command's increment to a 16-bit counter at
+      `8F77`/`8F78`, compares it against 900, and programs the **unmodified**
+      64 bytes back. `8F77` is `0xBC` past the end of the page buffer at
+      `8E7B`–`8EBA`, the literals `8F 77` and `8F 78` appear nowhere else in
+      the image, and `7FC0`–`7FFF` is `FF` throughout this dump. So as written
+      the flash write-back is a no-op costing an erase/program cycle and the
+      counter is volatile. `0x3C` instead of `0xFC` at ROM `20BE` would put it
+      at `8EB7`, inside the buffer, and make the routine coherent — one bit.
+      *Settle by:* the PH06 or B02 image, at ROM offset **`20C0`** (the `LDI`
+      operand; `20BB`–`20BE` is the `RLDI R7,8E7B` before it). If either reads
+      `3C`, this build is the broken one. If all three read `FC`, it is either
+      intentional or a long-lived defect, and the next evidence would be a
+      phone whose `7FC0` page is not erased.
+      **Blocked:** those images are not in the repo — `ROM/` has only
+      `TAMAC-18 V2.8 9513.bin` and `git log --all -- "Binary versions"` is
+      empty (§1a). The check is one `xxd` away once they are.
+- [ ] **What does `16F2` guard?** (§10bk.) `run_interp_subblock` calls it at
+      `9451` and aborts the whole nested block if it returns non-zero, before
+      any feature flag is set — so it is the gate on the interpreter's
+      recursion, and on the top-level entry from `1378`. It takes a pointer
+      inline (`ram_map.py` `PTR_ARGS` has `0x16f2 (0,)`).
+      *Settle by:* reading `16F2`; it is already a defined function.
+- [ ] **Is the DLC command interpreter reachable from outside the phone?**
+      (§10bk.) Seven commands are ungated — write a literal block to any
+      address (`01`), copy a region either direction (`05`/`06`/`07`), fill a
+      region (`10`), and jump to an arbitrary address (`0C`, `0D`) — and
+      §10bj shows the dispatcher does not reject: it pre-arms tag `0x02` and
+      runs the command anyway. Only the five flash commands test flag `0x13`.
+      Whether that matters depends entirely on what stands in front of the
+      link, which is the hardware question in §6a, not something this ROM
+      settles. Recorded because the firmware side is now unambiguous.
 
 ## The card reader link
 
@@ -633,6 +665,7 @@ Collected separately because they are not worth static effort:
       | `70B9` | `set_next_tick_task` | 10az |
       | `3B24` | the fault-slot test that chooses between the entries | 10ba |
       | `9656`, `9663` | **split out of `flash_page_loop_tail`** (`9639`–`96AD`), which holds three routines: the tail and exits, the mode dispatcher at `9656`, and the ascending page-rewrite cycle at `9663` — the twin of `96AE` | 10bh |
+      | `932C`, `9345` | **split out of `cmd0D_enter_prog_mode_and_jump`** (`9313`–`9366`), the same trap: the `RLXA R4` at `932A` and `9343` load the PC, so the body holds three handlers that never fall through to each other. `932C` is cmd `0C` (`leave_prog_mode_and_jump`), `9345` is cmd `05`/`07` (`cmd05_copy_region_up`). `get_xrefs_to` confirms all three entries: `18AA`, `18A7`, `1865` | 10bk |
       | `28D8` | `interrupt_enter_reader` — **split it out of `28B7`**, whose body currently merges the card-reader epilogue and prologue into one function; the DLC side is correctly split into `interrupt_leave` / `interrupt_enter` | 10av |
       | `6E0C` | the reset block — no function at all | 10ay |
       | `1CB7` | the flash programmer's **ROM source image**, 1658 bytes — no function. Low priority: it never executes (§10ay), so a function here would only document the source. The executing copy at `9100`–`9779` already has ~21 functions. |
