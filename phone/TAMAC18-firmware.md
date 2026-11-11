@@ -32,13 +32,15 @@ Started: 2026-10-30.
 The labelled original and `PH00.bin` are byte-identical. Work below is against
 that image.
 
-**Only `TAMAC-18 V2.8 9513.bin` is actually in the repository.** `ROM/` holds
-that one file, and `git log --all -- "Binary versions"` is empty, so the other
-three were compared from outside the tree. The MD5s, the populated-to figures
-and the per-address table in "What differs between builds" were all derived
-while they were to hand and are kept, but **a fresh cross-build check cannot be
-run here** — §10bk's question about command `15`'s `0xFC` is the first one to
-hit that wall. Adding them, or recording where they live, would unblock it.
+**Only `TAMAC-18 V2.8 9513.bin` is in the repository.** `ROM/` holds that one
+file and `git log --all -- "Binary versions"` is empty; the other four live
+outside the tree, in
+`~/Documents/Hardware Hacking/Payphone/Binary versions/`, as `PH00.bin`,
+`PH06.bin`, `B01.bin`, `DLC.bin` and `B02.bin`. Their MD5s match the table
+above, so a cross-build check *is* available — it just needs that path. §10bk's
+command-`15` question was settled that way. An earlier version of this paragraph
+said a fresh check "cannot be run here"; it can, and the images being outside
+the repo is the only obstacle a future session has to know about.
 
 ## 1a. Board hardware
 
@@ -8219,11 +8221,11 @@ subtracting the pattern length from the total until it borrows, so a 10-byte
 region with a 3-byte pattern is filled for 9 bytes and the tenth is left alone.
 A pattern longer than the region writes nothing and returns `0x11`.
 
-### Command `15`'s counter cannot survive a power cycle
+### Command `15`'s counter cannot survive a power cycle — in every build
 
 §10bi establishes the arithmetic: `R7 = 0x8E7B + 0x00FC = 0x8F77`, and the byte
-pair `8F 77` appears nowhere in the image. What follows from that was not drawn
-out, and it is a **likely bug**:
+pair `8F 77` appears nowhere in the image. What follows from that is a **defect
+in the mechanism**:
 
 - `94EA` reads 64 bytes from `7FC0` into the page buffer at `8E7B`–`8EBA`.
 - The only arithmetic between that read and the write-back targets `8F77`/`8F78`
@@ -8235,16 +8237,37 @@ and the counter it is supposed to persist lives in ordinary RAM and is lost at
 power-down. `0x3C` in place of `0xFC` would put it at `8EB7`, the last two bytes
 of the buffer, and make the whole routine coherent — one bit apart.
 
-Three things support the reading rather than an intended scratch counter: the
-literals `8F 77` and `8F 78` occur nowhere in the 32 KB image, so **nothing else
-ever reads the cell**; nothing writes `8E7B`–`8EBA` between the read and the
-write; and `7FC0`–`7FFF` is `FF` throughout this dump, so no count was ever
-committed. The 900 threshold it feeds (`0x0384`) does reach `M(8E0C)`, which the
-descriptor at `37E5` displays under the string at `6F94` —
-**"שיבוש בקריאת"**, *corruption in reading of*.
+**Checked against all five images** (`PH00` ≡ the labelled original, `PH06` ≡
+`B01` ≡ `DLC`, and `B02`): the operand at ROM `20C0` is `FC` in **every one**,
+so this is not one bad build. It was never corrected across three builds.
 
-This is an inference from the listing, not an observation of the phone
-misbehaving, and it is on the queue as such.
+Three alternative readings were tested and all three close:
+
+1. *An absolute address written as arithmetic to save space.* It saves nothing:
+   `RLDI R7,8E7B` + `LDI 0xFC` + `SCAL add_D_to_R7` is ten bytes where
+   `RLDI R7,8F77` is four. Writing it as **base plus offset** is itself the
+   evidence that an offset into the buffer was intended.
+2. *An offset into a 256-byte page.* The engine's sector size is 64 — `95BF`
+   forms the page count with a six-place right shift of `R6` — matching the
+   AT29C256's 64-byte software-data-protection sector (§10ay). `0xFC` is out of
+   range for that, and `0x3C` is exactly in it.
+3. *Something else fills the buffer between the read and the write-back.*
+   Nothing in the routine does, and no cell in `RAM-MAP.md` is pointed at
+   anywhere inside `8E7B`–`8EBA`; the next one up is `8EBC`
+   (`banked_checksum_result`), one past the buffer's end at `8EBA`.
+
+And `7FC0`–`7FFF` is `FF` throughout **all four distinct images**, so no count
+was ever committed in any of them. The consistent account is that **command `15`
+has never been exercised on any of these devices** — which is also why a defect
+of this shape could survive three builds.
+
+The 900 threshold it feeds (`0x0384`) does reach `M(8E0C)`, which the descriptor
+at `37E5` displays under the string at `6F94` — **"שיבוש בקריאת"**,
+*corruption in reading of*.
+
+This remains an inference from the listing, not an observation of the phone
+misbehaving. What it would take to settle it outright is a device whose `7FC0`
+page is not erased.
 
 ## 11. Naming added in this session
 

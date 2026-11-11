@@ -102,23 +102,22 @@ an open question without a next action tends to stay open.
       off-by-one.
 - [ ] **`?CE007`, selector `08`** — the phone sends it, the reader has no
       parser branch for it (§8a).
-- [ ] **Is command `15`'s counter cell a bug?** (§10bk.) `94DF` reads 64 bytes
-      from `7FC0`, adds the command's increment to a 16-bit counter at
-      `8F77`/`8F78`, compares it against 900, and programs the **unmodified**
-      64 bytes back. `8F77` is `0xBC` past the end of the page buffer at
-      `8E7B`–`8EBA`, the literals `8F 77` and `8F 78` appear nowhere else in
-      the image, and `7FC0`–`7FFF` is `FF` throughout this dump. So as written
-      the flash write-back is a no-op costing an erase/program cycle and the
-      counter is volatile. `0x3C` instead of `0xFC` at ROM `20BE` would put it
-      at `8EB7`, inside the buffer, and make the routine coherent — one bit.
-      *Settle by:* the PH06 or B02 image, at ROM offset **`20C0`** (the `LDI`
-      operand; `20BB`–`20BE` is the `RLDI R7,8E7B` before it). If either reads
-      `3C`, this build is the broken one. If all three read `FC`, it is either
-      intentional or a long-lived defect, and the next evidence would be a
-      phone whose `7FC0` page is not erased.
-      **Blocked:** those images are not in the repo — `ROM/` has only
-      `TAMAC-18 V2.8 9513.bin` and `git log --all -- "Binary versions"` is
-      empty (§1a). The check is one `xxd` away once they are.
+- [x] **Command `15`'s counter cell is a defect, in all three builds**
+      (§10bk). `94DF` reads 64 bytes from `7FC0`, adds the command's increment
+      to a 16-bit counter at `8F77`/`8F78`, compares it against 900, and
+      programs the **unmodified** 64 bytes back. `8F77` is `0xBC` past the end
+      of the page buffer at `8E7B`–`8EBA`, so the flash write is a no-op
+      costing an erase/program cycle and the counter is volatile. `0x3C` in
+      place of `0xFC` would put it at `8EB7`, inside the buffer — one bit.
+      **Checked:** the operand at ROM `20C0` is `FC` in all five images
+      (`PH00`, `PH06`, `B01`, `DLC`, `B02`), and `7FC0`–`7FFF` is erased in all
+      four distinct ones. The three alternative readings — an absolute address
+      written as arithmetic, a 256-byte page offset, and something else filling
+      the buffer — all close; §10bk gives each.
+      *What is still open*, and it is the live form of this question: a device
+      whose `7FC0` page is **not** erased would turn the inference into an
+      observation. Short of that, the firmware side is settled and the evidence
+      says command `15` has never been exercised.
 - [ ] **What does `16F2` guard?** (§10bk.) `run_interp_subblock` calls it at
       `9451` and aborts the whole nested block if it returns non-zero, before
       any feature flag is set — so it is the gate on the interpreter's
