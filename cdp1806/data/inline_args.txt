@@ -194,3 +194,21 @@ program TAMAC-18
 # GLO R8 / OUT 5 / GLO R8 / PHI R9, inventing a port-5 write inside
 # init_8865_block. They are the range 8865..88B9 that section 10bf describes.
 746d  p,p
+
+# 365c / 3658: send_reader_command and its one-instruction alternate entry
+# send_reader_command_set_RA. ONE inline byte - the low byte of an 8-byte
+# command template in page 3600.
+#
+# Auto-detection declines on both, and for the same reason: the walk from the
+# entry hits the conditional branch at 365F and stops there, while the
+# argument-consuming LDA R3 is at 367C, past it. 3658 inherits the problem by
+# falling through into 365C after its single RLDI RA,8028.
+#
+# Without these the argument decodes as code at all 17 call sites. At 467F the
+# selector reads as DEC R0, which is quiet enough to pass and shifts everything
+# after it. The split between the two entries is by caller: 365C from inside
+# service_card_reader_link, where the 5FB1 register map already holds
+# RA = 8028; 3658 from main-thread and technician-menu code, which has no such
+# guarantee. Both take the same argument.
+365c  b
+3658  b

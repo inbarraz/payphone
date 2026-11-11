@@ -7453,25 +7453,35 @@ be checked.
 the same path, `75CA` at `4C06`, tests the same cell (§10u).
 
 **2. It ages `reader_z_reply_count` (`818E`)** — the count of `MZ`/`NZ` replies
-from the optical reader (§6b). A two-visit decay, and *every* path still falls
-through to the log:
+from the optical reader (§6b) — **and the `D` it leaves behind decides what the
+call to `5E1B` does.** Every path reaches `2A6E`, but they do not all log:
 
-| `M(818E)` | becomes | |
-|---|---|---|
-| `0x00` | `0x00` | unchanged |
-| non-zero, bit 7 clear | `0x80` | a real count collapses to the marker |
-| `0x80` | `0x00` | the marker clears |
-| `0x80` + other bits | `0x80` | |
+| `M(818E)` | becomes | `D` at the `SCAL` | effect |
+|---|---|---|---|
+| `0x00` | `0x00` | `0` — from `2A57`/`2A58` | **clears** |
+| `0x01`–`0x7F` | `0x80` | `0` — `2A60 LDI 0x80` then `2A63 SHL` | **clears** |
+| `0x80` | `0x00` | `0` — `2A68 SHL` of `0x80`, `LSZ` taken | **clears** |
+| `0x81`–`0xFF` | `0x80` | `0x80` — `2A6A LDI 0x80` | **counts, and raises** |
 
-So bit 7 reads as "counted and acknowledged, pending clear". The `SHL` at
-`2A63` is dead — `D` is discarded by the `LBR` at `2A64`.
+So bit 7 reads as "counted and acknowledged, pending clear", and the fault is
+raised only when the marker is present *and* further count bits are too — i.e.
+when new `MZ`/`NZ` replies arrived after the marker was set. **That makes this a
+repeated-reply detector**, not a log-on-first-failure.
+
+> **Corrected.** An earlier version of this subsection said "*every* path still
+> falls through to the log" and called the `SHL` at `2A63` dead, "`D` is
+> discarded by the `LBR` at `2A64`". `LBR` does not touch `D`. That `SHL` turns
+> `0x80` into `0x00`, and `5E1B` reads `D` as its selector at `5E23`: zero takes
+> `5E27 STXD`, which **zeroes the counter**, and then the `5E5A` path masks the
+> code byte to bit 7 — a counter-reset and fault-clear. Three of the four rows
+> above therefore clear fault 23 rather than log it. Found by a Codex review.
 
 **3. It logs the fault.** `2A6E SCAL 5E1B` with inline args `1B 01 55`:
 
 | Arg | | |
 |---|---|---|
 | `0x1B` | the **low byte** of the target, so `R8 = 841B` | not an offset from `840A` — §10i fixes the convention from the `5C4F` row, whose arg `0x27` targets `8427`. `841B` is odd, so the entry is `841A` code / `841B` counter |
-| `0x01` | the threshold | the counter is incremented and compared at `5E41` (`LDA R3 / SM`, `X = R8`); `1 − 1 = 0` takes the `LBZ`, so **the first occurrence raises it**. No debounce, unlike `5DDD`'s threshold of 3 |
+| `0x01` | the threshold | the counter is incremented and compared at `5E41` (`LDA R3 / SM`, `X = R8`); `1 − 1 = 0` takes the `LBZ`, so the first occurrence **on the counting path** raises it. No debounce, unlike `5DDD`'s threshold of 3 — but reaching that path at all needs `M(818E)` in `0x81`–`0xFF`, so the debounce lives in the ageing above, not in the threshold |
 | `0x55` | OR'd into `841A` — the fault code | |
 
 **One of the two `M(97A6) = 6` stores is not the threshold path.** `5E4D` is —
@@ -7489,9 +7499,13 @@ Code `0x55` indexes the BCD table at `6069` as `(code & 0x7F) − 0x46` = 15, an
 reader, "reported ahead of everything in the `840A` log", and ends: *"Finding
 its writer would say exactly which reader failure raises fault 23."*
 
-**This is one such writer**, and it says: a reader failure seen *during a
-charged call*, on the path where `RF.0` is not `0x75`. Being threshold-1, it
-logs on the first occurrence rather than counting.
+**This is one such writer**, and it says: **repeated** `MZ`/`NZ` replies from
+the optical reader, seen during a charged call, on the path where `RF.0` is not
+`0x75`. The threshold of 1 means no debounce *once the counting path is
+reached*, but the ageing of `818E` is itself the debounce: a single reply
+collapses to the marker and clears the fault, and only a reply arriving while
+the marker still stands raises it. An earlier version of this paragraph said it
+"logs on the first occurrence rather than counting", which inverted that.
 
 That is progress on the §10e question but not a full answer, and the distinction
 matters: §10e's fault-23 path is gated on `M(88BB)`, which still has **no known
@@ -7515,7 +7529,9 @@ is now mapped.
 ```
 
 So status `0x75` is the one reader failure that gets its own message and no log
-entry; everything else on this path is counted and logged.
+entry. Everything else on this path reaches `2A4B` — which then either clears
+fault 23 or raises it, on the `818E` test above. An earlier version of this
+sentence said everything else "is counted and logged".
 
 ## 10bf. `2F04` — the cold-start initializer for the `8865` block
 
@@ -7549,14 +7565,51 @@ toggles bit 0 of `M(8867)`.
 An earlier draft said it zeroes the *current* counter. It does not: the
 `INC RC`/`DEC RC` trick at `520F` leaves `RC` pointing at the opposite counter,
 `5213 LDN RC` reads it and `5214` publishes it, and then `5219 LDI 0 / STR RC`
-clears **that** one. The phase's own counter is left sitting at its threshold —
-which is consistent, since the next pass through that phase will find it already
-at the threshold and fire again. The "other counter either way" is the `LSNZ` at
-`520F`: `C6 1C 38 2C`, so a non-zero `D` skips `INC RC` and the `NBR` to land on
+clears **that** one. The "other counter either way" is the `LSNZ` at `520F`:
+`C6 1C 38 2C`, so a non-zero `D` skips `INC RC` and the `NBR` to land on
 `DEC RC`, while a zero `D` takes `INC RC` and the `NBR` swallows the `DEC`.
 
-So: a 2-tick debounce on port 1 bit 4 that publishes the opposite phase's count
-and flips a phase flag.
+### It measures the previous phase's duration
+
+The sentence that used to follow — "the phase's own counter is left sitting at
+its threshold, which is consistent, since the next pass through that phase will
+find it already at the threshold and fire again" — **is wrong**, and following
+it through changes what this routine is.
+
+The compare is `SEX RD / SM`, i.e. `D = threshold − (counter + 1)`, and
+`520B LBNZ 5224` returns unless that is **exactly** zero. So it fires on the one
+tick where the counter reaches the threshold and never again while the input
+stays put: the next tick takes the counter to 3, `2 − 3 ≠ 0`, and it returns.
+The counter then climbs to `0xFF` and saturates there — `LDN RC / ADI 1 / LSZ /
+STR RC` leaves it unchanged when the increment wraps to zero.
+
+That makes the pair a **pulse-width meter**, not a debounce. Walk a transition
+with both thresholds at 2:
+
+```
+input steady in phase A        8868 climbs toward FF   8869 = 0 (zeroed when A fired)
+flips to B, tick 1             8869 = 1                2-1 != 0, return
+flips to B, tick 2             8869 = 2                FIRES
+  -> RC moves to 8868, M(886A) := M(8868), 8868 := 0, M(8867) bit 0 toggles
+B continues                    8869 = 3,4,...          no further fire
+flips back to A, tick 2        8868 = 2                FIRES
+  -> M(886A) := M(8869) = how many ticks B lasted
+```
+
+So `886A` receives **how long the input spent in the phase it just left**, in
+50 Hz ticks, capped at 255, and `8867` toggles once per transition to say a new
+measurement is ready. The two-tick delay before firing is what rejects a single
+noisy tick; it is incidental to the measurement, not the point of it.
+
+That is also why `step_state_machine` feeds `886A` to `classify_into_range`
+(`328E`) and `next_state_from_table` (`3270`): those bucket a **duration** into
+a range and drive a state table from it. The routine is a pulse-width
+classifier's front end.
+
+> **Found by a Codex review**, which pointed out that a steady input carries the
+> current counter past the threshold rather than re-firing. The "which counter"
+> half of this subsection was already corrected; the consequence drawn from it
+> was not, and it had the behaviour backwards.
 
 **And `886A` is the state machine's input.** `step_state_machine` (`5227`) opens
 by comparing `M(8866)` against `M(8867)`; equal means nothing has changed and it

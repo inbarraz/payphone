@@ -10,9 +10,13 @@ Two things a naive linear sweep gets wrong on this architecture, both handled:
   * THE X == P INLINE FORM. When X equals P, R(X) is the program counter, so the
     instructions that increment R(X) - IRX, OUT, RET, DIS, LDXA - take their
     operand from the instruction stream and are two bytes, not one. Nothing in
-    the opcode says so. In this firmware P is always R4, so the idiom is always
-    spelled `SEX R4` (0xE4) immediately before, and that is the rule applied
-    here. INP does NOT increment R(X), so it has no inline form.
+    the opcode says so. X is TRACKED across the sweep from each `SEX Rn`, and
+    compared against P, which is R4 through the body of this firmware but R0 in
+    the reset block at 6DD5 - reset leaves P = 0 and `6DD5 SEX R0` then makes
+    X == P for everything after it. Pass `--p 0` for that region. An earlier
+    version required an `0xE4` immediately before, which read the whole reset
+    block wrong: the OUT 5 operand at 6DD8 became a phantom `LBR C4C4`.
+    INP does NOT increment R(X), so it has no inline form.
 
   * INLINE CALL ARGUMENTS. SCAL pushes the return address and the callee reads
     its arguments out of the caller's instruction stream via R3, returning past
@@ -20,7 +24,7 @@ Two things a naive linear sweep gets wrong on this architecture, both handled:
     invents plausible instructions - this is how a phantom `OUT 4` ended up in
     the credit renderer. Signatures come from cdp1806/data/inline_args.txt.
 
-Usage:  python3 -I tools/dis.py <start-hex> <end-hex> [more ranges...]
+Usage:  python3 -I tools/dis.py [--p N] <start-hex> <end-hex> [more ranges...]
 """
 import io, os, re, sys
 
@@ -213,19 +217,25 @@ def sig_for(site, callee):
         return SIG_CALLEE[callee]
     return infer_sig(callee)
 
-def run(start, end):
+def run(start, end, p=4):
     i = start
+    # X tracked from SEX, so the X == P form is recognised wherever it occurs
+    # and not only directly after a SEX. None means "not yet established":
+    # a sweep starting mid-routine does not know X, and guessing would invent
+    # two-byte instructions. The one byte before `start` is still readable, so
+    # seed from it when it is a SEX.
+    x = (d[start - 1] & 0xf) if start > 0 and 0xe0 <= d[start - 1] <= 0xef else None
     while i < end:
         txt, n = decode(i)
         raw = d[i:i + n].hex(' ')
         note = ''
-        # X == P inline form: SEX R4 immediately before, P is always R4 here.
-        if n == 1 and d[i] in INLINEABLE and i > start and d[i - 1] == 0xe4:
+        # X == P inline form, from the tracked X.
+        if n == 1 and d[i] in INLINEABLE and x == p:
             # Keep the whole mnemonic: splitting on whitespace turned
             # `OUT  6` into `OUT`, so 51A7 printed without its port number.
             txt = '%-8s %02X' % (txt.strip(), d[i + 1])
             n, raw = 2, d[i:i + 2].hex(' ')
-            note = '   ; X==P inline form'
+            note = '   ; X==P inline form (X=P=R%d)' % p
         # A skip's skipped byte(s) can ALSO be a live instruction entry,
         # reached by a path that branches over the skip. A linear sweep cannot
         # show both, so say so rather than silently hiding one. 0x38 NBR is
@@ -238,6 +248,11 @@ def run(start, end):
             span = '%04X' % lo if cnt == 1 else '%04X-%04X' % (lo, lo + cnt - 1)
             note = '   ; skips %s - may be an instruction on another path' % span
         print('%04X  %-11s  %-16s%s' % (i, raw, txt, note))
+        # Update the tracked X *after* printing, from the instruction just read.
+        if 0xe0 <= d[i] <= 0xef:
+            x = d[i] & 0xf
+        elif d[i] in (0x70, 0x71):     # RET / DIS load X and P from M(R(X))
+            x = None
         i += n
         # Inline call arguments follow a SCAL and are DATA, not code.
         if txt.startswith('SCAL'):
@@ -291,8 +306,11 @@ if __name__ == '__main__':
     args = sys.argv[1:]
     if args[:1] == ['--selftest']:
         sys.exit(1 if selftest() else 0)
+    p = 4
+    if args[:1] == ['--p']:
+        p, args = int(args[1], 0), args[2:]
     if not args or len(args) % 2:
         sys.exit(__doc__.strip().splitlines()[-1])
     for a, b in zip(args[::2], args[1::2]):
-        run(int(a, 16), int(b, 16))
+        run(int(a, 16), int(b, 16), p)
         print()
