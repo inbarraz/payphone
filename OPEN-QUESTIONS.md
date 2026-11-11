@@ -118,12 +118,20 @@ an open question without a next action tends to stay open.
       whose `7FC0` page is **not** erased would turn the inference into an
       observation. Short of that, the firmware side is settled and the evidence
       says command `15` has never been exercised.
-- [ ] **What does `16F2` guard?** (§10bk.) `run_interp_subblock` calls it at
-      `9451` and aborts the whole nested block if it returns non-zero, before
-      any feature flag is set — so it is the gate on the interpreter's
-      recursion, and on the top-level entry from `1378`. It takes a pointer
-      inline (`ram_map.py` `PTR_ARGS` has `0x16f2 (0,)`).
-      *Settle by:* reading `16F2`; it is already a defined function.
+- [x] **What `16F2` guards: it is a block validator, now
+      `validate_interp_block`** (§10bk). A dry-run walker with its own 22-entry
+      table at `16BF`, parallel to the executing table at `1989`. It checks
+      every command code is `<= 0x15` and that each command's declared length
+      fits inside the block, stepping over each one through the common helper
+      at `178E` rather than performing it. Returns 0 well-formed, 4 ran past
+      the end, `0x10` code out of range, `0x11` a per-command check failed;
+      `M(8E05) == 1` selects a stricter checker set for some codes. So it is a
+      **syntax and extent check, not an authorisation** — the framing this item
+      used ("the gate on the interpreter's recursion") was wrong about its
+      nature, though right that a non-zero result aborts the block.
+      It also answers what command `13` is for: `93F6` passes `D = 0`, which
+      `9421`'s test at `945F` turns into "validate and report" — the recursion
+      at `94A1` is never reached.
 - [ ] **Is the DLC command interpreter reachable from outside the phone?**
       (§10bk.) Seven commands are ungated — write a literal block to any
       address (`01`), copy a region either direction (`05`/`06`/`07`), fill a
@@ -596,14 +604,30 @@ Collected separately because they are not worth static effort:
       signal; it is a port-1 line held for seconds at a time.
 
       Also ruled out: an in-stream loopback. Nothing writes bit 1 and reads it
-      back at `5DD7`, and the suppression at `3B28` is a one-way gate, so the
-      firmware never compares the two "bit 1"s. What fits every byte is a
-      call-time level on port 1 that stops pulsing once the port-2 earth fault
-      is logged — §10n maps that fault's code `0x75` to displayed fault 38, the
-      earth-disconnected string. Whether the two are the same net on the PCB is
-      a hardware question this ROM cannot answer. Period (3 s / 3 s), duty
-      cycle, delay (28 s), the port, and both the arm and suppress conditions
-      are now exact.
+      back at `5DD7`, and the test at `3B28` is one-way, so the firmware never
+      compares the two "bit 1"s.
+
+      **What is exact:** the period (3 s / 3 s), the duty cycle, the delay
+      (28 s), the port (`PORT 1`), and the arm condition — `6FFF` installs
+      state `7065` at `7004`–`7008` with no test at all.
+
+      **What is not:** any suppression. An earlier version of this paragraph
+      ended "What fits every byte is a call-time level on port 1 that stops
+      pulsing once the port-2 earth fault is logged … both the arm and suppress
+      conditions are now exact." That restates the global gating the
+      **WITHDRAWN** note above withdraws, and it is wrong the same way: a
+      populated `843A` does not stop an armed cadence and does not suppress the
+      six callers that reach `6FFF` without the `3B24` test — `0C7F` and `41E8`
+      among them. The fault-slot test decides only which *entry* the single
+      caller at `3B37` uses. §10n's mapping of fault code `0x75` to displayed
+      fault 38 (earth disconnected) stands on its own and is not evidence for
+      a suppression path.
+
+      So the live question is narrower than it has been stated: **what drives
+      the port-1 bit-1 line, and is it the same net as the port-2 bit-1 the
+      self-test at `5DDD` reads back?** That is a hardware question, and any
+      fault-injection experiment built on "populate `843A` and the cadence
+      stops" would be testing something the firmware does not do.
 
 - [x] **The second and third sections of the `13EC` timer table** — each is one
       4-byte header `{counter pointer, 16-bit limit}` followed by ordinary

@@ -8099,7 +8099,7 @@ from reading the unmapped `183B`–`1937` block.
 | `10` | `18C9` | `938C` `cmd10_fill_with_repeated_pattern` | fill a region by repeating an inline pattern |
 | `11` | `18CC` | `9282` `cmd11_append_checksum_to_record` | checksum a named region, append the result to the record |
 | `12` | `18D9` | `9421` `run_interp_subblock` | run a nested command block |
-| `13` | `18F0` | `93F6` `cmd13_run_subblock_unflagged` | run a nested block with no flag held, set `0x16` on success |
+| `13` | `18F0` | `93F6` `cmd13_validate_subblock` | **validate** a nested block without running it, set `0x16` if it passes |
 
 Commands `0B`, `0E`, `0F` and `14` still have no handler in this block; their
 slots are longer and their work is done before any call that leaves `18xx`.
@@ -8116,9 +8116,56 @@ The routine reads the sub-block's address and length inline, pushes `word(8DCC)`
 and `word(8DCE)` (the interpreter's bounds), sets `word(8DCC)` to the inline
 length **+ 6** — the six `dispatch_interp_command` subtracts back off at `17CF`
 — calls `17C5` **recursively**, then restores both bounds and clears the flag.
-`SCAL 16F2` at `9451` is a guard; a non-zero result aborts before any flag is
-set. Command `12` is the same primitive exposed as a command, and `93F6`
-(cmd `13`) is the variant that holds **no** flag.
+
+**`D = 0` means validate only, not "run with no flag held".** Two tests stand
+between `9421`'s entry and its recursion, and *both* must pass:
+
+```
+9451  SCAL 16F2 ; 945B M(8EE4) := the result
+945C  LBNZ 94C4        a non-zero result -> straight to cleanup
+945F  M(8EE0) == 0 ?
+9466  LBZ  94C4        a ZERO flag index -> also straight to cleanup
+9469  set_feature_flag(M(8EE0)) ... 94A1 SCAL 17C5
+```
+
+So the flag index is not merely "which flag to hold" — it is also the **switch
+that enables execution at all**. Command `13` passes `D = 0` at `940B`, so it
+runs `16F2` over the block and then exits at `94C4` without ever reaching
+`94A1`. An earlier version of this section, and of `93F6`'s name, called it the
+variant that "holds no flag" while still running the block. It does not run it.
+
+### What `16F2` is, and the two-phase shape it implies
+
+`16F2` is a **block validator** — a dry-run walker with its own 22-entry table
+at `16BF`, parallel to the executing one at `1989`:
+
+```
+16F8  length exhausted -> return 0
+16FF  LDN R9 / SDI 0x15 / LBNF 17C0     command > 0x15 -> return 0x10
+1705  index the 16BF table, SEX R8 / RLXA R4 -> the per-command checker
+178E  read the command's declared length, subtract it from the remaining
+      count and advance R9 by it; past the end -> 4
+17B6  return 4 ; 17BB return 0x11 ; 17C0 return 0x10 ; 17C2 return 0
+```
+
+Each checker *steps over* its command rather than performing it, so the walk
+proves every command code is in range and every declared length fits inside the
+block. `M(8E05) == 1` at `171C` and `17B0` selects a stricter set of checks for
+some codes. This settles the queue item that asked what `16F2` guards: it is a
+syntax and extent check, not an authorisation.
+
+Which gives the facility a **two-phase shape**. Reading the handler preambles:
+
+| Cmd | Preamble | Meaning |
+|---|---|---|
+| `12` | `test_feature_flag(0x14)` / `LBNZ 1955`, then `SCAL 9421` with **`D = 0x14`** | runs the block, holding `0x14` — so the gate and the held flag are the same bit: a **re-entrancy lock**, not an authorisation |
+| `13` | `test_feature_flag(0x13)` / `LBNZ`, **and** `test_feature_flag(0x16)` / `LBNZ`, then `93F6` with `D = 0` | validates the block, and refuses if a validation result is already pending |
+
+`93F6` sets `0x16` on success and `relocate_1cb7_block_and_run` clears it at
+`137C`, so `0x16` is the one-shot "a block has been validated" marker.
+
+Note this corrects §10bj's gating list in one detail: command `12`'s test is on
+flag **`0x14`**, not `0x13`.
 
 ### `9313` is three handlers, not one
 
@@ -8155,6 +8202,26 @@ That confirms §10bj's gating list for the seven it can reach, and the seven are
 exactly the **memory primitives**: write a literal block anywhere (`01`), copy a
 region either direction (`05`/`06`/`07`), fill a region (`10`), and jump to an
 arbitrary address (`0C`, `0D`).
+
+**The full census, from the preamble bytes themselves.** Searching the handler
+block for `F8 13 E2 68 83 02 1B` — `LDI 0x13 / SEX R2 / SCAL test_feature_flag`
+— finds it in seven slots, and in every one the next byte is the branch. The
+whole gate is that one uniform ten-byte preamble, and the only difference across
+the seven is **one bit in the branch opcode**:
+
+| Branch | Cmds | Runs when `0x13` is |
+|---|---|---|
+| `C2` `LBZ 1955` | `03`, `08`, `09`, `0A`, `15` | **set** — the five flash commands |
+| `CA` `LBNZ 1955` | `02`, `04`, `11` | **clear** |
+
+The remaining slots have no `0x13` test at all: the seven bare `LBR`s above,
+plus `0B` (21 bytes), `0E` (17), `0F` (11) and `14` (36). Command `12` tests
+flag **`0x14`** instead, and `13` tests `0x13` *and* `0x16` — both covered in
+the two-phase table below.
+
+So eleven of the twenty-one live commands are ungated, and `0E`/`0F` are a
+matched pair that `set_feature_flag(0x12)` and `clear_feature_flag(0x12)` — a
+lock the peer raises and lowers at will, also ungated.
 
 So the authorisation flag `0x13` protects **writing flash** and nothing else.
 Arbitrary RAM writes and an arbitrary jump are available to any peer the
@@ -8210,11 +8277,21 @@ the only value ever made persistent by a command.
 
 ### Two smaller findings
 
-**Commands `02` and `04` are the same code.** `920E`'s ten bytes are a duplicate
-of `9218`'s `RLDI RC,F000` / `LDI 02` / `STR RC` prologue followed by
-`LBR 921F`, which skips past that very copy. The two differ only in the gate in
-their handler preambles — §10bj notes `9218`'s is inverted (`LBNZ`), so cmd `04`
-runs when the flag is *clear*.
+**Commands `02` and `04` are the same code, gate included.** `920E`'s ten bytes
+are a duplicate of `9218`'s `RLDI RC,F000` / `LDI 02` / `STR RC` prologue
+followed by `LBR 921F`, which skips past that very copy. And the two handler
+preambles are **byte-identical**:
+
+```
+183E (cmd 02)  F8 13 E2 68 83 02 1B CA 19 55
+1858 (cmd 04)  F8 13 E2 68 83 02 1B CA 19 55
+```
+
+— `LDI 0x13` / `SEX R2` / `SCAL test_feature_flag` / `LBNZ 1955` in both, so
+both run only when flag `0x13` is **clear**. An earlier version of this
+paragraph said the two "differ only in the gate", with cmd `04`'s inverted
+relative to cmd `02`. They do not differ at all; whatever distinguishes the two
+commands is not in this ROM.
 
 **Command `10` drops a remainder.** `938C` computes the repeat count by
 subtracting the pattern length from the total until it borrows, so a 10-byte
@@ -8360,7 +8437,8 @@ The thirteen that still had no name in the relocated `9100`–`9779` block, all
 **`cmd0D_enter_prog_mode_and_jump`**; `FUN_9368` →
 **`cmd06_copy_region_down`**; `FUN_938c` →
 **`cmd10_fill_with_repeated_pattern`**; `FUN_93f6` →
-**`cmd13_run_subblock_unflagged`**; `func_9421` →
+**`cmd13_validate_subblock`**; `FUN_16f2` → **`validate_interp_block`**;
+`func_9421` →
 **`run_interp_subblock`**; `FUN_94df` →
 **`cmd15_bump_counter_and_rewrite_7FC0`**; `FUN_954b` →
 **`cmd08_flash_write_pages_up`**; `FUN_9561` →

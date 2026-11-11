@@ -70,6 +70,14 @@ LONGB = {0xc0: 'LBR', 0xc1: 'LBQ', 0xc2: 'LBZ', 0xc3: 'LBDF',
 # `LSKP F803`, hiding the LDI 0x03 at 000F that section 10an depends on. A
 # linear sweep stayed aligned anyway, because skipping two bytes and consuming
 # them lands on the same next address, which is why it went unnoticed.
+# Opcode -> how many bytes it skips over. NBR (0x38) is a 2-byte instruction
+# that steps past the 1 byte at +1; the long skips are 1 byte and step past the
+# 2 bytes at +1. Either way those bytes can be entered from elsewhere, and a
+# LINEAR sweep can only ever show one of the two readings. 520F LSNZ lands on
+# 5212, the second byte of 5211's NBR, where Ghidra shows a real DEC RC.
+OVERLAPS = {0x38: 1, 0xc5: 2, 0xc6: 2, 0xc7: 2, 0xc8: 2, 0xcd: 2, 0xce: 2,
+            0xcf: 2}
+
 SKIP  = {0xc4: 'NOP', 0xc5: 'LSNQ', 0xc6: 'LSNZ', 0xc7: 'LSNF', 0xc8: 'LSKP',
          0xcc: 'LSIE', 0xcd: 'LSQ', 0xce: 'LSZ', 0xcf: 'LSDF'}
 # Every 2-byte immediate. 7C/7D/7F are easy to miss because the rest of the 7x
@@ -101,6 +109,9 @@ def decode(i):
     if op < 0x10:  return 'LDN  %s' % R(op), 1
     if op < 0x20:  return 'INC  %s' % R(op & 0xf), 1
     if op < 0x30:  return 'DEC  %s' % R(op & 0xf), 1
+    # 0x38 NBR never branches, so its second byte is not a target - print
+    # where control actually goes, as Ghidra does, not the raw byte.
+    if op == 0x38: return 'NBR  %04X' % (i + 2), 2
     if op < 0x40:  return '%-4s %02X' % (SHORT[op], d[i + 1]), 2
     if op < 0x50:  return 'LDA  %s' % R(op & 0xf), 1
     if op < 0x60:  return 'STR  %s' % R(op & 0xf), 1
@@ -215,6 +226,17 @@ def run(start, end):
             txt = '%-8s %02X' % (txt.strip(), d[i + 1])
             n, raw = 2, d[i:i + 2].hex(' ')
             note = '   ; X==P inline form'
+        # A skip's skipped byte(s) can ALSO be a live instruction entry,
+        # reached by a path that branches over the skip. A linear sweep cannot
+        # show both, so say so rather than silently hiding one. 0x38 NBR is
+        # TWO bytes here, matching cdp1806.slaspec (`:NBR SkipAddr8 is
+        # opbyte=0x38`) and Ghidra; making it one byte to expose the second
+        # byte would contradict both and would then decode that byte as a
+        # fall-through instruction, which NBR never reaches.
+        if d[i] in OVERLAPS:
+            lo, cnt = i + 1, OVERLAPS[d[i]]
+            span = '%04X' % lo if cnt == 1 else '%04X-%04X' % (lo, lo + cnt - 1)
+            note = '   ; skips %s - may be an instruction on another path' % span
         print('%04X  %-11s  %-16s%s' % (i, raw, txt, note))
         i += n
         # Inline call arguments follow a SCAL and are DATA, not code.
@@ -250,6 +272,9 @@ SELFTEST = [
     (0x048e, 'ADCI #00'), (0x1454, 'ADCI #00'), (0x06ee, 'SDBI #82'),
     (0x000e, 'LSKP'),                       # one byte, not a 3-byte branch
     (0x000f, 'LDI  #03'),                   # the byte LSKP skips, now visible
+    (0x5211, 'NBR  5213'),                  # 2 bytes, and never branches: the
+                                            # operand is not a target, so print
+                                            # the continuation as Ghidra does
 ]
 
 def selftest():
