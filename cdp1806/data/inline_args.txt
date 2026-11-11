@@ -147,3 +147,68 @@ program TAMAC-18
 @02f6  b,b        # 02f3: LDI 0x1
 @0880  b,b        # 087d: LDI 0x1
 @0891  b,b        # 088e: LDI 0x1
+
+# 046e: takes one 16-bit pointer, read by the canonical SEX R3 / RLXA R5 at
+# 046e-046f, and then re-points X at R5 so nothing further comes from R3.
+# Auto-detection handles this shape, so this entry is belt-and-braces - but the
+# one call site is worth the note. Without a signature the argument at 05EC
+# decodes as `LDN R4 / OUT 6`, inventing a UART write inside the DLC tick
+# chain, which is the same failure mode the 2ecd comment above describes.
+# The observed argument is 0466, which holds the word 8EEA.
+046e  p
+
+# 3aa8: play_toggle_pattern - one 16-bit pointer to a null-terminated list of
+# half-cycle durations, read by SEX R3 / RLXA RC at 3aa8-3aa9.
+#
+# Added because its absence TRUNCATES CALLER FUNCTION BODIES. With no signature
+# the analyzer cannot find the return point, so flow stops at the call: Ghidra
+# had exit_call_connected as 6fb3-6fc5 and enter_call_connected as 6fff-700e,
+# both ending at their SCAL 3aa8 (6fc2 and 700b) instead of at the SRET R3 that
+# really ends them. The visible effect is worse than a short body - the name
+# sits on a 16-byte prologue and the reader cannot tell that the state work,
+# including the M(8032) = 0xAA billing gate at 703c, belongs to it.
+#
+# Observed arguments are 3a9e, 3aa0 and 3aa4, the three tone patterns (10ba).
+3aa8  p
+
+# 026a: CopyCodeTo9733AndJump. ONE inline byte - and the callee never reads it.
+#
+# 026A memcpys 0x3F bytes from 040D to 9733 and then LBR 9733, so the routine
+# that consumes the argument is the RELOCATED COPY: 9733 opens LDA R3, and by
+# then SRET has restored R3 to 026A's own caller's stream. Auto-detection cannot
+# possibly see this - it inspects the callee's prologue, and 026A's prologue
+# only reads the memcpy's three arguments.
+#
+# The byte is written straight to the F000 control latch at 9737-973B, so it
+# selects the memory window the checksum is then computed through. All three
+# live call sites pass 0x02: 92B8 (inside the relocated 1CB7 block), 4461 and
+# 5C6D. 1E6F is the dead ROM image of 92B8.
+#
+# Without this entry the byte decodes as code at each site - at 4465 it reads as
+# LDN R2, which is harmless-looking and shifts everything after it.
+026a  b
+
+# 746d: clear_block_range(lo, hi) - two 16-bit pointers. Present in
+# tools/ram_map.py's PTR_ARGS but missing here, so tools/dis.py decoded the
+# arguments as code: at 2F09 the bytes 88 65 88 B9 read as
+# GLO R8 / OUT 5 / GLO R8 / PHI R9, inventing a port-5 write inside
+# init_8865_block. They are the range 8865..88B9 that section 10bf describes.
+746d  p,p
+
+# 365c / 3658: send_reader_command and its one-instruction alternate entry
+# send_reader_command_set_RA. ONE inline byte - the low byte of an 8-byte
+# command template in page 3600.
+#
+# Auto-detection declines on both, and for the same reason: the walk from the
+# entry hits the conditional branch at 365F and stops there, while the
+# argument-consuming LDA R3 is at 367C, past it. 3658 inherits the problem by
+# falling through into 365C after its single RLDI RA,8028.
+#
+# Without these the argument decodes as code at all 17 call sites. At 467F the
+# selector reads as DEC R0, which is quiet enough to pass and shifts everything
+# after it. The split between the two entries is by caller: 365C from inside
+# service_card_reader_link, where the 5FB1 register map already holds
+# RA = 8028; 3658 from main-thread and technician-menu code, which has no such
+# guarantee. Both take the same argument.
+365c  b
+3658  b

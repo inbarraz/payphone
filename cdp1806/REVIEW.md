@@ -24,7 +24,47 @@ correct in the abstract, but `RET` loads `(X,P)` from its operand, and this
 firmware uses it as an idiom to set `X` while leaving `P` unchanged — `RET
 0x24` at `2AD1`, `75B7` and `6110` all continue inline. Terminating flow
 there would stop the following code disassembling. The fix needs a context
-register for `P` first; see gap **G2**. The gaps G1–G10 are untouched.
+register for `P` first; see gap **G2**.
+
+**Correction, 2026-11-10.** "The gaps G1–G10 are untouched" is out of date and
+contradicts the bodies of G1, G2, G4 and G12 in this same file:
+
+- **G1 / G2 are largely built.** The `XP` context field exists
+  (`define context contextreg { XP = (0,0) noflow; }`), `OUT`/`RET`/`DIS` have
+  dual constructors, `cdp1806.sla` is in the tree, and
+  `ghidra_scripts/SetXPInline.java` / `SetXPNormal.java` set it by keystroke.
+  What is still missing is the *automatic* `globalset`, which those gap bodies
+  already say.
+- **G4's "`CI`/`XI` are only ever cleared (by BCI/BXI)" is wrong** for `XI`.
+  `BCI` does clear `CI`; `BXI` deliberately does **not** write `XI`, because the
+  external interrupt request is not latched. That was itself a module bug, fixed
+  earlier, and the comment in the slaspec records the reason.
+- **G12's "the `.sla` is not in the repo" is wrong.** It is present, alongside
+  `build.gradle` and the built extensions in `dist/`. The *other* half of G12
+  stands: there is still no byte→mnemonic regression corpus anywhere in the
+  module tree.
+
+### New: G13. `RLXA` was wrong when `N == X` — fixed 2026-11-10
+
+The pcode did `reg16 = *[ram]:2 ofs; setRX(ofs + 2)`, so when the loaded
+register *was* `R(X)` the pointer advance overwrote the value just read. The
+CDP1805/1806 machine states (Intersil Table 2) do both `R(X)` increments during
+the fetch, **before** `R(N)` is written, so `SEX Rn / RLXA Rn` must leave `Rn`
+holding the word that was read.
+
+That idiom is load-bearing in the TAMAC-18 image: `066E SEX R1 / RLDI R1,8E0D /
+0673 RLXA R1` exists precisely to load the main-thread resume address into `R1`
+(§10bd), and the old pcode gave `R1 = 8E0F` instead. Twelve further
+`SEX Rn / RLXA Rn` byte sequences sit at `0253`, `0945`, `0FB5`, `16F5`,
+`17D3`, `1DFF`, `1E5A`, `1F4A`, `2042`, `371A`, `5ECF` and `774F` — each needs an
+instruction-boundary check before being counted as executed.
+
+Fixed by doing the pointer advance first and the register write last.
+`cdp1806.ldefs` goes `1.1` → `1.2` so existing programs take the language
+upgrade. **A rebuild and reinstall of the extension is required for this to take
+effect.**
+
+### Still open from the list below
 
 ## How this was verified
 
@@ -252,8 +292,10 @@ DSM `68F7`, DSMI `68FF`, DSMB `6877`, DSBI `687F`, DSAV `6876`.
 ### G4. The counter/timer is entirely unmodeled
 
 LDC `6806`, STM `6807`, SCM1 `6805`, SCM2 `6803`, SPM1 `6804`, SPM2 `6802` are all empty.
-`CH` and `CIL` are declared and never touched; `CI`/`XI` are only ever *cleared* (by
-BCI/BXI) and never set.
+`CH` and `CIL` are declared and never touched. `CI` is only ever *cleared*, by
+`BCI`, and never set. (This gap originally said the same of `XI` via `BXI`;
+that was wrong — `BXI` does not write `XI`, deliberately, because the external
+request is not latched. See the correction in the status block.)
 
 ### G5. SCAL inline-parameter calls cannot be expressed
 
@@ -293,11 +335,18 @@ CDP1804 coverage, but the 1804 lacks parts of this instruction set.
 
 ### G12. No build or test story
 
-The `.sla` is not in the repo and there is no install script, so the module stops existing
-on each Ghidra upgrade (each version gets its own
-`~/Library/ghidra/ghidra_<ver>_PUBLIC/Extensions` directory). There is also no regression
-corpus — no known-good byte→mnemonic fixtures to catch issues like the `SCM2` duplicate
-(M6) or the `LSNZ` typo (M5).
+~~The `.sla` is not in the repo and there is no install script~~ — **no longer
+true**: `data/languages/cdp1806.sla` is in the tree, with `build.gradle` and the
+built extensions under `dist/`. The module still has to be reinstalled on each
+Ghidra upgrade, since each version gets its own
+`~/Library/ghidra/ghidra_<ver>_PUBLIC/Extensions` directory.
+
+**What remains of G12 is the regression corpus**, and nothing in the module tree
+provides one — no known-good byte→mnemonic fixtures to catch issues like the
+`SCM2` duplicate (M6), the `LSNZ` typo (M5), or the `RLXA` ordering bug (G13).
+`tools/dis.py --selftest` now checks 34 hand-verified decodes against the image,
+which is the nearest thing that exists, but it tests the *Python* decoder, not
+the slaspec.
 
 ---
 

@@ -339,10 +339,18 @@ CalcAddr16: loc is epsilon [ loc = (inst_next); ] { local t:2 = loc; export t; }
 	local ofs:2 = 0;
 	getRX(ofs);
 
-	reg16 = *[ram]:2 ofs;
-
-	ofs = ofs + 2;
-	setRX(ofs);
+	# ORDER MATTERS WHEN N == X. The CDP1805/1806 machine states (Intersil
+	# Table 2) do both increments of R(X) as part of the fetch, BEFORE the
+	# word is written into R(N) - so `SEX Rn / RLXA Rn` leaves Rn holding the
+	# word that was read, not the pointer plus 2. Advancing R(X) last
+	# overwrote the loaded value in exactly that case, which is the shape at
+	# 066E..0673 in the TAMAC-18 image (SEX R1 / RLDI R1,8E0D / RLXA R1,
+	# whose whole point is to load the resume address into R1). Do the
+	# pointer advance first and the register write last, so the register
+	# write wins when they are the same register.
+	local val:2 = *[ram]:2 ofs;
+	setRX(ofs + 2);
+	reg16 = val;
 }
 
 # Math operations - still NOPs, need to update

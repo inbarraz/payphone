@@ -22,18 +22,24 @@ an open question without a next action tends to stay open.
       are decoded; the question is now what is on the other end.
       *Settle by:* tracing the CPU's N0–N2 decode on the board.
       **Needs hardware.**
-- [ ] **What port 5 actually receives.** §10u reads each pair as
-      `port n <- M(8033+n)`, but the other flush at `399D` makes
-      `port 5 <- M(8034)`. They agree on port 2 and disagree on port 5.
-      Either `OUT 5` is a latch-enable whose data is ignored, or the two
-      routines drive different devices.
-      *Settle by:* scoping port 5's latch while both routines run, or finding
-      a third flush site.
+- [x] **What port 5 actually receives** — nothing of its own. §10u's rule is
+      `port n <- M(0x8033+n)` for the data, with `M(0x8033+n−1)` as that write's
+      control word, and both flushes obey it: `399D` strobes with `M(8034)` then
+      writes port 2 from `M(8035)`; `7572` strobes with `M(8033)` then writes
+      port 1 from `M(8034)`. `M(0x8038)` is never an `OUT 5` source, so port 5
+      has no data byte. The `OUT 5` byte's bits **are** observed — bit 6 of
+      `8034` changes between two otherwise identical port-2 writes, and bits 1
+      and 4 of `8036` do the same around port 4. Two alternatives this item used
+      to offer ("the data is ignored" / "the two routines drive different
+      devices") are both withdrawn.
 - [ ] **How `M(8033)`'s low bits reach the strap hardware.** `read_hardware_straps`
-      (§10k) writes them and `IDL`s, but `8033` is flushed by no shadow-flush
-      site — `399D` covers only `8034`/`8035`. `flush_output_latches` is the
-      best candidate, but it has not been shown to run from the interrupt path.
-      *Settle by:* finding what calls `7572`, or scoping the strap lines.
+      (§10k) writes them and `IDL`s. **Two sentences here were wrong and are
+      fixed:** `8033` *is* flushed — `758B RLDI R5,8033 / 758F OUT 5 / 7592
+      OUT 1` inside `7572` — and `7572` *is* reached from the interrupt path, by
+      `SCAL` at `0638` inside the DLC service at `05A6`, as well as from `4A94`
+      on the main thread. So the mechanism is known; what remains is the
+      hardware question of whether those low bits reach the strap pins.
+      *Settle by:* scoping the strap lines.
 - [ ] **Find the ÷4096 divider chip** feeding EF1, and scope EF1 to confirm
       600 Hz (§10aj). The ÷12 and ÷50 are in the ROM; the divider is not.
       **Needs hardware.**
@@ -50,10 +56,23 @@ an open question without a next action tends to stay open.
 
 ## The DLC link
 
-- [ ] **What actually travels over it, in either direction** (§9a). The
-      handler, physical layer and entry point are known; the payload is not.
-      *Settle by:* reading the RAM code copied from ROM `040D` and `3011`, and
-      the chained vector at `8E0D`.
+- [ ] **What the payload tags mean to the far end** (§10bj). Narrowed twice.
+      The record and its framing are traced end to end (§8a), the CRC is
+      CRC-16/Modbus (§10au) and the Isranet session is read in full (§10at), so
+      "what travels over it" is no longer open as a whole. Nor are the tags
+      themselves: §10bj identifies all five phone-side — `0A` nothing to
+      report, `0F` a two-value report, `0B` an eight-byte report, `01` the
+      70-byte record, `02` the pre-armed unauthorised reply. What is open is
+      only what the **DLC** does with each, and since the phone's own receive
+      parser at `0904`–`0976` never compares them, that is probably not
+      answerable from this ROM.
+      *Settle by:* a capture of a live session, or a DLC-side specification.
+      The two settle-by steps this item used to list are both done and neither
+      bore on the payload: the RAM code copied from ROM `040D` and `3011` is a
+      checksum and a magic-byte pointer-list compare (§10am), and `8E0D` is the
+      main thread's resume address, not a chained vector (§10bd). An earlier
+      version of this item said the five tags were "known as values but not as
+      meanings", which §10bj contradicts.
 - [ ] **Who reads the 40-byte ASCII record at `81BA`–`81E1`** (§10r). The
       `;` `=` `?` separators and `M(845C)` suggest a DLC report, but **nothing
       loads that buffer by absolute address** — the three writes in
@@ -67,10 +86,61 @@ an open question without a next action tends to stay open.
       either an interrupt path advances a pointer through a register alias, or
       `25D4` is a different flow reusing the cells. **Do not assume the
       downward fill reverses the bytes until this is answered.**
-- [ ] **The meaning of the three-byte field in the DLC record** — version,
-      build or checksum (§8a, line ~1317).
+- [x] **The meaning of the ROM constants in the DLC record** — all three are
+      established (§8a, §1a, §10bg): `7BFA` = `04 30` is software version 4.30,
+      `7C02` varies by build and `build_dlc_record` copies it twice, and `7BFE`
+      = `7A AE` is the whole-ROM additive sum `sum(ROM[0:7BFC])`, which
+      `verify_banked_checksum` compares against. This item used to call it "the
+      three-byte field … version, build or checksum (§8a, line ~1317)". Two
+      errors besides being stale: they are three **2-byte** words, at record
+      offsets 24 (`7BFA`), 26 (`7BFE`) and 34 (`7C02`, copied again at 36), not
+      one three-byte field; and the "line ~1317" no longer lands on anything —
+      1317 is a blank line and 1318 is a §9a heading — which is why these notes
+      cite sections and not line numbers. A first attempt at this correction
+      said line 1317 *was* the heading; it is the blank line before it, and
+      quoting a line number to make the case against line numbers deserved the
+      off-by-one.
 - [ ] **`?CE007`, selector `08`** — the phone sends it, the reader has no
       parser branch for it (§8a).
+- [x] **Command `15`'s counter cell is a defect, in all three builds**
+      (§10bk). `94DF` reads 64 bytes from `7FC0`, adds the command's increment
+      to a 16-bit counter at `8F77`/`8F78`, compares it against 900, and
+      programs the **unmodified** 64 bytes back. `8F77` is `0xBC` past the end
+      of the page buffer at `8E7B`–`8EBA`, so the flash write is a no-op
+      costing an erase/program cycle and the counter is volatile. `0x3C` in
+      place of `0xFC` would put it at `8EB7`, inside the buffer — one bit.
+      **Checked:** the operand at ROM `20C0` is `FC` in all five images
+      (`PH00`, `PH06`, `B01`, `DLC`, `B02`), and `7FC0`–`7FFF` is erased in all
+      four distinct ones. The three alternative readings — an absolute address
+      written as arithmetic, a 256-byte page offset, and something else filling
+      the buffer — all close; §10bk gives each.
+      *What is still open*, and it is the live form of this question: a device
+      whose `7FC0` page is **not** erased would turn the inference into an
+      observation. Short of that, the firmware side is settled and the evidence
+      says command `15` has never been exercised.
+- [x] **What `16F2` guards: it is a block validator, now
+      `validate_interp_block`** (§10bk). A dry-run walker with its own 22-entry
+      table at `16BF`, parallel to the executing table at `1989`. It checks
+      every command code is `<= 0x15` and that each command's declared length
+      fits inside the block, stepping over each one through the common helper
+      at `178E` rather than performing it. Returns 0 well-formed, 4 ran past
+      the end, `0x10` code out of range, `0x11` a per-command check failed;
+      `M(8E05) == 1` selects a stricter checker set for some codes. So it is a
+      **syntax and extent check, not an authorisation** — the framing this item
+      used ("the gate on the interpreter's recursion") was wrong about its
+      nature, though right that a non-zero result aborts the block.
+      It also answers what command `13` is for: `93F6` passes `D = 0`, which
+      `9421`'s test at `945F` turns into "validate and report" — the recursion
+      at `94A1` is never reached.
+- [ ] **Is the DLC command interpreter reachable from outside the phone?**
+      (§10bk.) Seven commands are ungated — write a literal block to any
+      address (`01`), copy a region either direction (`05`/`06`/`07`), fill a
+      region (`10`), and jump to an arbitrary address (`0C`, `0D`) — and
+      §10bj shows the dispatcher does not reject: it pre-arms tag `0x02` and
+      runs the command anyway. Only the five flash commands test flag `0x13`.
+      Whether that matters depends entirely on what stands in front of the
+      link, which is the hardware question in §6a, not something this ROM
+      settles. Recorded because the firmware side is now unambiguous.
 
 ## The card reader link
 
@@ -90,7 +160,12 @@ an open question without a next action tends to stay open.
 - [ ] **What writes `M(88BB)`**, the flag that raises fault 23 "optical
       reader" ahead of the log (§10n). It has **no write cross-reference**, so
       it is set through a pointer register.
-      *Settle by:* reading the link ISR around `504C` with correct alignment.
+      *Settle by:* not this — `504C` is a **false lead**. Those bytes are the
+      opcodes `GLO R8` / `PHI RB`, not an address; `51CF` is the same pair after
+      `LBR 5729`. Both real references to `88BB` are reads (`23A6` and `29E9`,
+      each `LDN` / `LBZ`), `2A24` writes the *neighbour* `88BA`, and `2F05`'s
+      `clear_block_range(8865, 88B9)` stops short of both. No `PHI`/`PLO` pair
+      builds the address either. Still open, and it needs a different approach.
 - [ ] **Is `M(8062) == 5` really the empty-reader signature?** (§10l) The code
       path is solid — `8062` of 4 or 5 gives card status `0xAA`, and `== 5` is
       what reaches the insert-card prompt — but *why* an empty slot yields
@@ -199,6 +274,13 @@ an open question without a next action tends to stay open.
       | `8526` | `units_burned_counter` |
       | `867D`, `87D0`, `88C4`, `8A00`, `8EFB` | `ram_sentinel_<addr>` |
       | `30E3` | `ram_sentinel_addr_list` |
+      | `8851` | `tick_task_resume_addr` — a 16-bit resume address (§10az) |
+      | `8853` | `tick_task_byte_timer` |
+      | `8854` | `tick_task_word_timer` — 16-bit |
+      | `8182`, `8E02`, `8ED9` | `session_timer_<addr>` |
+      | `8DAE` | `feature_flag_idx2` |
+      | `8186` | `call_phase_active` (§10ba) |
+      | `8850` | `saved_card_permission_bits` (§10ba) |
 
       `89FA` (`stack_top`) has a different blocker: it is the second byte of the
       existing word at `89F9`, so that item has to be cleared first.
@@ -218,8 +300,17 @@ an open question without a next action tends to stay open.
 - [ ] **`M(8144)` has two incompatible meanings in the notes** — §1a ties it
       to the credit screen, §10t to "the dial pulse arrived". Neither is
       argued from the cell itself; the §10t reading was taken from the module
-      title. The §1a citation also points at `3A0B`, which reads `813E` and
-      `8127`, not `8144`.
+      title.
+
+      **Correction:** this item used to add that §1a's citation "points at
+      `3A0B`, which reads `813E` and `8127`, not `8144`". `3A51`, inside that
+      selector, *is* `RLDI R6,8144 / LDN / LBZ 3A63`, and the non-zero arm shows
+      descriptor `6672` (`CREDIT:`) — so §1a's claim is argued from the cell
+      after all. The question stays open for a better reason: the thirteen
+      `RLDI …,8144` sites are all reads and two have **opposite** polarity —
+      `3A51` shows `CREDIT:` when it is non-zero, `2DEB`/`2E0E` show the same
+      descriptor when it is zero. One name does not cover both, and no immediate
+      store to `8144` has turned up.
 - [ ] **`KEY_*` may be off by one.** The enum puts `*` at `0x0C`, but the
       matrix table at `2400` gives index `0x0B` = `*` and `0x0C` = `#`
       (§10f). Worth settling — it changes how every `XRI 0x0C` reads.
@@ -291,23 +382,35 @@ Collected separately because they are not worth static effort:
       32 KB. The reasoning is internal to the firmware; the chip is the proof.
       *Settle by:* looking at the board. **Needs hardware** — but only a glance
       at the part numbers.
-- [ ] **What is the code shadow actually for?** Reset writes `F000 = 0x00`, and
+- [x] **What the code shadow is for** Reset writes `F000 = 0x00`, and
       nothing in the image reaches the `0x03` entry point at `000F`, so the
       phone boots and runs from the **ROM**, not the shadow (§10an — this
       corrects an earlier claim). The shadow is filled on request and switched
-      in only transiently by RAM-resident code. Runtime patching is the obvious
-      guess and no more than that.
-- [ ] **Where do inbound reader digits get converted from ASCII?** The wire
-      carries ASCII and the dispatcher compares `8022`/`8023` against ASCII
-      prefixes, but `digits_to_binary16` adds `8024`–`8026` as raw values with
-      no `0x30` subtracted (§10al). Something between the two converts them;
-      the link ISR at `5071`/`514B` is the candidate.
-- [ ] **What does `F000` bit 1 do?** Set in `0x03` and `0x02`, cleared in
+      in only transiently by RAM-resident code. **Answered** (§10ay): the shadow is where the CPU executes while the flash
+      underneath is being programmed, because an AT29C256 cannot be read and
+      programmed at once. An earlier wording called runtime patching "the
+      obvious guess and no more than that".
+- [x] **Where inbound reader digits get converted from ASCII** — in the link
+      ISR, exactly where this item guessed. After `INP 6` stores the byte at
+      `8185`, `ISR_Card_Reader_Link` classes it by the receive index: `≥ 0x27`
+      resets the index to `0x22` and stores nothing; `< 0x24` stores `'A'`–`'Z'`
+      raw; `≥ 0x24` maps `'0'`–`'9'` to 0–9 and `'A'`–`'F'` to `0x0A`–`0x0F`
+      (via `SMI 0x41 / ADI 0x07 / ADI 0x0A`) before `STR R7`. So `'0'` arrives
+      at `5144` as 0 and `'A'` as `0x0A`, which is what `digits_to_binary16`
+      expects. The `'>'`, `'?'`, CR and LF cases are the §6 handshake bits.
+- [x] **What `F000` bit 1 does** — **write routing** (§10ay, §10an, §12); only
+      its physical decode is unobserved. The original framing, kept for the bit
+      pattern it records:
+
+      *(The original framing, kept for the bit pattern it records:)* what does
+      `F000` bit 1 do? Set in `0x03` and `0x02`, cleared in
       `0x01`, `0x00`, and by a failed integrity check (§10a, §10am, §10an).
-- [ ] **What does the relocated `1CB7`–`2330` block do?** 1658 bytes copied to
-      RAM `9100` from two call sites, entered at `9421` with `D = 0x13` and
-      `R9 = 8DD2`, holding twelve of the image's `F000` writes (§10an). It is
-      the largest piece of this firmware with no described purpose.
+- [x] **What the relocated `1CB7`–`2330` block does** — the
+      **memory-operation interpreter with an AT29C256 page programmer**, i.e.
+      the remote firmware-update facility over the DLC link (§10ay, and
+      §10bg–§10bj for the dispatcher, the engine, the handlers and the two
+      bugs). This item is a leftover duplicate of the settled one further down;
+      it was answered and this copy was missed.
 - [ ] **What did `123…` reach?** `dialed_prefix_is_123` (`008F`) suppresses the
       on-screen echo once four or five digits are in and the number starts
       `1 2 3`, which reads as a calling-card or PIN prefix (§10ao). The
@@ -338,21 +441,313 @@ Collected separately because they are not worth static effort:
       unaccounted for too.
       *Settle by:* tracing EF4 on the board, or following `RF.1`'s consumers.
 
-- [ ] **How does a thread parked at `1A7C` ever proceed?** Briefly recorded as
-      settled, and withdrawn: both interrupt handlers restore the interrupted
-      `R4` and `(X,P)` in full (`28D2` and `067E`), so entering the tick chain
-      from `51AD` is still handler work and replaces nothing. `IDL` plus a
-      forward branch is "wait for one interrupt" — the idiom at `06EB` and
-      `0CDF` — but `1A7C`'s branch points back at its own `IDL` and tests
-      nothing, which makes it terminal unless a handler rewrites the saved
-      continuation bytes on the stack at `M(R2)` before its epilogue. Find that
-      rewrite, or establish that `1A7C` is a deliberate halt (§10av).
+- [x] **How a thread parked at `1A7C` proceeds** — it is **resumed**, and the
+      mechanism is the stack rewrite §10av said did not exist. The DLC handler
+      at `0664`–`0676` sets `RA = R2 + 0x16` — the saved-`R4` slot, eleven
+      `RSXD`s above the frame base — and stores the word from `8E0D` into it;
+      `interrupt_leave`'s `RLXA R4` at `0693` reads it back and its `RET`
+      transfers there. `8E0D` is a main-thread resume address, not a vector
+      (`0679` overwrites `R1` before the `SEP`). So `IDL; IDL; LBR self` is a
+      coroutine yield and the tick chain is the scheduler, with the step's
+      result code in `feature_flags_8dac` as its input. The six "dead stubs" at
+      `1A6A`–`1A79` are entries in the `131C` macro-step table (§10bd).
 
-- [ ] **What do the DLC payload tags mean, and type 0 vs type 1?**
-      `build_dlc_frame` accepts only types 0 and 1 and the first payload byte
-      is a tag — `0x0A` for "nothing to report", `0x0F` for a two-value report
-      (§10ar). The other four wrappers' tags, and whatever the receive side
-      expects, are unread.
+- [ ] **Mirror any remaining comments across the `1CB7` → `9100` relocation.**
+      The block is copied to `9100` and runs there, so a finding is only useful
+      where it executes; the notes, though, cite the ROM addresses throughout
+      (§10ay now carries the conversion table). Done so far: the mapping and
+      overlay note at both `1CB7` and `9100`; "never executes" markers with
+      pointers to the live twin at `1CC2`, `1ECA`, `2176` and `21A5`; and the
+      §10ay/§11a findings commented at the executing addresses `910B`, `9313`,
+      `95BF` and `95EE`.
+
+      **Still unverified:** whether other comments exist in `1CB7`–`2330`. The
+      MCP cannot enumerate comments — it can only set them — and reading them
+      needs a function to list through, which that range has none of. The list
+      above was reconstructed from what the notes record, so a comment written
+      into the lower range but never written up would have been missed. Defining
+      a function over `1CB7`–`2330` purely to list its comments would settle it.
+
+- [ ] **Dropped, kept for the record: the "function at 6666" report.** Inbar hit
+      trouble with "the function at `6666` because of the `SCAL` to `7014`", and
+      neither part matches the image as read here — `6666` is data (inside the
+      9-byte LCD descriptor at `6660`, referenced from `4050` in
+      `DisplayCommStatus`, with nothing referencing `6666` itself), and
+      `SCAL Rn,7014` occurs exactly once in the image, at `3B2F`. So either the
+      address was a slip or Ghidra was showing something the MCP cannot see.
+      Dropped at Inbar's request before that was settled.
+
+      If it resurfaces, the likely subject was the unmapped routine containing
+      `3B2F`, which cannot be defined cleanly until `701B` and `7014` are
+      functions — see the ordering note above. A comment at `6666` records this
+      in the program too.
+
+- [ ] **What is `?CE007` (template selector `08`)?** The phone sends it from
+      `3145`, but `CE` is not among the fourteen commands the BSK31 parser at
+      `0EC0` accepts, while `?CD007` — one letter away, same digits — maps to the
+      reader's `CD` handler at `070B`. Either the parser census is incomplete or
+      this reader rejects `CE`, perhaps a variant for different reader
+      firmware. Needs the reader image.
+
+- [x] **`page_rewrite_cycle_down` (`96AE`) is a LIVE flash-corrupting bug**, not
+      dead code. It and the ascending twin at `9663` are 75 bytes differing in
+      two — the write-back target — yet both set `RLDI R7,8E7B`, the buffer's
+      bottom. Right for an ascending read, wrong for `9708`'s descending one,
+      which walks into `8E7A`/`8E79`/`8E77`, the programmer's own control bytes.
+      Reachability settled: **`9561`** sets `M(8E79) = 0` and `M(8E7A) = 2`, the
+      exact pair routing `9603` → `9656` → `96AE`, and `9561` is dispatched from
+      **`188F`** as **command `0A`** under feature flag `0x13` (§10bh, §10bi).
+      (An earlier version of this item named `9577`/`1882`; that is command
+      `09`, the working ascending rewrite.) It would need `RLDI R7,8EBA`.
+
+- [x] **The verify side is worse than a matching mistake** — on the rewrite path
+      its *direction is read from a clobbered register*. Both cycles do
+      `SEX RE / RNX R7` (`9679`, `96C4`), leaving `RE = source + 64`, and
+      nothing reloads it before `9630 LDN RE / SMI 1`. So every rewritten page
+      picks its verify direction from `M(source + 64)` — a byte of the data
+      being programmed. Command `09` therefore verifies correctly only when that
+      byte happens to be 1, and command `0A` matches **neither** verifier. The
+      clobbered selector hits both rewrite commands, including the one that
+      writes correctly; only the wrong-ended source is unique to `0A` (§10bh).
+
+- [ ] **Why do 21 routines set feature flag `0x0E` when nothing reads it?**
+      There is no `test_feature_flag(0x0E)` or `clear_feature_flag(0x0E)`
+      anywhere in the image, and `0A3E` skips index `0x0E` while zeroing 0–4 and
+      6–`0x0D`; only the init wipe at `072A` clears it. It cannot signal
+      anything through `0278` either, since that clamps every index at or above
+      `0x0E` — including `0x1E`, "none set" — to `0x0E`, so a raised `0x0E` is
+      indistinguishable from no flag at all (§10bj). Either a consumer reads
+      `8DBA` by some route not found yet, or this is vestigial.
+
+      *(The paragraph that used to follow pointed at the `96AE` page-programmer
+      bug — a stray from the item above, which already answers it: `9561` sets
+      `M(8E7A) = 2`, from command `0A` at `188F`. It has no bearing on flag
+      `0x0E`.)*
+
+      To settle the `8E7A` question instead, see that item. `9656` takes the descending
+      branch when it is not 1, and nothing in the image anchors `8E7A` with an
+      `RLDI` — it is written by a register walk from `8E79`, which has not been
+      traced. If the branch is reachable, this corrupts a flash page on the
+      remote-update path.
+
+      Then check the verify side for the same mistake: `RA` walks up from the
+      saved source while `R8` walks down from the saved destination, which has
+      exactly the same shape.
+
+- [ ] **`97A6` is used two incompatible ways — which wins?**
+      `count_fault_occurrence` stores the immediate `6` at `97A6` from **two**
+      places — `5E4D`, the threshold hit, and `5E60`, which is on the
+      keep-only-bit-7 path instead (a first draft called both the threshold) —
+      while `1C60` passes `97A6` to `increment_counter16` (`04F0`), a
+      **saturating 16-bit** counter, in a row with `97AA`, `97AE` and `979F`.
+
+      Both readings are correct; they collide. `04F0` increments the *second*
+      byte and carries into the first, so `97A6` is the **high** byte of a
+      big-endian pair at `97A6`/`97A7` — which matches the §10z channel-0
+      `varC` slot — and the fault store puts `6` in that high byte, making the
+      counter `0x06xx`. `97A6` sits past every `97xx` overlay, so this is not
+      two uses taking turns behind a bank switch; both run from ROM. So: a cell
+      deliberately shared between modes that never overlap, or a genuine
+      aliasing bug. Ruled out: a mis-read pointer at either site.
+
+- [x] **What consumes `M(886A)`** — nothing beyond the state machine. The only
+      two references are `5216` (where `proc_51e8` publishes the opposite
+      phase's count and then zeroes that counter) and `523A`, where
+      `step_state_machine` loads it and passes it to `classify_into_range`
+      (`328E`) and `next_state_from_table` (`3270`). `328E` leaves a bracket
+      index at `886B` and `3270` folds it into `886C`; the raw value goes no
+      further. What the count physically measures is still open, but the
+      consumer chain is complete (§10bf).
+
+- [ ] **What is `8E0C`'s 900-threshold flag for?** It holds 0 or 1 from
+      comparing a 16-bit field near `8E77` against `0x0384` = 900, at `20DE`
+      (live `9527`) — inside **`94DF`**, the cmd-`15` top-page read-modify-write
+      stub, not "the interpreter" generally as a first draft put it. The
+      threshold looks like a wear or write-count limit on the top flash page,
+      which would make `8E0C` a "page is near its endurance limit" flag, but the
+      consumer has not been found — and a review now says there is **no reader
+      at all**: the one executed reference is the store at `20E2`, and the other
+      `8E 0C` bytes in the image sit inside a descriptor after `LBR 32F9`. A
+      pointer built at runtime could still reach it, so this is "no reader
+      found" rather than "write-only", but it joins feature flag `0x0E` as a
+      value the firmware computes and appears never to consult.
+
+      (`8EBC`, listed here alongside it, is resolved: it is where `5C72` stores
+      `verify_banked_checksum`'s result, now `banked_checksum_result`. The claim
+      that it marked one-past the page buffer was wrong — §10bh.)
+
+- [ ] **What drives bit 1 of `PORT1_shadow` (`8034`)?** It now has a precise
+      waveform, which is the strongest handle yet on any bit of that port: the
+      `705E` sequencer holds it high in the idle state `70C3`, and the cycle
+      `7074` → `7086` → `70A5` drives it **3 s low, 3 s high, indefinitely**,
+      optionally after a 28 s one-shot delay from state `7065` (§10az). §6a
+      still has no bit of `8034` traced to a component. §10ba narrowed it
+      sharply. The one-shot is armed by the `6FFF` entry and the sequencer is
+      returned to idle (bit high) by `6FB3` — but the `7014` entry reaches the
+      same billable state **without** arming it, and the choice between them is
+      `M(843A) & 0x7F`, byte 0 of fault-log entry 24. `show_fault_log` uses the
+      identical mask, so zero means that slot is empty; and the fault recorded
+      there is `INP 2 / ANI 0x02` at `5DDD` — a **port-2-input bit-1 read-back
+      check**.
+
+      **WITHDRAWN (§10ba).** The cadence is *not* gated on that self-test.
+      `6FFF` arms sequencer state `7065` unconditionally — `7004 RLDI R9,7065`,
+      the only `RLDI` of `7065` in the image, with no test of `843A` in
+      `6FFF`–`7003`. The fault-slot test is in **one** of its seven callers
+      (`3B37`); the other six arm the cadence regardless. What `3B24` chooses is
+      which *entry* that one site uses.
+
+      **Narrowed again by §10u's port correction: the bit is a `PORT 1` output
+      bit, not port 5.** `port n <- M(0x8033+n)`, so `8034` is what `OUT 1`
+      sends — `758F OUT 5 <- 8033`, `7592 OUT 1 <- 8034`. The cell was named
+      `PORT5_shadow` until then, which had made the cadence look like a port-5
+      signal; it is a port-1 line held for seconds at a time.
+
+      Also ruled out: an in-stream loopback. Nothing writes bit 1 and reads it
+      back at `5DD7`, and the test at `3B28` is one-way, so the firmware never
+      compares the two "bit 1"s.
+
+      **What is exact:** the period (3 s / 3 s), the duty cycle, the delay
+      (28 s), the port (`PORT 1`), and the arm condition — `6FFF` installs
+      state `7065` at `7004`–`7008` with no test at all.
+
+      **What is not:** any suppression. An earlier version of this paragraph
+      ended "What fits every byte is a call-time level on port 1 that stops
+      pulsing once the port-2 earth fault is logged … both the arm and suppress
+      conditions are now exact." That restates the global gating the
+      **WITHDRAWN** note above withdraws, and it is wrong the same way: a
+      populated `843A` does not stop an armed cadence and does not suppress the
+      six callers that reach `6FFF` without the `3B24` test — `0C7F` and `41E8`
+      among them. The fault-slot test decides only which *entry* the single
+      caller at `3B37` uses. §10n's mapping of fault code `0x75` to displayed
+      fault 38 (earth disconnected) stands on its own and is not evidence for
+      a suppression path.
+
+      So the live question is narrower than it has been stated: **what drives
+      the port-1 bit-1 line, and is it the same net as the port-2 bit-1 the
+      self-test at `5DDD` reads back?** That is a hardware question, and any
+      fault-injection experiment built on "populate `843A` and the cadence
+      stops" would be testing something the firmware does not do.
+
+- [x] **The second and third sections of the `13EC` timer table** — each is one
+      4-byte header `{counter pointer, 16-bit limit}` followed by ordinary
+      section-1 triples that run only on the tick the counter reaches the limit.
+      Section 2: counter `8ED5`, limit `0x0032` = 1.000 s, decrements `8E04`
+      then `8E01`. Section 3: counter `8ED7`, limit `0x0BB8` = 60.000 s,
+      decrements `8E00`. So `1415` is three timebases in one walker — 50 Hz,
+      1 Hz, 1/60 Hz. The layout had looked unreadable only because `tools/dis.py`
+      mis-sized `ADCI` and printed a phantom `IDL` at `1455` (§10az).
+
+- [ ] **Re-run the inline-args analyzer, then define the remaining entries.**
+      The MCP reads only code inside a defined function, so anything unmapped
+      has to be analysed around rather than through — which is how the `5E1B`
+      extent was got wrong.
+
+      **Done:** `0699` → `interrupt_enter` (`0699`–`06B9`) and `067E` →
+      `interrupt_leave` (`067E`–`0698`), with `05A6` → `ISR_DLC_Link`. All three
+      extents match §10av exactly. `05D7` was on an earlier version of this list
+      in error: it is the CI-set path *inside* `ISR_DLC_Link`, not an entry
+      point, and it now reads through the MCP as part of that function.
+
+      **First, the mechanical fix.** `3aa8 p` has been added to
+      `cdp1806/data/inline_args.txt`. Without it the analyzer could not find
+      `play_toggle_pattern`'s return point, so **caller bodies truncated at the
+      call**: `exit_call_connected` was `6FB3`–`6FC5` and
+      `call_connect_with_cadence` `6FFF`–`700E`, each stopping at its
+      `SCAL 3AA8` instead of at the `SRET R3` that really ends it. Re-running
+      the inline-args analyzer should extend both. This is specific to `3AA8`,
+      not systemic — `6E6B` resolves at all 84 of its sites and the function at
+      `2D10` runs clean through five of them.
+
+      **Then define:**
+
+      | Address | What it is | Section |
+      |---|---|---|
+      | **`701B`** | the shared tail — **define this FIRST**, and give it the name `enter_call_connected`; body `701B`–`705D`, ending at the 2-byte `SRET R3` at `705C` | 10ba |
+      | `7014` | the second entry, body `7014`–`701A`; define it *after* `701B` | 10ba |
+
+      **Order matters here, and getting it wrong is what makes these fight.**
+      Ghidra function bodies cannot overlap, and `6FFF` and `7014` are two
+      entries converging on the one tail at `701B`:
+
+      ```
+      6FFF..7013   arm sequencer 7065, tone 3AA0, then LBR 701B  ─┐
+      7014..701A   tone 3AA4, no arm, falls through              ─┼─> 701B..705D
+      ```
+
+      If either entry is created while `701B` is not yet a function,
+      flow-following swallows `701B`–`705D` into it, and the other entry then
+      collides and is refused or silently truncated. Define `701B` first and
+      both entries stop at its boundary. The same applies to **any function
+      whose flow contains `SCAL 7014`** — the only one in the image is at
+      `3B2F`, in the unmapped gap between `play_toggle_pattern` (`3AA8`) and
+      `byte_to_hex_ascii` (`3D18`) — so `701B` and `7014` must exist before that
+      caller can be defined cleanly. Also re-create `6FFF` afterwards: its
+      present body `6FFF`–`700E` is the truncation described above.
+      | `70C3`, `7065`, `7074`, `7086`, `70A5` | the five `705E` sequencer states | 10az |
+      | `70B9` | `set_next_tick_task` | 10az |
+      | `3B24` | the fault-slot test that chooses between the entries | 10ba |
+      | `9656`, `9663` | **split out of `flash_page_loop_tail`** (`9639`–`96AD`), which holds three routines: the tail and exits, the mode dispatcher at `9656`, and the ascending page-rewrite cycle at `9663` — the twin of `96AE` | 10bh |
+      | `932C`, `9345` | **split out of `cmd0D_enter_prog_mode_and_jump`** (`9313`–`9366`), the same trap: the `RLXA R4` at `932A` and `9343` load the PC, so the body holds three handlers that never fall through to each other. `932C` is cmd `0C` (`leave_prog_mode_and_jump`), `9345` is cmd `05`/`07` (`cmd05_copy_region_up`). `get_xrefs_to` confirms all three entries: `18AA`, `18A7`, `1865` | 10bk |
+      | `28D8` | `interrupt_enter_reader` — **split it out of `28B7`**, whose body currently merges the card-reader epilogue and prologue into one function; the DLC side is correctly split into `interrupt_leave` / `interrupt_enter` | 10av |
+      | `6E0C` | the reset block — no function at all | 10ay |
+      | `1CB7` | the flash programmer's **ROM source image**, 1658 bytes — no function. Low priority: it never executes (§10ay), so a function here would only document the source. The executing copy at `9100`–`9779` already has ~21 functions. |
+
+      The sequencer states pay off most: each is a few instructions and they are
+      currently invisible as code.
+
+- [ ] **Set `XP` at the four `verify_banked_checksum` sites** — `9735` and
+      `976C` in the live copy (`DIS 0x24` and `RET 0x24`), and `040F` and `0446`
+      in the ROM image if that is ever disassembled (§10bg). Ghidra currently
+      renders each operand as a spurious `DEC R4`.
+
+- [ ] **Set `XP` at `05E0` and `0658`.** Two confirmed `X == P` inline sites in
+      `ISR_DLC_Link` where Ghidra's listing is wrong: it shows `RET` / `DEC R4`
+      and `DIS` / `DEC R4`, decoding the `0x24` operand as a spurious
+      instruction. They are really `RET 0x24` and `DIS 0x24` (§10az). `ctrl
+      shift X` at each (`cdp1806/ghidra_scripts/SetXPInline.java`). The notes
+      already have them right; it is the listing that needs correcting.
+
+- [x] **Why is `fast_timer_812b` in the DLC chain's timer table** — same reason
+      as `812D`: something *blocks* on it reaching zero. `53B1` spins on it in
+      `test_dial_and_reader`'s pattern loop, and `73C1` in `729E` returns early
+      while it is non-zero; `729E` is called from `wait_until_dialling_done`
+      (`2C70`), a `1A7C`-family session step that parks on `IDL` and re-tests, so
+      a session would stall there if the DLC chain did not decrement it. Both
+      cells in the `40AE` ∩ `13EC` overlap are explained, and the intersection
+      has no further content (§10bb).
+
+- [ ] **The DLC frame shape and all five tags are read; what the far end
+      does with them is not.** The headline on this item used to say "the tag
+      *meanings* are not" read, which its own body below contradicts. A review
+      worked out `038D` in full: it builds **one** frame shape — type 0 carries
+      a payload whose first byte is a tag, type 1 carries none, and anything but
+      0 or 1 returns `0xFF` at `0408`. Frame at `8C27`: `CC`, `00`, length+7,
+      `M(8DA7)`, `M(8DA8)`, type, a flag byte that is `01` only for a type-0
+      frame with non-zero length, the payload, the CRC high byte first, then
+      `84`. Known tags: `0A` (nothing to report, `01FB`), `0F` (two-value
+      report, `02E3`), `0B` (an eight-byte report, `029C`), and `01` — which
+      `build_dlc_record` writes at `8D26` ahead of the 70-byte record, so
+      `020A`'s tag is `01` too. **And `0x02` means "not authorised"** —
+      `dispatch_interp_command` builds a 1-byte reply with that tag when neither
+      feature flag `0x14` nor `0x13` is set, before any command runs (§10bj).
+
+      **The receiver does not branch on the tag at all.** `0904` → `089A`
+      checks the `CC` sync, a minimum length and the `84` trailer, then the CRC
+      via `02FF`, then compares the `8DA7`/`8DA8` identity pair through `7498`.
+      No compare against `0A`, `0F`, `0B` or `01` appears in `0904`–`0976`. So
+      what is still open is narrower: **what each tag means to the far end** —
+      possibly not answerable from this ROM — and whether any other parser
+      exists.
+
+- [x] **What do the DLC payload tags mean, and type 0 vs type 1?** The
+      phone-side answer is complete: `build_dlc_frame` accepts only types 0 and
+      1, and §10bj identifies all five tags — `0A` nothing to report, `0F` a
+      two-value report, `0B` an eight-byte report, `01` the 70-byte record, `02`
+      the pre-armed unauthorised reply. An earlier version of this item said
+      "the other four wrappers' tags … are unread"; they are read. What the far
+      end expects is the live part, tracked under **"What the payload tags mean
+      to the far end"** in *The DLC link* and in the frame-shape item above.
 - [ ] **Read the DLC interrupt handler — `0699` / `05A6`, not `5071`.** An
       earlier version of this item pointed at `5071` and would have sent the
       work into the wrong subsystem. `5071` is the **card-reader** handler; its
@@ -362,14 +757,22 @@ Collected separately because they are not worth static effort:
       branches to `05A6`, and `05A6` polls XI at `05B9` and calls `0A61` at
       `05C1` (§10av). Session sequencing and the NUA send's two-byte over-run
       must live in there.
-      *Specifically unread:* the CI-set path at `05D7`, a per-tick chain in the
-      DLC context distinct from `4071`'s, which reloads the ÷ 12 prescaler and
-      then calls `1415`, `046E`, `705E`, `7461`, `0331`, `034B`, `3733`, `7572`,
-      `279A` and `0F73`. (The `8E0D`/`8E0F` reads at `05CD`/`065C`/`066F` are
-      *not* part of the gap — §2 already has them as a RAM-resident chained
-      vector and its one-shot gate, installed at `1003`/`100B`/`1015`.)
-      *Also open:* who sets bit 7 of `8785`, and whether the transmit engine at
-      `0AD6`–`0B2A` is reached at all (§10au found no reference to `0AD6`).
+      *The CI-set path at `05D7` is now read* (§10az): it is a reduced
+      re-implementation of the `4071` housekeeping, which the two-vector
+      architecture forces, and its timer table at `13EC` overlaps `40AE` in
+      exactly the two cells that must keep counting under either vector. What
+      remains unread is the XI path proper — `0A61` itself and the frame
+      assembly behind it. (The `8E0D`/`8E0F` reads at `05CD`/`065C`/`066F` are
+      *not* part of the gap: §10bd has them as the main-thread resume address and
+      its one-shot gate, stored at `1007`/`100A` and gated at `1011`, `101B`,
+      `05D3` and `075A`. An earlier wording credited §2 with a "RAM-resident
+      chained vector … installed at `1003`/`100B`/`1015`" — §2 never said that,
+      `1003` is the `RLDI` rather than a store, and §10bd supersedes the reading.)
+
+      *Also open:* who sets bit 7 of `8785`. The transmit engine at
+      `0AD6`–`0B2A` **is** reached, by fall-through when `0AD3 LBNF 0B2A` leaves
+      `DF` set — §10au's "no reference to `0AD6`" was a branch scan, which
+      cannot see a fall-through.
 - [ ] **Find Isranet PAD documentation, circa the early 1990s.** Two questions
       hang on it (§10at):
       **(a) Is `D1` a terminal type or a login identifier?** The ROM shows it is
@@ -493,7 +896,11 @@ Kept as a record of what the method looks like when it works.
       byte**. That is why no search for a store to `805C` found it. It also
       explains `card_units_shadow`: `5032` leaves `X = R8 = 805C`, so `MO`'s
       `SM` at `348E` yields the units consumed since the last report (§10al).
-- [x] **Whether the firmware uses port 4** — **no.** The two apparent `OUT 4`
-      sites, `2EA8` and `2EC5`, are the inline digit weights 100/10/1 that
-      `binary_to_ascii_digits` reads through `X = R3`. §10k's port list should
-      drop port 4 (§10al).
+- [ ] **What is on port 4?** An earlier version of this item answered "the
+      firmware does not use port 4" and told §10k to drop it. **Too strong.**
+      The two *apparent* sites it names, `2EA8` and `2EC5`, really are inline
+      digit weights read through `X = R3` — but `flush_output_latches` executes
+      a genuine `OUT 4` twice, at `75AB` and `75B5`, with bits 1 and 4 of
+      `M(8036)` strobing between them (§10u). So port 4 is driven; what it
+      reaches is the open question, as the ports-1-and-4 item above already has
+      it.

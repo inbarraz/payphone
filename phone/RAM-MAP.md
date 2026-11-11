@@ -77,7 +77,7 @@ dozen places has a dozen chances to give itself away.
 | `8031` | `link_resume_point` | 7 — `3900` `4726` `47ae` `4c14` `5f42` `5fb9` +1 | st=4 imm=00,d8 |
 | `8032` | `call_in_progress` | 4 — `3790` `42b6` `4b1e` `703c` | st=2 cmp=aa |
 | `8033` | `strap_drive_and_flags` | 16 — `0c9d` `19c3` `1a01` `2b1e` `2b78` `2b94` +10 | st=17 imm=01,20 mask=c0,e0 |
-| `8034` | `PORT5_shadow` | 26 — `0707` `19f9` `1a14` `2824` `284e` `2c10` +20 | st=26 mask=01,02,7f,ce cmp=01,40 |
+| `8034` | `PORT1_shadow` | 26 — `0707` `19f9` `1a14` `2824` `284e` `2c10` +20 | st=26 mask=01,02,7f,ce cmp=01,40 |
 | `8035` | `PORT2_shadow` | 16 — `0cc0` `19d1` `241d` `2950` `295e` `2c57` +10 | st=15 mask=02,ef,f7,fd |
 | `8036` | `timer_and_display_flags` | 23 — `01e4` `01f1` `28ac` `4132` `43f3` `4532` +17 | st=22 mask=40,7f,bf,df |
 | `8038` | `LCD_next_descriptor` | 1 — `0721` | st=1 imm=00 |
@@ -181,11 +181,11 @@ dozen places has a dozen chances to give itself away.
 | `8173` | — | 1 — `711a` | st=0 |
 | `8174` | `bufDisplayString_8174` | 1 — `713f` | st=1 |
 | `8180` | `fast_timer_8180` | 6 — `3733` `3763` `4d9c` `6ecc` `6fee` `7021` | st=5 imm=19,64 |
-| `8182` | — | 4 — `1a4b` `2b33` `4b12` `73ca` | st=4 imm=00,01 |
+| `8182` | `session_timer_8182` *(no Ghidra label)* | 4 — `1a4b` `2b33` `4b12` `73ca` | st=4 imm=00,01 |
 | `8183` | `permission_valid_8183` | 6 — `26e6` `2c36` `3a33` `4b23` `72fe` `7409` | st=2 cmp=aa |
 | `8184` | `low_credit_warned` | 2 — `527e` `5295` | st=2 imm=aa |
 | `8185` | `port3_readback` | 5 — `50d9` `617e` `4d7a` `6e30` `7665` | st=1 |
-| `8186` | — | 4 — `4180` `44dc` `6fc8` `7035` | st=2 imm=00,aa |
+| `8186` | `call_phase_active` *(no Ghidra label)* | 4 — `4180` `44dc` `6fc8` `7035` | st=2 imm=00,aa |
 | `818C` | — | 2 — `5d09` `5d1b` | st=0 |
 | `818D` | `burn_ack_retry_count` | 4 — `3420` `343c` `5db8` `623f` | st=3 imm=00 cmp=64 |
 | `818E` | `reader_z_reply_count` | 3 — `2a53` `3453` `34bc` | st=3 imm=80 |
@@ -220,7 +220,7 @@ dozen places has a dozen chances to give itself away.
 | `83FE` | — | 1 — `6e20` | — |
 | `8409` | — | 1 — `3c1b` | st=0 |
 | `840A` | `fault_log` | 4 — `3c23` `3f70` `5b9e` `600d` | st=1 mask=7f |
-| `843A` | — | 1 — `3b24` | st=0 |
+| `843A` | `faultlog_entry24_code` *(no Ghidra label)* | 1 — `3b24` | st=0 |
 | `8442` | — | 5 — `3c1f` `5b97` `5ccc` `5e1c` `5e6e` | st=1 imm=00 |
 | `8443` | — | 4 — `3c6d` `3faa` `5be2` `2f48` | st=2 |
 | `8444` | — | 1 — `3f9c` | st=1 |
@@ -233,7 +233,7 @@ dozen places has a dozen chances to give itself away.
 | `844B` | — | 3 — `3e50` `3fc2` `5da4` | st=2 imm=00,05 cmp=04 |
 | `844C` | — | 1 — `5de4` | st=0 |
 | `844D` | `coldstart_sentinel_844d` | 1 — `306f` | st=1 imm=aa |
-| `844E` | `ysm_number` | 4 — `3ae4` `3af8` `5b7b` `54a3` | st=0 |
+| `844E` | `ysm_number` | 5 — `3ae4` `3af8` `5b7b` `54a3` `574c` | st=0 |
 | `845A` | `pulse_count_event` | 6 — `23ae` `2f4c` `3f5f` `4252` `4cee` `76c6` | st=4 imm=00 cmp=2d |
 | `845C` | — | 19 — `1c1a` `1c26` `1c35` `1c41` `2cda` `2f30` +13 | st=10 imm=00,80,c0 mask=01,f0,fc cmp=c0,ca |
 | `845D` | `ram_sentinel_845d` | 1 — `6112` | st=1 imm=00 |
@@ -242,19 +242,19 @@ dozen places has a dozen chances to give itself away.
 
 | Addr | Name | Sites | Signature |
 |---|---|---|---|
-| `8500` | — | 2 — `3084` `3bf0` | st=1 |
-| `8501` | `own_phone_number` | 7 — `1cec` `2e36` `3ae8` `3afd` `5655` `5b6e` +1 | st=0 |
+| `8500` | — | 3 — `3084` `3bf0` `55a4` | st=1 |
+| `8501` | `own_phone_number` | 8 — `1cec` `2e36` `3ae8` `3afd` `5655` `5b6e` +2 | st=0 |
 | `850D` | — | 4 — `2f26` `5437` `55ab` `308e` | st=1 cmp=40 |
-| `850E` | `accept_list_count` | 2 — `33f0` `5ce0` | st=0 |
+| `850E` | `accept_list_count` | 3 — `33f0` `5ce0` `55c2` | st=0 |
 | `850F` | `accept_list_0` | 2 — `568e` `5ce9` | st=0 |
-| `8513` | — | 4 — `1a52` `4db6` `5479` `7041` | st=1 cmp=01 |
-| `8514` | `credit_divisor` | 1 — `347d` | st=0 cmp=01 |
-| `8515` | — | 2 — `2d3e` `5342` | st=0 cmp=01 |
-| `8516` | `totalizer4_8516` *(no Ghidra label)* | 2 — `4298` `2f3f` | st=0 |
-| `851A` | `minute_meter` *(no Ghidra label)* | 1 — `422e` | st=0 |
-| `8520` | `charged_period_counter` *(no Ghidra label)* | 1 — `2d1f` | st=0 |
-| `8526` | `units_burned_counter` *(no Ghidra label)* | 1 — `36c9` | st=0 |
-| `852C` | — | 6 — `4e15` `4e3e` `4e42` `4e71` `4e9d` `4e3a` | st=0 |
+| `8513` | — | 5 — `1a52` `4db6` `5479` `7041` `55ce` | st=1 cmp=01 |
+| `8514` | `credit_divisor` | 2 — `347d` `55d6` | st=0 cmp=01 |
+| `8515` | — | 3 — `2d3e` `5342` `55de` | st=0 cmp=01 |
+| `8516` | `totalizer4_8516` *(no Ghidra label)* | 3 — `4298` `2f3f` `55e6` | st=0 |
+| `851A` | `minute_meter` *(no Ghidra label)* | 2 — `422e` `55ef` | st=0 |
+| `8520` | `charged_period_counter` *(no Ghidra label)* | 2 — `2d1f` `55f8` | st=0 |
+| `8526` | `units_burned_counter` *(no Ghidra label)* | 2 — `36c9` `5601` | st=0 |
+| `852C` | — | 7 — `4e15` `4e3e` `4e42` `4e71` `4e9d` `4e3a` +1 | st=0 |
 | `852E` | — | 1 — `4e3c` | — |
 | `852F` | — | 5 — `5614` `70fc` `7128` `71b4` `71b0` | st=0 |
 | `8544` | — | 2 — `2f41` `71b2` | — |
@@ -293,8 +293,8 @@ dozen places has a dozen chances to give itself away.
 
 | Addr | Name | Sites | Signature |
 |---|---|---|---|
-| `8850` | — | 4 — `26d1` `41d2` `6fd4` `7619` | st=1 mask=04,10 |
-| `8851` | — | 1 — `705e` | st=0 |
+| `8850` | `saved_card_permission_bits` *(no Ghidra label)* | 4 — `26d1` `41d2` `6fd4` `7619` | st=1 mask=04,10 |
+| `8851` | `tick_task_resume_addr` *(no Ghidra label)* | 1 — `705e` | st=0 |
 | `8852` | — | 5 — `35ea` `6ec1` `6fe3` `6fff` `70b9` | st=0 |
 | `8859` | — | 4 — `2ca7` `2ce6` `5991` `76ba` | st=3 imm=00,a5 cmp=a5 |
 | `885B` | — | 2 — `3fe0` `7782` | st=2 |
@@ -304,20 +304,20 @@ dozen places has a dozen chances to give itself away.
 | `8862` | — | 1 — `4fd5` | st=0 |
 | `8863` | — | 6 — `3567` `383c` `4eea` `4efc` `4f33` `4fca` | st=4 imm=00,aa cmp=aa |
 | `8864` | — | 2 — `3548` `3551` | st=1 imm=aa cmp=aa |
-| `8865` | — | 3 — `2f0d` `51e8` `2f09` | st=1 imm=aa cmp=aa |
+| `8865` | `sm_input_enable` *(no Ghidra label)* | 3 — `2f0d` `51e8` `2f09` | st=1 imm=aa cmp=aa |
 | `8866` | `sm_change_shadow` | 1 — `522a` | st=0 |
 | `8867` | `sm_change_current` | 2 — `51da` `521c` | st=1 cmp=01 |
-| `8868` | — | 1 — `51f2` | st=0 |
+| `8868` | `sm_debounce_set` *(no Ghidra label)* | 1 — `51f2` | st=0 |
 | `886A` | `sm_input_value` | 2 — `5214` `5238` | st=1 |
 | `886B` | `sm_bracket` | 2 — `3278` `32aa` | st=1 |
 | `886C` | `sm_state` | 3 — `3270` `51d3` `5503` | st=2 imm=00 cmp=04 |
 | `8890` | — | 1 — `2f14` | st=0 |
-| `8891` | — | 1 — `2f18` | st=0 |
+| `8891` | `buf8891` *(no Ghidra label)* | 1 — `2f18` | st=0 |
 | `88B9` | — | 1 — `2f0b` | — |
 | `88BA` | — | 3 — `2a11` `2cf6` `46ea` | st=2 imm=00 cmp=aa |
 | `88BB` | `optical_reader_fault_flag` | 2 — `23a6` `29e9` | st=0 |
 | `88BD` | `units_spent_marker` | 3 — `36c2` `5063` `51b9` | st=2 imm=00,aa |
-| `88BE` | — | 3 — `75e7` `75f9` `7680` | st=3 imm=00 |
+| `88BE` | `nopulse_flush_gate` *(no Ghidra label)* | 3 — `75e7` `75f9` `7680` | st=3 imm=00 |
 | `88C0` | — | 1 — `77a6` | st=0 |
 | `88C1` | — | 1 — `39de` | st=0 |
 | `88C5` | — | 5 — `3992` `44bc` `48a9` `48f5` `6f19` | st=6 imm=00,aa cmp=aa |
@@ -342,10 +342,11 @@ dozen places has a dozen chances to give itself away.
 | `8C21` | `uart_tx_count` | 4 — `077b` `0ad6` `0ae1` `0bc5` | st=2 imm=00 |
 | `8C22` | — | 1 — `0c20` | st=0 |
 | `8C23` | `uart_tx_index` | 4 — `0afb` `0bd5` `0c27` `0b0f` | st=2 imm=00 |
-| `8C25` | — | 2 — `0e2e` `0f2a` | st=0 |
+| `8C25` | `dlc_rx_link_address` *(no Ghidra label)* | 2 — `0e2e` `0f2a` | st=0 |
 | `8C26` | — | 1 — `0949` | st=0 |
 | `8C27` | `dlc_tx_frame` | 3 — `039e` `03e9` `0bec` | st=1 imm=cc |
 | `8C28` | — | 1 — `0be1` | st=0 |
+| `8C29` | `dlc_tx_len_field` | 1 — `03f2` | — |
 | `8C37` | — | 1 — `77dd` | st=0 |
 | `8C59` | — | 1 — `1674` | st=0 cmp=02 |
 
@@ -356,12 +357,12 @@ dozen places has a dozen chances to give itself away.
 | `8D26` | `dlc_record` | 3 — `020a` `180d` `1cc2` | st=0 |
 | `8DA6` | `dlc_tx_frame_len` | 2 — `02d6` `0bcd` | st=1 cmp=01 |
 | `8DA7` | `dlc_link_address` | 5 — `03af` `0772` `0953` `0e2a` `0f26` | st=3 imm=00 |
-| `8DA9` | — | 2 — `1dfb` `1e56` | st=0 |
+| `8DA9` | `dlc_reply_ptr` *(no Ghidra label)* | 2 — `1dfb` `1e56` | st=0 |
 | `8DAA` | — | 1 — `1809` | st=0 |
-| `8DAB` | `dlc_record_len` | 7 — `0798` `0e6b` `1817` `1ddf` `1e46` `1e74` +1 | st=4 imm=00,01 cmp=02 |
+| `8DAB` | `dlc_record_len` | 8 — `0798` `0e6b` `1817` `1ddf` `1e46` `1e74` +2 | st=4 imm=00,01 cmp=02 |
 | `8DAC` | `feature_flags_8dac` | 7 — `0222` `0278` `0338` `0352` `05fb` `072e` +1 | st=2 imm=00,01 |
 | `8DAD` | — | 2 — `04c8` `04da` | st=2 imm=01 |
-| `8DAE` | — | 1 — `060a` | st=1 imm=01 |
+| `8DAE` | `feature_flag_idx2` *(no Ghidra label)* | 1 — `060a` | st=1 imm=01 |
 | `8DB3` | `dlc_tx_complete` | 1 — `0b1c` | st=1 imm=01 |
 | `8DB4` | — | 1 — `0f8e` | st=1 imm=01 |
 | `8DB8` | — | 2 — `0f75` `0f87` | st=1 imm=00 |
@@ -371,30 +372,30 @@ dozen places has a dozen chances to give itself away.
 | `8DC2` | — | 1 — `1daf` | st=0 |
 | `8DC3` | — | 3 — `0e23` `0f3d` `0f58` | st=3 imm=00 |
 | `8DC5` | `dlc_session_active` | 4 — `0c83` `0cb9` `3759` `6f10` | st=3 imm=00,01 cmp=01 |
-| `8DCC` | — | 2 — `17cf` `202e` | st=0 |
+| `8DCC` | `interp_block_len` *(no Ghidra label)* | 2 — `17cf` `202e` | st=0 |
 | `8DCD` | — | 3 — `14e1` `2050` `2071` | st=2 |
-| `8DCE` | — | 2 — `193b` `2036` | st=0 |
+| `8DCE` | `interp_block_end` *(no Ghidra label)* | 2 — `193b` `2036` | st=0 |
 | `8DCF` | — | 2 — `17ee` `2069` | st=1 |
 | `8DD2` | — | 1 — `1371` | st=0 |
 | `8DD4` | — | 1 — `1fb5` | st=0 |
 | `8DD6` | — | 1 — `1fbc` | st=0 |
 | `8DD7` | — | 3 — `0581` `058c` `1d88` | st=2 imm=00 |
 | `8DD8` | — | 3 — `0b83` `0e3a` `0ec2` | st=3 imm=00 |
-| `8DD9` | — | 1 — `056d` | st=1 |
-| `8DDA` | — | 2 — `0563` `1bf6` | st=1 |
-| `8DDB` | — | 1 — `055e` | st=1 |
-| `8DDC` | — | 2 — `0568` `1bfe` | st=1 |
-| `8DDD` | — | 2 — `0557` `0e4d` | st=2 imm=00 |
+| `8DD9` | — | 6 — `056d` `0d0f` `0e7f` `0ede` `0ef6` `0f0e` | st=1 |
+| `8DDA` | — | 3 — `0563` `1bf6` `0ee5` | st=1 |
+| `8DDB` | — | 2 — `055e` `0d16` | st=1 |
+| `8DDC` | — | 3 — `0568` `1bfe` `0efd` | st=1 |
+| `8DDD` | — | 3 — `0557` `0e4d` `0f4c` | st=2 imm=00 |
 | `8DDE` | — | 1 — `163d` | st=0 |
-| `8DE2` | — | 1 — `0650` | — |
+| `8DE2` | `charge_event_count` | 1 — `0650` | — |
 | `8DE6` | — | 5 — `079d` `0e5a` `0f7d` `1519` `152e` | st=4 imm=00 |
-| `8DE7` | — | 2 — `0572` `0e52` | st=2 |
+| `8DE7` | — | 3 — `0572` `0e52` `0f15` | st=2 |
 | `8DE8` | — | 4 — `1387` `191b` `1d71` `0e9c` | st=0 |
 | `8DEC` | — | 3 — `02a9` `155d` `0e9e` | st=1 |
 | `8DF0` | — | 2 — `0ea7` `1d81` | st=1 |
-| `8DF1` | — | 4 — `02b9` `0ea2` `13e0` `1568` | st=2 imm=00 |
+| `8DF1` | `interp_cmd_offset` *(no Ghidra label)* | 4 — `02b9` `0ea2` `13e0` `1568` | st=2 imm=00 |
 | `8DF2` | — | 2 — `1550` `1590` | st=1 |
-| `8DF3` | — | 1 — `13da` | st=0 |
+| `8DF3` | `interp_cmd_base` *(no Ghidra label)* | 1 — `13da` | st=0 |
 | `8DF4` | — | 3 — `1630` `190c` `1d45` | st=1 |
 | `8DFA` | — | 1 — `164a` | st=0 |
 | `8DFC` | — | 1 — `09fa` | st=1 |
@@ -403,46 +404,46 @@ dozen places has a dozen chances to give itself away.
 | `8DFF` | — | 3 — `0a0f` `1ded` `1e4d` | st=1 |
 | `8E00` | — | 2 — `073b` `1482` | st=2 imm=00,78 |
 | `8E01` | — | 7 — `0742` `0d26` `0d30` `0d7d` `0dc6` `0df0` +1 | st=7 imm=00,05,14,1e,3c |
-| `8E02` | — | 2 — `0747` `0acc` | st=2 |
+| `8E02` | `session_timer_8e02` *(no Ghidra label)* | 2 — `0747` `0acc` | st=2 |
 | `8E03` | — | 5 — `074c` `0ac7` `0da1` `0ddf` `0e01` | st=4 imm=00,0f,64 |
 | `8E04` | — | 7 — `0751` `0de6` `0e08` `0e41` `0f36` `0f4e` +1 | st=7 imm=00,14 |
 | `8E05` | — | 2 — `1718` `17ac` | st=0 cmp=01 |
 | `8E0A` | `code_shadow_mode` | 3 — `1ed8` `1ef1` `30c3` | st=3 imm=00,01 |
 | `8E0B` | — | 2 — `0525` `0530` | st=2 imm=00 |
 | `8E0C` | — | 1 — `20de` | st=1 |
-| `8E0D` | `dlc_chained_vector` *(no Ghidra label)* | 2 — `066f` `1003` | st=1 |
-| `8E0F` | `dlc_chained_vector_armed` *(no Ghidra label)* | 5 — `05cd` `065c` `0756` `100b` `1015` | st=4 imm=00,01 |
+| `8E0D` | `dlc_resume_addr` *(no Ghidra label)* | 2 — `066f` `1003` | st=1 |
+| `8E0F` | `dlc_resume_armed` *(no Ghidra label)* | 5 — `05cd` `065c` `0756` `100b` `1015` | st=4 imm=00,01 |
 | `8E10` | `CTRL_F000_shadow` | 4 — `0011` `13a2` `1ed1` `1eea` | st=3 imm=02,03 |
 | `8E11` | — | 3 — `078d` `0a97` `0dd4` | st=2 imm=00,01 |
 | `8E12` | — | 1 — `097c` | st=0 |
 | `8E13` | — | 1 — `0978` | st=0 |
 | `8E14` | — | 2 — `0d37` `0d69` | st=2 imm=00 |
-| `8E2A` | — | 1 — `07cc` | st=1 imm=00 |
+| `8E2A` | — | 2 — `07cc` `07e6` | st=1 imm=00 |
 | `8E2C` | — | 1 — `07c8` | st=1 |
 | `8E2D` | — | 1 — `0980` | st=2 imm=01 cmp=09 |
 | `8E2E` | — | 4 — `09bb` `09d4` `09fe` `0a07` | st=1 |
-| `8E36` | — | 2 — `090e` `0925` | st=1 |
+| `8E36` | `dlc_rx_frame_len` *(no Ghidra label)* | 2 — `090e` `0925` | st=1 |
 | `8E38` | — | 1 — `08d1` | st=1 |
-| `8E68` | — | 1 — `0306` | st=0 |
-| `8E6B` | — | 1 — `0317` | st=0 |
-| `8E6D` | `dlc_frame_checksum` | 1 — `03f7` | st=0 |
-| `8E76` | — | 1 — `21f7` | st=0 |
+| `8E68` | — | 2 — `0306` `0310` | st=0 |
+| `8E6B` | — | 2 — `0317` `0312` | st=0 |
+| `8E6D` | `dlc_frame_checksum` | 2 — `03f7` `03f4` | st=0 |
+| `8E76` | `flash_saved_R9` *(no Ghidra label)* | 1 — `21f7` | st=0 |
 | `8E77` | — | 1 — `2176` | st=0 |
-| `8E79` | — | 7 — `20f4` `210a` `2120` `2136` `214d` `219c` +1 | st=5 imm=00,01 cmp=00 |
-| `8E7A` | — | 2 — `21c4` `220d` | st=0 cmp=01 |
-| `8E7B` | — | 7 — `20a1` `20bb` `20ec` `221d` `2233` `2268` +1 | st=1 |
-| `8EBC` | — | 1 — `5c72` | st=1 |
+| `8E79` | `flash_window_value` *(no Ghidra label)* | 7 — `20f4` `210a` `2120` `2136` `214d` `219c` +1 | st=5 imm=00,01 cmp=00 |
+| `8E7A` | `flash_copy_direction` *(no Ghidra label)* | 2 — `21c4` `220d` | st=0 cmp=01 |
+| `8E7B` | `flash_page_buffer` *(no Ghidra label)* | 7 — `20a1` `20bb` `20ec` `221d` `2233` `2268` +1 | st=1 |
+| `8EBC` | `banked_checksum_result` *(no Ghidra label)* | 1 — `5c72` | st=1 |
 | `8EC8` | `dlc_rx_count_saved` | 1 — `14c1` | st=1 |
 | `8EC9` | — | 1 — `14da` | st=0 cmp=08 |
 | `8ECC` | — | 1 — `0ba8` | st=1 |
 | `8ECD` | — | 1 — `0bad` | st=1 imm=00 |
 | `8ECF` | — | 2 — `15a5` `1958` | st=2 |
 | `8ED0` | — | 2 — `15ab` `195d` | st=2 imm=00 |
-| `8ED5` | — | 1 — `0760` | st=1 imm=00 |
-| `8ED7` | — | 1 — `0769` | st=1 imm=00 |
+| `8ED5` | `dlc_1hz_counter` *(no Ghidra label)* | 1 — `0760` | st=1 imm=00 |
+| `8ED7` | `dlc_1min_counter` *(no Ghidra label)* | 1 — `0769` | st=1 imm=00 |
 | `8EDD` | — | 4 — `06d3` `0fa0` `0fc7` `0ff3` | st=3 imm=00 |
 | `8EE0` | — | 3 — `1fd8` `2016` `205d` | st=1 cmp=00 |
-| `8EE1` | — | 2 — `1ff8` `203e` | st=1 |
+| `8EE1` | — | 3 — `1ff8` `203e` `200c` | st=1 |
 | `8EE4` | — | 2 — `200e` `2083` | st=1 |
 | `8EE6` | — | 1 — `1f4d` | st=0 |
 | `8EE7` | — | 1 — `2026` | st=0 |
@@ -453,8 +454,8 @@ dozen places has a dozen chances to give itself away.
 | `8EF4` | — | 1 — `06f3` | st=0 |
 | `8EF7` | — | 1 — `06ba` | st=0 |
 | `8EF8` | — | 3 — `0593` `06c7` `070f` | st=2 imm=00,01 |
-| `8EF9` | — | 1 — `1e7c` | st=0 |
-| `8EFA` | — | 1 — `0416` | st=0 |
+| `8EF9` | `banked_sum16_hi` *(no Ghidra label)* | 1 — `1e7c` | st=0 |
+| `8EFA` | `banked_sum16_lo` *(no Ghidra label)* | 1 — `0416` | st=0 |
 | `8EFC` | — | 2 — `1626` `1d4f` | st=1 |
 | `8EFD` | — | 2 — `15f0` `1cfa` | st=1 |
 
@@ -487,9 +488,9 @@ dozen places has a dozen chances to give itself away.
 
 ## Tally
 
-389 anchored cells, **156 named**, 233 still unnamed.
+390 anchored cells, **185 named**, 205 still unnamed.
 
-57 further `SCAL` inline words happened to hold a value in RAM range but
+163 further `SCAL` inline words happened to hold a value in RAM range but
 belong to a callee with no known pointer argument, so they are not listed.
 Some are real anchors whose callee signature is simply not worked out yet;
 the rest are ordinary instruction bytes. See `PTR_ARGS` in `tools/ram_map.py`.
